@@ -26,7 +26,8 @@ const validDraft = {
 describe('CalendarService', () => {
   let repo: {
     create: jest.Mock; listByTechInRange: jest.Mock; findById: jest.Mock;
-    update: jest.Mock; delete: jest.Mock;
+    update: jest.Mock; delete: jest.Mock; move: jest.Mock;
+    listByTechsInRange: jest.Mock; monthIndexReady: jest.Mock;
   };
   let roles: { findById: jest.Mock };
   let service: CalendarService;
@@ -38,6 +39,9 @@ describe('CalendarService', () => {
       findById: jest.fn().mockResolvedValue(existing()),
       update: jest.fn().mockImplementation((_k, attrs) => Promise.resolve(existing(attrs))),
       delete: jest.fn().mockResolvedValue(undefined),
+      move: jest.fn().mockResolvedValue(undefined),
+      listByTechsInRange: jest.fn().mockResolvedValue([]),
+      monthIndexReady: jest.fn().mockResolvedValue(false),
     };
     roles = {
       findById: jest.fn((id: string) =>
@@ -69,14 +73,39 @@ describe('CalendarService', () => {
   });
 
   describe('listForTechs (bulk grid)', () => {
-    it('is privileged-only and fans out per tech', async () => {
+    it('is privileged-only and fans out per tech until the month index is ready', async () => {
       await service.listForTechs(['tech-1', 'tech-2'], '2026-07-20', '2026-07-26', manager);
       expect(repo.listByTechInRange).toHaveBeenCalledTimes(2);
+      expect(repo.listByTechsInRange).not.toHaveBeenCalled();
+    });
+    it('reads the month index once it is ready', async () => {
+      repo.monthIndexReady.mockResolvedValue(true);
+      repo.listByTechsInRange.mockResolvedValue([existing()]);
+      const out = await service.listForTechs(['tech-1', 'tech-2'], '2026-07-20', '2026-07-26', manager);
+      expect(out).toEqual([existing()]);
+      expect(repo.listByTechsInRange).toHaveBeenCalledWith(['tech-1', 'tech-2'], '2026-07-20', '2026-07-26');
+      expect(repo.listByTechInRange).not.toHaveBeenCalled();
+    });
+    it('keeps the per-tech reads for a window wider than the index serves', async () => {
+      repo.monthIndexReady.mockResolvedValue(true);
+      await service.listForTechs(['tech-1'], '2024-01-01', '2026-07-26', manager);
+      expect(repo.listByTechsInRange).not.toHaveBeenCalled();
+      expect(repo.listByTechInRange).toHaveBeenCalledTimes(1);
     });
     it('forbids a technician from the bulk endpoint', async () => {
+      repo.monthIndexReady.mockResolvedValue(true);
       await expect(
         service.listForTechs(['tech-1'], '2026-07-20', '2026-07-26', tech),
       ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.listByTechsInRange).not.toHaveBeenCalled();
+    });
+    it('the internal read switches the same way', async () => {
+      repo.monthIndexReady.mockResolvedValue(true);
+      await service.listForTechsInternal(['tech-1', 'tech-2'], '2026-07-20', '2026-07-26');
+      expect(repo.listByTechsInRange).toHaveBeenCalledWith(['tech-1', 'tech-2'], '2026-07-20', '2026-07-26');
+      repo.monthIndexReady.mockResolvedValue(false);
+      await service.listForTechsInternal(['tech-1', 'tech-2'], '2026-07-20', '2026-07-26');
+      expect(repo.listByTechInRange).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -105,10 +134,14 @@ describe('CalendarService', () => {
       expect(repo.update).toHaveBeenCalled();
       expect(repo.delete).not.toHaveBeenCalled();
     });
-    it('delete+recreates (same id) when startDate moves, since the SK embeds the date', async () => {
+    it('moves the row (same id, one atomic write) when startDate moves, since the SK embeds the date', async () => {
       await service.update('tech-1', 'evt-1', { startDate: '2026-07-25', endDate: '2026-07-25' }, manager);
-      expect(repo.delete).toHaveBeenCalled();
-      expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'evt-1', startDate: '2026-07-25' }));
+      expect(repo.move).toHaveBeenCalledWith(
+        existing(),
+        expect.objectContaining({ id: 'evt-1', startDate: '2026-07-25' }),
+      );
+      expect(repo.delete).not.toHaveBeenCalled();
+      expect(repo.create).not.toHaveBeenCalled();
     });
     it('404s an unknown event', async () => {
       repo.findById.mockResolvedValue(null);

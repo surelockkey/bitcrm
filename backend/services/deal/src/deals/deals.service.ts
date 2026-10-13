@@ -926,6 +926,17 @@ export class DealsService {
     );
   }
 
+  /**
+   * K1 (`POST /deals/internal/by-ids`): every deal of the ids that exists,
+   * deleted ones included — a service reads them as `GET internal/:id` does,
+   * with no caller and so no data scope. Order kept, duplicates read once.
+   */
+  async findByIdsInternal(ids: string[]): Promise<Deal[]> {
+    const unique = [...new Set(ids.filter(Boolean))];
+    if (!unique.length) return [];
+    return this.repository.findByIds(unique);
+  }
+
   /** Does one deal belong on the page this query describes — its tab, its keys, its filters? */
   private matchesListQuery(deal: Deal, query: ListDealsQueryDto, filters: DealFilters): boolean {
     if (deal.status !== DealStatus.ACTIVE) return false;

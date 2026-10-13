@@ -5,6 +5,7 @@ import {
   TransactWriteCommand,
   UpdateCommand,
   type QueryCommandInput,
+  type QueryCommandOutput,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
 import type { Payment, PaymentRefund } from '@bitcrm/types';
@@ -260,6 +261,14 @@ export class PaymentReportRepository {
    * accepts `want` lines or the month list runs out. `accept` is the in-memory
    * part of the filter (the search box); DynamoDB applies the rest.
    *
+   * Months are separate partitions, so the walk need not wait for one before
+   * asking the next: the first page of a later month is fetched side by side
+   * with the current one — the months `expected` (lines per month, from the
+   * buckets) says the page needs, and once a month has run dry without
+   * filling the page, up to `PARALLEL_MONTHS` at a time. Pages are still
+   * CONSUMED strictly in order (a month's later pages follow its first), so
+   * the lines and the cursor are exactly what the one-at-a-time walk gave.
+   *
    * Returns the next cursor pointing just past the last line TAKEN, so a page
    * never skips a line it read but did not return.
    */
@@ -272,6 +281,8 @@ export class PaymentReportRepository {
     want: number;
     accept?: (l: ReportLine) => boolean;
     maxRounds?: number;
+    /** Lines per month under the filter (`monthCounts`) — how many months this page will need. */
+    expected?: ReadonlyMap<string, number>;
   }): Promise<{ lines: ReportLine[]; next?: LineWalkCursor; exhausted: boolean }> {
     const lines: ReportLine[] = [];
     const ms = [...opts.cursor.ms];
@@ -280,13 +291,12 @@ export class PaymentReportRepository {
     let rounds = 0;
     const maxRounds = opts.maxRounds ?? 60;
 
-    while (ms.length && lines.length < opts.want) {
-      if (rounds++ >= maxRounds) return { lines, next: { ms, ...(startKey && { k: startKey as LineWalkCursor['k'] }) }, exhausted: false };
+    const query = (month: string, key?: Record<string, unknown>) => {
       const input: QueryCommandInput = {
         TableName: BILLING_TABLE,
         KeyConditionExpression: 'PK = :pk AND SK BETWEEN :a AND :b',
         ExpressionAttributeValues: {
-          ':pk': paylinePk(ms[0]),
+          ':pk': paylinePk(month),
           ':a': opts.fromIso,
           ':b': opts.toIso,
           ...filter.values,
@@ -295,9 +305,33 @@ export class PaymentReportRepository {
         ...(filter.expression && { FilterExpression: filter.expression }),
         ScanIndexForward: opts.dir === 'asc',
         Limit: 500,
-        ExclusiveStartKey: startKey,
+        ExclusiveStartKey: key,
       };
-      const res = await this.db.client.send(new QueryCommand(input));
+      return this.db.client.send(new QueryCommand(input));
+    };
+    // First pages of later months, asked ahead. A rejection is handled when
+    // (if) the page is consumed; one never consumed must not go unhandled.
+    const ahead = new Map<string, Promise<QueryCommandOutput>>();
+    const askAhead = (month: string) => {
+      if (ahead.has(month)) return;
+      const page = query(month);
+      page.catch(() => undefined);
+      ahead.set(month, page);
+    };
+    let span = monthsNeeded(ms, opts.expected, opts.want - lines.length);
+
+    while (ms.length && lines.length < opts.want) {
+      if (rounds++ >= maxRounds) return { lines, next: { ms, ...(startKey && { k: startKey as LineWalkCursor['k'] }) }, exhausted: false };
+      // The current month first, then the ones after it.
+      let current: Promise<QueryCommandOutput>;
+      if (startKey) {
+        current = query(ms[0], startKey);
+      } else {
+        current = ahead.get(ms[0]) ?? query(ms[0]);
+        ahead.delete(ms[0]);
+      }
+      for (let j = 1; j < Math.min(span, ms.length); j++) askAhead(ms[j]);
+      const res = await current;
       const items = res.Items ?? [];
       for (let i = 0; i < items.length; i++) {
         const line = toLine(items[i]);
@@ -311,10 +345,34 @@ export class PaymentReportRepository {
         }
       }
       startKey = res.LastEvaluatedKey;
-      if (!startKey) ms.shift();
+      if (!startKey) {
+        ms.shift();
+        // A month ran dry and the page is not full: the lines are sparse — read ahead.
+        span = PARALLEL_MONTHS;
+      }
     }
     return { lines, ...(ms.length && { next: { ms, ...(startKey && { k: startKey as LineWalkCursor['k'] }) } }), exhausted: ms.length === 0 };
   }
+}
+
+/** At most this many month partitions are read at once by the line walk. */
+export const PARALLEL_MONTHS = 4;
+
+/**
+ * How many of the leading months a page of `want` lines needs, by the
+ * buckets' counts — at least 1, at most `PARALLEL_MONTHS`. Without counts,
+ * 1: the walk widens only once a month has proved too thin.
+ */
+export function monthsNeeded(ms: string[], expected: ReadonlyMap<string, number> | undefined, want: number): number {
+  if (!expected) return 1;
+  let acc = 0;
+  let n = 0;
+  for (const m of ms) {
+    n++;
+    acc += expected.get(m) ?? 0;
+    if (acc >= want || n >= PARALLEL_MONTHS) break;
+  }
+  return Math.max(1, n);
 }
 
 // ------------------------------------------------------------------ helpers

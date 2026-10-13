@@ -2,6 +2,7 @@ jest.mock('../../src/common/constants/dynamo.constants', () => ({
   CONTACTS_TABLE: 'BitCRM_Contacts_Test',
   COMPANIES_TABLE: 'BitCRM_Companies_Test',
   CONTACTS_GSI1_NAME: 'CompanyIndex',
+  CONTACTS_GSI2_NAME: 'ContactListIndex',
   COMPANIES_GSI1_NAME: 'ClientTypeIndex',
 }));
 

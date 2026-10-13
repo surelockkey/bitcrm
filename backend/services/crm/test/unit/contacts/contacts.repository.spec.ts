@@ -279,7 +279,10 @@ describe('ContactsRepository', () => {
       const result = await repository.update('contact-1', { firstName: 'Jane' });
 
       expect(result.firstName).toBe('Jane');
-      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+      // The SET, then — the row came back without its list-index keys — the
+      // guarded write that files it (`contacts.list-index.spec.ts`).
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
+      expect(dynamoDb.client.send.mock.calls[1][0].input.UpdateExpression).toBe('SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk');
     });
 
     it('should rebuild GSI1 keys when companyId changes', async () => {

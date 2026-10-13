@@ -55,7 +55,7 @@ describe('parseDispatchMapQuery', () => {
     });
   });
 
-  it('keeps a window beside open statuses — it only ever narrows the closed ones', () => {
+  it('keeps a window beside open statuses — it narrows them too (the board reads only the days it shows)', () => {
     expect(parseDispatchMapQuery({ from: '2026-10-01', to: '2026-10-31' })).toEqual({
       statuses: OPEN,
       window: { from: '2026-10-01', to: '2026-10-31' },

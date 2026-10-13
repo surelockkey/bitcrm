@@ -16,6 +16,11 @@ locals {
     ] }
     contacts = { enable_pitr = true, gsis = [
       { name = "CompanyIndex", n = 1 },
+      # ContactListIndex is sparse — active contacts only, CONTACTS#ACTIVE /
+      # <name lowercased>#<id> — the client list A→Z without a Scan. Rows written
+      # before it need `npm run backfill:contact-list-index -w
+      # backend/services/crm -- --apply` (it reconciles and stamps STATE).
+      { name = "ContactListIndex", n = 2 },
     ] }
     # StatusScheduleIndex keys the visit date under each status
     # (STATUS#<s> / <date|UNSCHED>#<slot|~>#DEAL#<id>), so the jobs list, the

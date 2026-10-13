@@ -279,3 +279,21 @@ describe('ContactEventsHandler — the inbox name cache (B5)', () => {
     expect(redis.peek(partyNameKey('contact', 'ct1'))).toBeNull();
   });
 });
+
+describe('ContactEventsHandler.onContactMerged — the technician inbox scope (C4)', () => {
+  it('renames the duplicate to the survivor in the stored scope, then hands the thread over', async () => {
+    const conversations = { getPointer: jest.fn(async () => null) };
+    const techScope = { onContactMerged: jest.fn(async () => undefined) };
+    const handler = new ContactEventsHandler(conversations as any, {} as any, {} as any, undefined, techScope as any);
+    await handler.onContactMerged({ oldContactId: 'dup', newContactId: 'win' });
+    expect(techScope.onContactMerged).toHaveBeenCalledWith('dup', 'win');
+    expect(conversations.getPointer).toHaveBeenCalledWith('contact', 'dup');
+  });
+
+  it('a malformed payload touches neither', async () => {
+    const techScope = { onContactMerged: jest.fn(async () => undefined) };
+    const handler = new ContactEventsHandler({} as any, {} as any, {} as any, undefined, techScope as any);
+    await handler.onContactMerged({ oldContactId: 'dup' });
+    expect(techScope.onContactMerged).not.toHaveBeenCalled();
+  });
+});

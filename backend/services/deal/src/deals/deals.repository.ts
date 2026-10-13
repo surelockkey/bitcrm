@@ -13,6 +13,7 @@ import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import {
   AccountClock,
   accountWindowUtc,
+  CLOSED_SUPER_STATUSES,
   DealStatus,
   DISPATCH_MAP_JOB_FIELDS,
   JobSuperStatus,
@@ -41,6 +42,7 @@ import {
   needsInvoiceWrite,
   planNeedsInvoice,
 } from './needs-invoice-index';
+import { DONE_LINES_INPUTS, doneLinesDay, restampDoneLines } from './done-lines-index';
 import { generateDealNumberCode } from './deal-number.util';
 import { BALANCE_DUE_FILTER, hasBalanceDue } from './deal-balance';
 import { dayStartUtc, jobEndAt, shiftDay, type ReportDateSource } from './report/report-dates';
@@ -225,6 +227,9 @@ export const DEAL_STATS_PROJECTION: readonly string[] = [
   'totals',
 ];
 
+/** Times a BatchGet asks again for keys DynamoDB left unprocessed. */
+const BATCH_GET_RETRIES = 5;
+
 /** How often a not-yet-ready NeedsInvoiceIndex is asked about again. */
 const NEEDS_INVOICE_READY_RECHECK_MS = 60_000;
 
@@ -382,6 +387,8 @@ export class DealsRepository {
   private tableName = DEALS_TABLE;
   /** `needsInvoiceIndexReady`'s answer and when it was read; `true` is kept for good. */
   private needsInvoiceReady?: { ready: boolean; at: number };
+  /** Every attribute `toDeal` reads — derived from it, so the two never drift apart. */
+  private readonly dealFields: readonly string[] = Object.keys(this.toDeal({}));
 
   constructor(private readonly dynamoDb: DynamoDbService) {}
 
@@ -968,7 +975,8 @@ export class DealsRepository {
    * a `window` (Done / Canceled: hundreds of thousands of rows, only ever
    * wanted for the date box's days) is one query per visit day, all at once,
    * so a month of Canceled is thirty-odd small reads side by side rather than
-   * a dozen 1 MB pages one after another.
+   * a dozen 1 MB pages one after another; an open status with a window is one
+   * range read over its days.
    *
    * Projected to `DISPATCH_MAP_FIELDS`; deleted rows never come back; `techId`
    * (an `assigned_only` caller) narrows every partition to that technician's
@@ -989,7 +997,7 @@ export class DealsRepository {
       values[':techId'] = opts.techId;
     }
 
-    const walk = async (pk: string, day?: string): Promise<Record<string, unknown>[]> => {
+    const walk = async (pk: string, day?: string, lastDay: string | undefined = day): Promise<Record<string, unknown>[]> => {
       const items: Record<string, unknown>[] = [];
       let startKey: Record<string, unknown> | undefined;
       do {
@@ -1005,7 +1013,7 @@ export class DealsRepository {
               ...values,
               ':pk': pk,
               // '#~~' sits above both a timed ('#09:00#…') and an all-day ('#~#…') row of the day.
-              ...(day && { ':from': `${day}#`, ':to': `${day}#~~` }),
+              ...(day && { ':from': `${day}#`, ':to': `${lastDay}#~~` }),
             },
             ScanIndexForward: true,
             ...(startKey && { ExclusiveStartKey: startKey }),
@@ -1021,6 +1029,8 @@ export class DealsRepository {
       reads.map(async (read) => {
         const pk = `STATUS#${read.status}`;
         if (!read.window) return walk(pk);
+        // An open status is a few thousand rows at most: its window is one range read.
+        if (!CLOSED_SUPER_STATUSES.has(read.status)) return walk(pk, read.window.from, read.window.to);
         const days: string[] = [];
         for (let d = read.window.from; d <= read.window.to && days.length < 366; d = shiftDay(d, 1)) days.push(d);
         return (await Promise.all(days.map((d) => walk(pk, d)))).flat();
@@ -1036,6 +1046,47 @@ export class DealsRepository {
       deals.push(deal);
     }
     return deals;
+  }
+
+  /**
+   * How many live jobs the statuses hold whatever their date — the dispatch
+   * map's "out of N open jobs" beside a read of only some days. `Select:
+   * COUNT` over each status partition of the StatusScheduleIndex, all at
+   * once, paged to the end; `techId` narrows it as `readMapJobs` does.
+   */
+  async countMapJobs(statuses: readonly JobSuperStatus[], opts: { techId?: string } = {}): Promise<number> {
+    const names: Record<string, string> = { '#pk': 'GSI5PK', '#status': 'status' };
+    const values: Record<string, unknown> = { ':active': DealStatus.ACTIVE };
+    let filter = '#status = :active';
+    if (opts.techId) {
+      filter += ' AND contains(#assignedTechIds, :techId)';
+      names['#assignedTechIds'] = 'assignedTechIds';
+      values[':techId'] = opts.techId;
+    }
+    const counts = await Promise.all(
+      statuses.map(async (status) => {
+        let count = 0;
+        let startKey: Record<string, unknown> | undefined;
+        do {
+          const res = await this.dynamoDb.client.send(
+            new QueryCommand({
+              TableName: this.tableName,
+              IndexName: DEALS_GSI5_NAME,
+              KeyConditionExpression: '#pk = :pk',
+              FilterExpression: filter,
+              ExpressionAttributeNames: names,
+              ExpressionAttributeValues: { ...values, ':pk': `STATUS#${status}` },
+              Select: 'COUNT',
+              ...(startKey && { ExclusiveStartKey: startKey }),
+            }),
+          );
+          count += res.Count ?? 0;
+          startKey = res.LastEvaluatedKey;
+        } while (startKey);
+        return count;
+      }),
+    );
+    return counts.reduce((a, b) => a + b, 0);
   }
 
   /** The key condition of a schedule window: a day span, the undated ones, or the whole partition. */
@@ -1806,27 +1857,55 @@ export class DealsRepository {
    */
   async findByIds(ids: string[], filters?: DealFilters): Promise<Deal[]> {
     if (filters) return this.filterRows(await this.batchGetRows(ids), filters);
-    return (await this.batchGetRows(ids)).map((row) => this.toDeal(row));
+    // Without filters only `toDeal` reads the rows: fetch just its attributes,
+    // not the whole METADATA row (search halves, imported money, index keys).
+    return (await this.batchGetRows(ids, this.dealFields)).map((row) => this.toDeal(row));
   }
 
-  private async batchGetRows(ids: string[]): Promise<Record<string, unknown>[]> {
+  /**
+   * The METADATA rows of a set of ids, in the order asked, missing ones
+   * absent: BatchGet chunks of 100, side by side, each asking again for what
+   * DynamoDB left unprocessed (throttling, the 16 MB cap) — with a short
+   * backoff, a bounded number of times.
+   */
+  private async batchGetRows(ids: string[], projection?: readonly string[]): Promise<Record<string, unknown>[]> {
     if (!ids.length) return [];
-    const rows: Record<string, unknown>[] = [];
-    for (let i = 0; i < ids.length; i += 100) {
-      const chunk = ids.slice(i, i + 100);
-      const res = await this.dynamoDb.client.send(
-        new BatchGetCommand({
-          RequestItems: {
-            [this.tableName]: {
-              Keys: chunk.map((id) => ({ PK: `DEAL#${id}`, SK: 'METADATA' })),
-            },
-          },
-        }),
-      );
-      rows.push(...(res.Responses?.[this.tableName] ?? []));
-    }
+    const names: Record<string, string> = {};
+    const projected = projection
+      ?.map((attr, i) => {
+        names[`#f${i}`] = attr;
+        return `#f${i}`;
+      })
+      .join(', ');
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+    const parts = await Promise.all(
+      chunks.map(async (chunk) => {
+        const rows: Record<string, unknown>[] = [];
+        let keys: Record<string, unknown>[] = chunk.map((id) => ({ PK: `DEAL#${id}`, SK: 'METADATA' }));
+        for (let attempt = 0; keys.length; attempt++) {
+          if (attempt > 0) {
+            if (attempt > BATCH_GET_RETRIES) throw new Error(`BatchGet left ${keys.length} deal(s) unprocessed after ${BATCH_GET_RETRIES} retries`);
+            await new Promise((r) => setTimeout(r, 25 * 2 ** (attempt - 1)));
+          }
+          const res = await this.dynamoDb.client.send(
+            new BatchGetCommand({
+              RequestItems: {
+                [this.tableName]: {
+                  Keys: keys,
+                  ...(projected && { ProjectionExpression: projected, ExpressionAttributeNames: names }),
+                },
+              },
+            }),
+          );
+          rows.push(...(res.Responses?.[this.tableName] ?? []));
+          keys = (res.UnprocessedKeys?.[this.tableName]?.Keys as Record<string, unknown>[] | undefined) ?? [];
+        }
+        return rows;
+      }),
+    );
     // Preserve the tech-index order the caller asked for.
-    const byId = new Map(rows.map((r) => [r.id as string, r]));
+    const byId = new Map(parts.flat().map((r) => [r.id as string, r]));
     return ids.map((id) => byId.get(id)).filter((r): r is Record<string, unknown> => Boolean(r));
   }
 
@@ -1899,7 +1978,29 @@ export class DealsRepository {
     if (Object.keys(attrs).some((k) => NEEDS_INVOICE_INPUTS.has(k))) {
       row = await this.restampNeedsInvoice(id, row);
     }
+    // The Items report's Done-lines keys ride on the job's lines (GSI7).
+    if (Object.keys(attrs).some((k) => DONE_LINES_INPUTS.has(k))) {
+      await this.restampDoneLines(id, row);
+    }
     return this.toDeal(row);
+  }
+
+  /**
+   * Every line of the job filed under its Done day, or taken off the index —
+   * after a write that may have moved the job into or out of Done, or to
+   * another visit day (`deals/done-lines-index.ts`). The lines are read
+   * strongly consistent AFTER the job's write, so a line added in a race is
+   * either seen here or reads the new job itself. A job known to have no
+   * lines costs nothing. Best effort: the job is written already, and a
+   * failure costs the report until `backfill:done-lines-index` reconciles.
+   */
+  private async restampDoneLines(id: string, row: Record<string, unknown>): Promise<void> {
+    if (row.itemCount === 0) return;
+    try {
+      await restampDoneLines((c) => this.dynamoDb.client.send(c as never), this.tableName, id, doneLinesDay(row));
+    } catch (error) {
+      this.logger.warn(`done-lines keys of deal ${id} not restamped: ${(error as Error).message}`);
+    }
   }
 
   /**

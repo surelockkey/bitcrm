@@ -60,7 +60,9 @@ export class ContactsController {
     description:
       '**Guard:** `contacts.view` permission required. Client phone numbers are ' +
       'replaced with `phones: [], phoneCount, phonesMasked` unless the caller ' +
-      'also holds `contacts.view_numbers`.',
+      'also holds `contacts.view_numbers`. Without `companyId` the active clients come ' +
+      'off the ContactListIndex in name order (A→Z) once it is ready — until then, and ' +
+      'for a cursor handed out before, in table order. `cursor` is opaque.',
   })
   async list(
     @Query() query: ListContactsQueryDto,

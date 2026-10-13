@@ -196,7 +196,7 @@ display names per table.
 | Table | Env | GSI1 | GSI2 | GSI3 | GSI4 |
 | --- | --- | --- | --- | --- | --- |
 | `BitCRM_Users` (also roles + technician profiles) | `USERS_TABLE` | RoleIndex | DepartmentIndex | TechnicianIndex | SkillStatusIndex |
-| `BitCRM_Contacts` | `CONTACTS_TABLE` | CompanyIndex | | | |
+| `BitCRM_Contacts` | `CONTACTS_TABLE` | CompanyIndex | ContactListIndex (sparse) | | |
 | `BitCRM_Companies` (also work orders) | `COMPANIES_TABLE` | ClientTypeIndex | | | |
 | `BitCRM_Deals` (deals, line items, timeline, catalogs, eligibility) | `DEALS_TABLE` | StageIndex | TechIndex | ContactIndex | DispatcherIndex (… GSI11 NeedsInvoiceIndex, sparse) |
 | `BitCRM_Inventory` | `INVENTORY_TABLE` | CategoryIndex | TypeIndex | OwnerIndex | TransferEntityIndex |
@@ -250,6 +250,18 @@ BLOCKED#ALL        / <E.164>         a blocked caller (Workiz Phone → Blocked 
                                      `GET /blocked-callers/internal/numbers` (cached 60 s, fail-open), which drops the text.
                                      `calls.block` gates the list / block / unblock routes. Unblock deletes the row
 EXT#<code> / EXTOF#<dealId>          job dial-in codes (both directions, for idempotent minting)
+DEAL#<id> / PRODUCT#<lineId> (lines) sparse GSI7 DONELINES#<YYYY-MM> / <day>#DEAL#<id>#<lineKey> while the job is live
+                                     and Done (day = scheduledDate, else createdAt) — the items report's lines without a
+                                     Query per job; repository-kept on line adds and on status/schedule changes;
+                                     DONELINESINDEX / STATE gates it (backfill:done-lines-index)
+CALDAY#<YYYY-MM> / <startDate>#TECH#<techId>#<eventId>   users table: a copy of a calendar event per month it
+                                     touches (no GSI keys), written in the event's TransactWrite; CALMONTHINDEX / STATE
+USER#<id> / METADATA (users)        … GSI3 USERS#ALL / USER#<id> (TechnicianIndex) — every user, for the directory
+                                     and roster without a Scan; USERSALLINDEX / STATE gates it
+CONTACT#<id> / METADATA (contacts)  sparse GSI2 CONTACTS#ACTIVE / <name lowercased>#<id> — the client list A→Z;
+                                     CONTACTLISTINDEX / STATE gates it (backfill:contact-list-index)
+TECHSCOPE / USER#<userId> (messaging) a technician's job-derived parties {deals, contactIds, computedAt} — the
+                                     assigned_only inbox without a by-tech call + per-contact reads; TECHSCOPEINDEX / STATE
 DEALCALLS#<dealId> / CALL#<sid>      a job's linked calls (no GSI keys) — how a deal event finds the calls whose
                                      `dealTotal` to restamp; put/removed whenever a call's job link changes
 CALLCOUNT / MONTH#<YYYY-MM>          { count } calls per UTC month of startedAt, ADDed on a call's first log write;
@@ -763,6 +775,35 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   (≤500 ids; deal's items report falls back to per-id on 404/405), user
   `POST /users/internal/names-by-ids`, crm `contacts/internal/by-ids` — use them
   instead of one request per id.
+- **Phase C indexes are gated; a deploy is not done until their backfills ran.** Each
+  new read path stays on the old one until its backfill stamps a STATE row
+  (checked ~once a minute per task). After the deploy, and again after every Workiz
+  import (imports write rows without the new keys): deal
+  `backfill:done-lines-index` (items report), user `backfill:users-all-index` and
+  `backfill:calendar-month-index` (directory/roster, schedule calendar), crm
+  `backfill:contact-list-index` (client list; Terraform GSI2 first), messaging
+  `backfill:tech-scope` (technician inbox; needs the internal service URLs + secret
+  like the search backfill). All dry-run by default, `-- --apply` to write; all
+  reconcile. Calendar writes are now optimistic-locked (409 on a concurrent edit).
+- **Price Book filters/search read OpenSearch.** Inventory sends filtered/search
+  `GET /products[/count]` (no category) to search's `POST
+  /search/internal/products/query` and loads the rows by id (re-checked against the
+  filters); unfiltered/category browsing stays on DynamoDB. It needs index
+  `bitcrm-search-v4` (`productList` fields) populated: `npm run create-index` then
+  `npm run backfill` in search — the product walk stamps the `meta#product-list`
+  readiness doc; until then, or on any search error/timeout (1 s), inventory reads
+  DynamoDB. Stock writes publish `product.updated {fields:['onHand']}` so stock-level
+  filters stay fresh. Needs `SEARCH_SERVICE_URL` (set by render-taskdef).
+- **Dispatch map is windowed.** `GET /deals/map?from&to` bounds every status (open
+  ones on GSI5), returns `pagination.totalAnyDate` for the "of N open" label, and is
+  cached 10 s in Redis (key includes `deal:map:gen`, bumped by every deal write).
+- **Internal batch reads:** `POST /deals/internal/by-ids` (≤500, includes deleted
+  jobs — filter on status), used by billing's payments report with a public fallback.
+- **Small inventory routes are CPU-bound, not I/O-bound.** At 0.5 vCPU Fargate
+  throttles in 100 ms slices, so any burst (big walks, boot jobs, URL signing) delays
+  every request in flight — latencies cluster at 100/200/300 ms. Keep per-request CPU
+  low; `ProductsTypeBackfill` runs once (`PRODUCTTYPEHEAL / STATE`), thumbnail URLs
+  are signed once per hour per key.
 - **Telephony caches:** the Twilio owned-number list and Messaging Service
   membership live in Redis (fresh 5 min, served stale up to 1 h while one reload
   runs; buy/release invalidate), so Twilio-console changes take up to 5 min to

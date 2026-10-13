@@ -17,6 +17,8 @@ import { SEND_TO_TECH_CHANNELS, type DealClientConfirmedEvent, type DealSentToTe
  *                                                        sub-status ids are NOT published today; the
  *                                                        engine fills them from the job it re-reads
  *   deal.tech_assigned   { dealId, techId, assignedBy }  once per technician added to the roster
+ *   deal.tech_unassigned { dealId, techId, unassignedBy } once per technician removed (tech scope only)
+ *   deal.deleted         { dealId, deletedBy }          soft delete (tech scope only)
  *   deal.sent_to_tech    DealSentToTechEvent             a dispatcher pressed "Send to tech"; typed in
  *                                                        `@bitcrm/types` so publisher and consumer share it
  *   deal.client_confirmed DealClientConfirmedEvent       the client confirmed the visit through
@@ -32,6 +34,9 @@ export const DEAL_TECH_ASSIGNED_EVENT = 'deal.tech_assigned';
 export const DEAL_UPDATED_EVENT = 'deal.updated';
 export const DEAL_STATUS_CHANGED_EVENT = 'deal.status_changed';
 export const DEAL_SCHEDULED_CHANGED_EVENT = 'deal.scheduled_changed';
+/** Not automation triggers — the technician inbox scope (C4) listens to them. */
+export const DEAL_TECH_UNASSIGNED_EVENT = 'deal.tech_unassigned';
+export const DEAL_DELETED_EVENT = 'deal.deleted';
 
 /**
  * `call.completed` on the `call-events` topic (telephony-service,
@@ -46,6 +51,20 @@ export interface DealTechAssignedPayload {
   techId: string;
   assignedBy?: string;
 }
+
+export interface DealTechUnassignedPayload {
+  dealId: string;
+  techId: string;
+  unassignedBy?: string;
+}
+
+export const isDealTechUnassignedPayload = (p: unknown): p is DealTechUnassignedPayload =>
+  !!p &&
+  typeof p === 'object' &&
+  typeof (p as DealTechUnassignedPayload).dealId === 'string' &&
+  !!(p as DealTechUnassignedPayload).dealId &&
+  typeof (p as DealTechUnassignedPayload).techId === 'string' &&
+  !!(p as DealTechUnassignedPayload).techId;
 
 export interface DealUpdatedPayload {
   dealId: string;

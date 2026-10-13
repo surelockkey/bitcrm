@@ -23,7 +23,7 @@ export function getTestDynamoDbClient(): DynamoDBDocumentClient {
   });
 }
 
-async function createCrmTable(tableName: string, gsiName: string): Promise<void> {
+async function createCrmTable(tableName: string, gsiName: string, withListIndex = false): Promise<void> {
   try {
     await rawClient.send(
       new CreateTableCommand({
@@ -37,6 +37,12 @@ async function createCrmTable(tableName: string, gsiName: string): Promise<void>
           { AttributeName: 'SK', AttributeType: 'S' },
           { AttributeName: 'GSI1PK', AttributeType: 'S' },
           { AttributeName: 'GSI1SK', AttributeType: 'S' },
+          ...(withListIndex
+            ? [
+                { AttributeName: 'GSI2PK', AttributeType: 'S' as const },
+                { AttributeName: 'GSI2SK', AttributeType: 'S' as const },
+              ]
+            : []),
         ],
         GlobalSecondaryIndexes: [
           {
@@ -47,6 +53,19 @@ async function createCrmTable(tableName: string, gsiName: string): Promise<void>
             ],
             Projection: { ProjectionType: 'ALL' },
           },
+          // ContactListIndex — the client list (contacts/contact-list-index.ts).
+          ...(withListIndex
+            ? [
+                {
+                  IndexName: 'ContactListIndex',
+                  KeySchema: [
+                    { AttributeName: 'GSI2PK', KeyType: 'HASH' as const },
+                    { AttributeName: 'GSI2SK', KeyType: 'RANGE' as const },
+                  ],
+                  Projection: { ProjectionType: 'ALL' as const },
+                },
+              ]
+            : []),
         ],
         BillingMode: 'PAY_PER_REQUEST',
       }),
@@ -61,7 +80,7 @@ async function createCrmTable(tableName: string, gsiName: string): Promise<void>
 }
 
 export async function createTestTables(): Promise<void> {
-  await createCrmTable(CONTACTS_TEST_TABLE, 'CompanyIndex');
+  await createCrmTable(CONTACTS_TEST_TABLE, 'CompanyIndex', true);
   await createCrmTable(COMPANIES_TEST_TABLE, 'ClientTypeIndex');
 }
 

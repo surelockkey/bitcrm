@@ -1,6 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import {
   GetCommand,
+  PutCommand,
   QueryCommand,
   ScanCommand,
   UpdateCommand,
@@ -93,6 +94,9 @@ export type StockManagedFilters = Omit<ProductListFilters, 'manageStock'>;
 /** The product-number counter row. */
 const COUNTER_KEY = { PK: 'COUNTER#PRODUCT', SK: 'METADATA' };
 
+/** Recorded once the boot-time type heal (ProductsTypeBackfill) has walked the catalog. */
+const TYPE_HEAL_STATE_KEY = { PK: 'PRODUCTTYPEHEAL', SK: 'STATE' };
+
 /**
  * Product rows in the single BitCRM_Inventory table:
  *   PK = PRODUCT#<id>, SK = METADATA
@@ -102,6 +106,8 @@ const COUNTER_KEY = { PK: 'COUNTER#PRODUCT', SK: 'METADATA' };
  *   PK = COUNTER#PRODUCT, SK = METADATA                   { seq } — the last
  *     product `number` handed out; `nextNumber` ADDs one atomically and
  *     `raiseCounterTo` moves it past imported (Workiz) numbers.
+ *   PK = PRODUCTTYPEHEAL, SK = STATE                      { doneAt } — the boot-time
+ *     type heal (ProductsTypeBackfill) walked the catalog once; boots skip it after.
  *   GSI3PK = PRODUCTS#STOCK, GSI3SK = <name lowercased>#<id>  (OwnerIndex, sparse:
  *     stock-managed products only — type `product`, `manageStock` not false,
  *     any status; the "inventory products" list, name order.
@@ -294,6 +300,20 @@ export class ProductsRepository {
       }
       throw error;
     }
+  }
+
+  /** Whether the boot-time type heal has completed a walk (its STATE row exists). */
+  async typeHealDone(): Promise<boolean> {
+    const { Item } = await this.dynamoDb.client.send(
+      new GetCommand({ TableName: INVENTORY_TABLE, Key: TYPE_HEAL_STATE_KEY }),
+    );
+    return typeof Item?.doneAt === 'string';
+  }
+
+  async markTypeHealDone(): Promise<void> {
+    await this.dynamoDb.client.send(
+      new PutCommand({ TableName: INVENTORY_TABLE, Item: { ...TYPE_HEAL_STATE_KEY, doneAt: new Date().toISOString() } }),
+    );
   }
 
   async findById(id: string): Promise<Product | null> {

@@ -4,6 +4,11 @@ import { type Deal } from '@bitcrm/types';
 import { DealEventsBus } from './realtime/deal-events.bus';
 
 const PREFIX = 'deal:';
+/**
+ * Bumped on every job write (`invalidate`): the dispatch map's cached answers
+ * carry it in their key (`DispatchMapService`), so a write is never hidden.
+ */
+export const DISPATCH_MAP_GENERATION_KEY = 'deal:map:gen';
 const TTL = 300; // 5 minutes
 
 @Injectable()
@@ -35,6 +40,12 @@ export class DealsCacheService {
    */
   async invalidate(id: string): Promise<void> {
     await this.redis.client.del(`${PREFIX}${id}`);
+    // The dispatch map's cached answers are keyed by this generation: the next read misses.
+    try {
+      await this.redis.client.incr?.(DISPATCH_MAP_GENERATION_KEY);
+    } catch {
+      /* the map's 10 s TTL bounds it anyway */
+    }
     this.events.dealChanged(id);
   }
 

@@ -5,10 +5,14 @@ export const SEARCH_INDEX_ALIAS = process.env.SEARCH_INDEX_ALIAS || 'bitcrm-sear
  * Concrete index name to (re)build; alias is swapped to point here.
  * v2: adds contactId/companyId keywords + phone digit-variant keywords.
  * v3: adds the `conversation` document fields (conversationKind/State,
- * partyKind/partyId, assignedUserId, flagged, lastMessageAt, dealIds) —
- * run `npm run create-index` then `npm run backfill` to migrate.
+ * partyKind/partyId, assignedUserId, flagged, lastMessageAt, dealIds).
+ * v4: adds `productList` on product docs (raw type/status/brand/stock flag,
+ * precomputed stock level, lowercased name/SKU, the DynamoDB sort keys) —
+ * inventory's filtered Price Book reads it once the product backfill has
+ * stamped the index ready (`product-list/`).
+ * Run `npm run create-index` then `npm run backfill` to migrate.
  */
-export const SEARCH_INDEX_NAME = process.env.SEARCH_INDEX_NAME || 'bitcrm-search-v3';
+export const SEARCH_INDEX_NAME = process.env.SEARCH_INDEX_NAME || 'bitcrm-search-v4';
 
 export const OPENSEARCH_ENDPOINT =
   process.env.OPENSEARCH_ENDPOINT || 'http://localhost:9200';

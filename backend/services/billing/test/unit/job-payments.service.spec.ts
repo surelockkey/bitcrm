@@ -454,3 +454,51 @@ describe('PaymentsService.ledgersByDeals — the commissions report (internal)',
     expect(peak).toBe(LEDGER_READ_CONCURRENCY);
   });
 });
+
+/**
+ * Phase C — the Payments tab used to wait for the job's billing view (an
+ * HTTP hop to deal-service) BEFORE reading the invoice and the ledger. The
+ * two reads are side-effect free and keyed by the job id the caller asked
+ * for, so they now run beside the view; nothing they found is answered
+ * until the view has let the caller through.
+ */
+describe('PaymentsService.listForDeal — the reads beside the access check', () => {
+  it('asks the invoice and the ledger while the job view is still in flight', async () => {
+    const { service, ledger, invoices, deal } = build({ seed: [imported()], withInvoice: true });
+    let releaseView!: () => void;
+    const original = deal.getBillingView.getMockImplementation()!;
+    deal.getBillingView.mockImplementation(async (id: string) => {
+      await new Promise<void>((r) => (releaseView = r));
+      return original(id);
+    });
+
+    const answer = service.listForDeal('deal-1', caller());
+    await new Promise((r) => setImmediate(r));
+    expect(ledger.listByInvoice).toHaveBeenCalledWith('deal-1');
+    expect(invoices.getStored).toHaveBeenCalledWith('deal-1');
+    releaseView();
+    await expect(answer).resolves.toMatchObject({ dealId: 'deal-1', invoiceId: 'deal-1', amountPaid: 100 });
+  });
+
+  it('the answer is exactly the one the sequential path gave', async () => {
+    const { service } = build({ seed: [imported()], withInvoice: true });
+    const sequential = await service.ledgerForJob(await service.accessibleJob('deal-1', caller()));
+    expect(await service.listForDeal('deal-1', caller())).toEqual(sequential);
+  });
+
+  it('a technician not on the job still gets 403 — and a missing job 404 — whatever the reads found', async () => {
+    const { service } = build({ seed: [imported()], withInvoice: true });
+    await expect(service.listForDeal('deal-1', caller(DataScope.ASSIGNED_ONLY, { id: 'tech-9' }))).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(service.listForDeal('nope', caller())).rejects.toThrow(NotFoundException);
+  });
+
+  it('a ledger read that fails for a caller who may not see the job still answers 403, not the read error', async () => {
+    const { service, ledger } = build({ seed: [imported()] });
+    ledger.listByInvoice.mockRejectedValue(new Error('throttled'));
+    await expect(service.listForDeal('deal-1', caller(DataScope.ASSIGNED_ONLY, { id: 'tech-9' }))).rejects.toThrow(
+      ForbiddenException,
+    );
+  });
+});

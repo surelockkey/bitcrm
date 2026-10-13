@@ -70,6 +70,9 @@ export function currentThumbKey(row: { photoKey?: unknown; thumbKey?: unknown })
  * two. The same key signs to the same URL all hour, so a list reloaded, paged
  * back or refetched on focus hits the browser's cache instead of S3.
  */
+/** Signed thumbnail URLs kept per hour — the catalog is ~16k items. */
+const SIGNED_URLS_MAX = 20_000;
+
 export function thumbnailSigning(now: Date = new Date()): { signingDate: Date; expiresIn: number } {
   const signingDate = new Date(now);
   signingDate.setUTCMinutes(0, 0, 0);
@@ -262,6 +265,15 @@ export class ProductThumbnailsService {
   private readonly logger = new Logger(ProductThumbnailsService.name);
   /** Thumbnails made one at a time per task: sharp is CPU-bound and the task is small. */
   private queue: Promise<unknown> = Promise.resolve();
+  /**
+   * Thumbnail URLs signed this hour, by key. Signing is local but not free —
+   * SigV4 plus the SDK's middleware stack, around a millisecond each on this
+   * half-vCPU task — and a Price Book page signs up to a hundred on every
+   * load. The URL is dated at the top of the hour, so it is the same all hour:
+   * sign it once. Cleared when the hour turns (and kept bounded).
+   */
+  private signed = new Map<string, string>();
+  private signedHour = '';
 
   constructor(
     private readonly products: ProductsService,
@@ -334,12 +346,21 @@ export class ProductThumbnailsService {
    */
   async withThumbnails<T extends Product>(items: T[]): Promise<ProductWithThumbnail<T>[]> {
     const signing = thumbnailSigning();
+    const hour = signing.signingDate.toISOString();
+    if (hour !== this.signedHour || this.signed.size > SIGNED_URLS_MAX) {
+      this.signed = new Map();
+      this.signedHour = hour;
+    }
     return Promise.all(
       items.map(async (item) => {
         const key = currentThumbKey(item as T & { thumbKey?: string });
         if (!key) return item;
         try {
-          const thumbnailUrl = await this.s3.getPresignedDownloadUrl(key, signing);
+          let thumbnailUrl = this.signed.get(key);
+          if (!thumbnailUrl) {
+            thumbnailUrl = await this.s3.getPresignedDownloadUrl(key, signing);
+            this.signed.set(key, thumbnailUrl);
+          }
           return { ...item, thumbnailUrl };
         } catch (err) {
           this.logger.warn(`Thumbnail of ${item.id} not signed: ${(err as Error).message}`);

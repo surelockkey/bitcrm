@@ -31,8 +31,10 @@ describe('DealProductsRepository — the line owns the key', () => {
     dynamoDb.client.send.mockResolvedValue({});
     await repository.addProduct('d1', createMockDealProduct({ productId: 'p-1', lineId: undefined as never }));
     await repository.addProduct('d1', createMockDealProduct({ productId: 'p-1', lineId: undefined as never }));
-    const first = dynamoDb.client.send.mock.calls[0][0].input.Item;
-    const second = dynamoDb.client.send.mock.calls[1][0].input.Item;
+    // Each line write is followed by a read of the job (Done-lines keys) — the Puts are what is asserted.
+    const [first, second] = dynamoDb.client.send.mock.calls
+      .filter((c: any[]) => c[0].constructor.name === 'PutCommand')
+      .map((c: any[]) => c[0].input.Item);
     expect(first.SK).not.toBe(second.SK);
     expect(first.SK).toMatch(/^PRODUCT#[0-9a-f-]{36}$/);
     expect(first.productId).toBe('p-1');

@@ -13,8 +13,6 @@ import {
   TECHNICIAN_ROLE_ID,
   UserEventType,
   type JwtUser,
-  type TechnicianJobType,
-  type TechnicianServiceArea,
 } from '@bitcrm/types';
 import {
   TechnicianAssignmentsRepository,
@@ -23,22 +21,17 @@ import {
 } from './technician-assignments.repository';
 import { RolesService } from '../../roles/roles.service';
 import { ReviewAssignmentDto } from './dto/assignment.dto';
+import {
+  APPROVED_ASSIGNMENTS_CACHE_KEY,
+  readApprovedAssignments,
+  toJobType,
+  toServiceArea,
+  type TechnicianAssignments,
+} from './approved-assignments.cache';
 
 const USER_EVENTS_TOPIC = 'user-events';
 
-/**
- * Every technician's approved job types + service areas (`GET
- * /technicians/assignments/approved`), shared across tasks. Deleted by every
- * write in this service (propose / assign / approve / reject / revoke); the
- * TTL is the backstop for a write made outside it (`migrate-technician-skills`).
- */
-export const APPROVED_ASSIGNMENTS_CACHE_KEY = 'technicians:assignments:approved';
-const APPROVED_ASSIGNMENTS_TTL_SECONDS = 300;
-
-export interface TechnicianAssignments {
-  jobTypes: TechnicianJobType[];
-  serviceAreas: TechnicianServiceArea[];
-}
+export { APPROVED_ASSIGNMENTS_CACHE_KEY, type TechnicianAssignments };
 
 @Injectable()
 export class TechnicianAssignmentsService {
@@ -68,29 +61,7 @@ export class TechnicianAssignmentsService {
     if (!(await this.isPrivileged(caller))) {
       throw new ForbiddenException("Only managers can view every technician's assignments");
     }
-    const hit = await this.readApprovedCache();
-    if (hit) return hit;
-
-    const [jobTypes, serviceAreas] = await Promise.all([
-      this.repository.listAllApproved('job_type'),
-      this.repository.listAllApproved('service_area'),
-    ]);
-    const answer = { jobTypes: jobTypes.map(toJobType), serviceAreas: serviceAreas.map(toServiceArea) };
-    await this.redis?.client
-      .set(APPROVED_ASSIGNMENTS_CACHE_KEY, JSON.stringify(answer), 'EX', APPROVED_ASSIGNMENTS_TTL_SECONDS)
-      .catch((err: Error) => this.logger.warn(`approved-assignments cache write failed: ${err?.message}`));
-    return answer;
-  }
-
-  private async readApprovedCache(): Promise<TechnicianAssignments | null> {
-    if (!this.redis) return null;
-    try {
-      const raw = await this.redis.client.get(APPROVED_ASSIGNMENTS_CACHE_KEY);
-      return raw ? (JSON.parse(raw) as TechnicianAssignments) : null;
-    } catch (err) {
-      this.logger.warn(`approved-assignments cache read failed: ${(err as Error)?.message}`);
-      return null;
-    }
+    return readApprovedAssignments(this.repository, this.redis, this.logger);
   }
 
   /** Called after every assignment write — the approved set may have changed. */
@@ -360,16 +331,4 @@ export class TechnicianAssignmentsService {
       .publish(USER_EVENTS_TOPIC, eventType, payload)
       .catch((err) => this.logger.warn(`Failed to publish ${eventType}: ${err.message}`));
   }
-}
-
-// --- storage → public entity mappers ---
-
-function toJobType(a: TechnicianAssignment): TechnicianJobType {
-  const { kind, catalogId, ...rest } = a;
-  return { ...rest, jobTypeId: catalogId };
-}
-
-function toServiceArea(a: TechnicianAssignment): TechnicianServiceArea {
-  const { kind, catalogId, ...rest } = a;
-  return { ...rest, serviceAreaId: catalogId };
 }

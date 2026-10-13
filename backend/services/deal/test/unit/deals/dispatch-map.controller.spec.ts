@@ -42,11 +42,17 @@ describe('DispatchMapController', () => {
     });
   });
 
+  it('a windowed read carries how many jobs there are whatever the date', async () => {
+    service.read.mockResolvedValue({ deals: [createMockDeal({ id: 'd1' })], included: { technicians: [], clients: [] }, totalAnyDate: 40 });
+    const res = await controller.read({ from: '2026-10-13' }, user, {} as never, 'Bearer t');
+    expect(res.pagination).toEqual({ count: 1, totalAnyDate: 40 });
+  });
+
   it('hands the service the caller’s scope, whether they may see numbers, and their own token', async () => {
     service.read.mockResolvedValue({ deals: [], included: { technicians: [], clients: [] } });
     const perms = {
-      permissions: { contacts: { view_numbers: true } },
-      dataScope: { deals: 'assigned_only' },
+      permissions: { contacts: { view_numbers: true, view: true } },
+      dataScope: { deals: 'assigned_only', contacts: 'department' },
     };
 
     await controller.read({ statuses: 'done', from: '2026-10-12' }, user, perms as never, 'Bearer t');
@@ -55,7 +61,13 @@ describe('DispatchMapController', () => {
     expect(service.read).toHaveBeenNthCalledWith(1, { statuses: 'done', from: '2026-10-12' }, user, 'assigned_only', {
       numbers: true,
       authorization: 'Bearer t',
+      // What crm decides the clients by — part of the cache key.
+      contacts: { view: true, scope: 'department' },
     });
-    expect(service.read).toHaveBeenNthCalledWith(2, {}, user, undefined, { numbers: false, authorization: undefined });
+    expect(service.read).toHaveBeenNthCalledWith(2, {}, user, undefined, {
+      numbers: false,
+      authorization: undefined,
+      contacts: { view: false, scope: undefined },
+    });
   });
 });

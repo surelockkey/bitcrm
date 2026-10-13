@@ -43,11 +43,15 @@ import { jobCardTitle, lastUpdatedText } from "../map-words";
 import { jobZoneResolver } from "@/features/service-areas/lib";
 
 /**
- * What the board reads: every open job, whatever its date — Workiz's
- * `map/getJobs` — once. The date box and the Filters only choose among them.
- * Ours on top: Done / Canceled, read for the date box's days once ticked.
+ * What the board reads: the open jobs of the date box's days — Day, Week or
+ * Month (deal-service reads only those days, and says how many open jobs
+ * there are whatever the date for "out of N") — or, for Any date, every open
+ * job whatever its date, as Workiz's `map/getJobs` does. The Filters choose
+ * among them. Ours on top: Done / Canceled, read for the same days once ticked.
  */
-const BOARD_WINDOW: DealsWindow = {};
+function boardWindow(days: { from?: string; to?: string }): DealsWindow {
+  return days.from ? { from: days.from, to: days.to ?? days.from } : {};
+}
 
 /** What the dispatcher set, kept across reloads (story 4.01). */
 interface MapPrefs {
@@ -86,6 +90,8 @@ function loadPrefs(): MapPrefs {
 const NO_BOARD: DispatchBoard = {
   window: {},
   deals: [],
+  openTotal: 0,
+  todayDeals: [],
   closedDeals: [],
   closedWindow: null,
   failed: false,
@@ -181,7 +187,9 @@ function DispatchBoardPage() {
     () => ({ techs: canSeeTechs && (tab === "techs" || showTechs), streets: canSeeTechs && tab === "techs" }),
     [canSeeTechs, tab, showTechs],
   );
-  const { board, query, techsReady } = useDispatchBoard(BOARD_WINDOW, {
+  // Kept by value: a new object every render would read as a new board every render.
+  const openWindow = useMemo(() => boardWindow({ from: days.from, to: days.to }), [days.from, days.to]);
+  const { board, query, techsReady } = useDispatchBoard(openWindow, {
     techs: canSeeTechs,
     areas: canSeeAreas,
     closed: closedWindow,
@@ -189,6 +197,8 @@ function DispatchBoardPage() {
   });
   const {
     deals,
+    openTotal,
+    todayDeals,
     closedDeals,
     contacts,
     users,
@@ -330,7 +340,7 @@ function DispatchBoardPage() {
       position={position}
       name={nameOf(position.userId)}
       address={addresses.get(position.userId)}
-      jobs={techJobsToday(deals, position.userId, todayISO())}
+      jobs={techJobsToday(todayDeals, position.userId, todayISO())}
       zoneOf={zoneOf}
       title={titleOf}
       clientName={clientOf}
@@ -349,7 +359,7 @@ function DispatchBoardPage() {
     tab === "jobs"
       ? mapFoundText({
           shown: filtered.length,
-          open: deals.length,
+          open: openTotal,
           closed: board.closedWindow ? closedDeals.length : undefined,
           closedNeedDays: closedTicked && !days.from,
         })
@@ -434,7 +444,7 @@ function DispatchBoardPage() {
           <>
             <DispatchMap
               deals={mapJobs}
-              allDeals={deals}
+              allDeals={todayDeals}
               technicians={mapTechs}
               serviceAreas={mapAreas}
               fitTo={tab}

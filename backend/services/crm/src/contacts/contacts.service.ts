@@ -312,7 +312,7 @@ export class ContactsService {
       return this.repository.findByCompany(query.companyId, limit, query.cursor, ...filters);
     }
 
-    return this.repository.findAll(limit, query.cursor, ...filters);
+    return this.repository.findActive(limit, query.cursor, ...filters);
   }
 
   async findAll(limit: number, cursor?: string) {
@@ -330,7 +330,7 @@ export class ContactsService {
     const take = () =>
       query.companyId
         ? this.repository.countByCompany(query.companyId, ...filters)
-        : this.repository.countAll(...filters);
+        : this.repository.countActive(...filters);
 
     if (!this.redis) return take();
     return cachedCount(
@@ -605,12 +605,39 @@ export class ContactsService {
     return out;
   }
 
-  /** The contacts a page of some list shows, in the order asked, duplicates folded. */
+  /**
+   * The contacts a page of some list shows, in the order asked, duplicates
+   * folded (`POST /contacts/by-ids`). Read-through the per-contact cache that
+   * `findById` fills and every write invalidates: one MGET for the hits, the
+   * misses in parallel BatchGets, then cached. A cache failure only costs the
+   * cache. crm runs no ValidationPipe, so anything that is not a non-empty
+   * string is dropped here — one such key would fail the whole BatchGet.
+   */
   async findByIds(ids: string[]): Promise<Contact[]> {
-    const unique = [...new Set(ids)];
-    const found = await this.repository.findByIds(unique);
-    const byId = new Map(found.map((c) => [c.id, c]));
-    return unique.map((id) => byId.get(id)).filter((c): c is Contact => Boolean(c));
+    const unique = [
+      ...new Set((Array.isArray(ids) ? ids : []).filter((id): id is string => typeof id === 'string' && id !== '')),
+    ];
+    if (unique.length === 0) return [];
+
+    let found = new Map<string, Contact>();
+    try {
+      found = await this.cache.getMany(unique);
+    } catch (err) {
+      this.logger.warn(`Contact cache read failed (by-ids): ${(err as Error)?.message}`);
+    }
+    const misses = unique.filter((id) => !found.has(id));
+    if (misses.length > 0) {
+      const loaded = await this.repository.findByIds(misses);
+      for (const c of loaded) found.set(c.id, c);
+      if (loaded.length > 0) {
+        try {
+          await this.cache.setMany(loaded);
+        } catch (err) {
+          this.logger.warn(`Contact cache write failed (by-ids): ${(err as Error)?.message}`);
+        }
+      }
+    }
+    return unique.map((id) => found.get(id)).filter((c): c is Contact => Boolean(c));
   }
 
   async findManyByPhone(

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   GetCommand,
   PutCommand,
@@ -7,6 +7,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import {
   DynamoDbService,
+  RedisService,
   countRows,
   type CountRowsResult,
 } from '@bitcrm/shared';
@@ -60,6 +61,16 @@ const MAX_READS = 20;
 const COUNT_CONCURRENCY = 4;
 
 /**
+ * A closed month's count, kept in Redis this long. Transfers are dated when
+ * they are made, so a past month never gains one; only an import (or
+ * `backfill:transfer-index`) files rows into the past, and its counts are
+ * right again within six hours.
+ */
+const MONTH_COUNT_TTL_SECONDS = 6 * 3600;
+const monthCountKey = (month: string, filters?: TransferListFilters) =>
+  `inventory:transfers:month-count:${month}:${filters?.type ?? 'all'}`;
+
+/**
  * Transfer rows in the single BitCRM_Inventory table:
  *   PK = TRANSFER#<id>, SK = METADATA — the transfer itself;
  *     GSI1PK = TRANSFERS#<YYYY-MM>, GSI1SK = <createdAt>#<id> (CategoryIndex) —
@@ -75,7 +86,13 @@ const COUNT_CONCURRENCY = 4;
  */
 @Injectable()
 export class TransfersRepository {
-  constructor(private readonly dynamoDb: DynamoDbService) {}
+  private readonly logger = new Logger(TransfersRepository.name);
+
+  constructor(
+    private readonly dynamoDb: DynamoDbService,
+    // Closed months' counts (countAll); absent → every month is counted.
+    @Optional() private readonly redis?: RedisService,
+  ) {}
 
   async create(transfer: Transfer): Promise<void> {
     // Convert to plain object to avoid DynamoDB marshalling issues with class instances
@@ -362,31 +379,70 @@ export class TransfersRepository {
   /**
    * How many transfers the list holds under the same `type` filter — every
    * month from the first to the current one counted without bodies (a few at
-   * once) and added up; "at least" if any month's walk hit its ceiling.
+   * once) and added up; "at least" if any month's walk hit its ceiling. A
+   * closed month's exact count comes from Redis once it has been counted
+   * (one MGET), so only the current month and the uncounted ones are read.
    */
   async countAll(filters?: TransferListFilters): Promise<CountRowsResult> {
     const floor = await this.firstMonth();
     if (!floor) return { total: 0, atLeast: false };
-    const months = monthsDescending(floor, this.currentMonth());
+    const current = this.currentMonth();
+    const months = monthsDescending(floor, current);
+    const closed = months.filter((m) => m !== current);
 
-    const counts: CountRowsResult[] = [];
+    const known = await this.cachedMonthCounts(closed, filters);
+    const toCount = months.filter((m) => !known.has(m));
+
+    const counts: CountRowsResult[] = [...known.values()].map((total) => ({ total, atLeast: false }));
+    const fresh: Array<[string, number]> = [];
     let next = 0;
     const worker = async () => {
-      while (next < months.length) {
-        const query = this.monthQuery(months[next++], filters);
-        counts.push(
-          await countRows((input) =>
-            this.dynamoDb.client.send(new QueryCommand({ ...query, Select: 'COUNT', ...input })),
-          ),
+      while (next < toCount.length) {
+        const month = toCount[next++];
+        const query = this.monthQuery(month, filters);
+        const result = await countRows((input) =>
+          this.dynamoDb.client.send(new QueryCommand({ ...query, Select: 'COUNT', ...input })),
         );
+        counts.push(result);
+        if (month !== current && !result.atLeast) fresh.push([month, result.total]);
       }
     };
-    await Promise.all(Array.from({ length: Math.min(COUNT_CONCURRENCY, months.length) }, () => worker()));
+    await Promise.all(Array.from({ length: Math.min(COUNT_CONCURRENCY, toCount.length) }, () => worker()));
+    await this.cacheMonthCounts(fresh, filters);
 
     return {
       total: counts.reduce((sum, c) => sum + c.total, 0),
       atLeast: counts.some((c) => c.atLeast),
     };
+  }
+
+  /** The closed months' counts Redis holds; a failure is an empty answer. */
+  private async cachedMonthCounts(months: string[], filters?: TransferListFilters): Promise<Map<string, number>> {
+    const known = new Map<string, number>();
+    if (!this.redis || months.length === 0) return known;
+    try {
+      const raw = await this.redis.client.mget(...months.map((m) => monthCountKey(m, filters)));
+      raw.forEach((v, i) => {
+        const n = v === null || v === undefined ? NaN : Number(v);
+        if (Number.isInteger(n) && n >= 0) known.set(months[i], n);
+      });
+    } catch (err) {
+      this.logger.warn(`Transfer month counts unreadable in Redis: ${(err as Error).message}`);
+    }
+    return known;
+  }
+
+  private async cacheMonthCounts(counts: Array<[string, number]>, filters?: TransferListFilters): Promise<void> {
+    if (!this.redis || counts.length === 0) return;
+    try {
+      await Promise.all(
+        counts.map(([month, total]) =>
+          this.redis!.client.set(monthCountKey(month, filters), String(total), 'EX', MONTH_COUNT_TTL_SECONDS),
+        ),
+      );
+    } catch (err) {
+      this.logger.warn(`Transfer month counts not cached: ${(err as Error).message}`);
+    }
   }
 
   private toTransfer(item: Record<string, unknown>): Transfer {

@@ -32,13 +32,19 @@ export class PaymentScheduleService {
   ) {}
 
   /**
-   * Most jobs have no schedule, so the row is read before the ledger — but
-   * only after the ledger's own access check (`accessibleJob`): a caller who
-   * may not see the job learns nothing, not even whether it has a schedule.
+   * Most jobs have no schedule, so the row is read before the ledger. It is
+   * read BESIDE the ledger's own access check (`accessibleJob`, an HTTP hop
+   * to deal-service) rather than after it — one round trip instead of two —
+   * but the check still decides first: a caller who may not see the job gets
+   * the same refusal whether or not a schedule exists (and never a read
+   * error in its place), and the ledger is only built for one who may.
    */
   async get(dealId: string, caller: Caller): Promise<PaymentScheduleView | null> {
-    const job = await this.payments.accessibleJob(dealId, caller);
-    const schedule = await this.repo.get(job.deal.id);
+    const job$ = this.payments.accessibleJob(dealId, caller);
+    const schedule$ = this.repo.get(dealId);
+    schedule$.catch(() => undefined);
+    const job = await job$;
+    const schedule = job.deal.id === dealId ? await schedule$ : await this.repo.get(job.deal.id);
     if (!schedule) return null;
     return this.view(schedule, await this.payments.ledgerForJob(job));
   }

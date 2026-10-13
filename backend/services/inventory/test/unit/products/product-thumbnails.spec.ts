@@ -320,6 +320,27 @@ describe('ProductThumbnailsService', () => {
       expect(opts.expiresIn).toBe(7200);
     });
 
+    // Signing is pure CPU (SigV4 + the SDK's middleware stack, ~1 ms each on a
+    // half-vCPU task) and a page of the Price Book signs up to 100 of them on
+    // every load; the URL is the same all hour, so it is signed once an hour.
+    it('signs a thumbnail once per hour, however many pages show it', async () => {
+      const item = createMockProduct({ id: 'a', photoKey: 'products/a/1.jpg', thumbKey: 'products/a/thumb-1.webp' } as any);
+      jest.useFakeTimers({ now: new Date('2026-10-13T10:05:00Z'), doNotFake: ['setImmediate', 'nextTick'] });
+      try {
+        await service.withThumbnails([item]);
+        jest.setSystemTime(new Date('2026-10-13T10:55:00Z'));
+        const again = await service.withThumbnails([item]);
+        expect(again[0].thumbnailUrl).toBe('https://s3.test/products/a/thumb-1.webp?sig');
+        expect(s3.getPresignedDownloadUrl).toHaveBeenCalledTimes(1);
+
+        jest.setSystemTime(new Date('2026-10-13T11:01:00Z'));
+        await service.withThumbnails([item]);
+        expect(s3.getPresignedDownloadUrl).toHaveBeenCalledTimes(2);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it('never fails the list over a URL it could not sign', async () => {
       s3.getPresignedDownloadUrl.mockRejectedValue(new Error('no credentials'));
       const item = createMockProduct({ photoKey: 'products/a/1.jpg', thumbKey: 'products/a/thumb-1.webp' } as any);

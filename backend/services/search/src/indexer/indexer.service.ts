@@ -257,7 +257,7 @@ export class SearchIndexerService {
     this.logger.debug(`Indexed ${doc.docId}`);
   }
 
-  /** Bulk upsert (backfill). Returns the number of docs written. */
+  /** Bulk upsert (backfill). Returns the number of docs written — the failed ones left out. */
   async bulkIndex(docs: SearchDocument[]): Promise<number> {
     if (docs.length === 0) return 0;
     const operations = docs.flatMap((doc) => [
@@ -271,6 +271,7 @@ export class SearchIndexerService {
     if (res.body?.errors) {
       const failed = (res.body.items || []).filter((i: any) => i.index?.error);
       this.logger.error(`Bulk index had ${failed.length} failures`);
+      return docs.length - failed.length;
     }
     return docs.length;
   }

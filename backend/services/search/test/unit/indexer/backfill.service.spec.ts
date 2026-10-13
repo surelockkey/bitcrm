@@ -128,6 +128,53 @@ describe('BackfillService', () => {
     expect(global.fetch).toHaveBeenCalledTimes(SOURCE_COUNT + 1);
   });
 
+  describe('the Price Book readiness stamp', () => {
+    const productPage = (items: any[]) =>
+      jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: {
+            items,
+            nextCursor: undefined,
+          },
+        }),
+      }) as any;
+    const product = (id: string) => ({ id, name: `P ${id}`, sku: id, type: 'product', status: 'active', updatedAt: '2026-01-01T00:00:00Z' });
+
+    it('stamps the product list ready after every product was written', async () => {
+      global.fetch = productPage([product('a'), product('b')]);
+      const readiness = { stamp: jest.fn().mockResolvedValue(undefined) };
+      await new BackfillService(fakeIndexer() as any, stubCatalogNames() as any, undefined, readiness as any).run(['product']);
+      expect(readiness.stamp).toHaveBeenCalledWith(2);
+    });
+
+    it('does not stamp when some product documents failed to write', async () => {
+      global.fetch = productPage([product('a'), product('b')]);
+      const indexer = { ...fakeIndexer(), bulkIndex: jest.fn().mockResolvedValue(1) };
+      const readiness = { stamp: jest.fn() };
+      await new BackfillService(indexer as any, stubCatalogNames() as any, undefined, readiness as any).run(['product']);
+      expect(readiness.stamp).not.toHaveBeenCalled();
+    });
+
+    it('does not stamp when the product walk failed', async () => {
+      global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500 }) as any;
+      const readiness = { stamp: jest.fn() };
+      const totals = await new BackfillService(fakeIndexer() as any, stubCatalogNames() as any, undefined, readiness as any).run(['product']);
+      expect(totals.product).toBe(-1);
+      expect(readiness.stamp).not.toHaveBeenCalled();
+    });
+
+    it('a run without products leaves the stamp alone; a failed stamp fails nothing', async () => {
+      global.fetch = productPage([]);
+      const readiness = { stamp: jest.fn().mockRejectedValue(new Error('os down')) };
+      await new BackfillService(fakeIndexer() as any, stubCatalogNames() as any, undefined, readiness as any).run(['deal']);
+      expect(readiness.stamp).not.toHaveBeenCalled();
+      const totals = await new BackfillService(fakeIndexer() as any, stubCatalogNames() as any, undefined, readiness as any).run(['product']);
+      expect(totals.product).toBe(0);
+    });
+  });
+
   it('rebuilds only the requested types when given a filter', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

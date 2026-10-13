@@ -15,7 +15,15 @@ import {
   type CountRowsResult,
 } from '@bitcrm/shared';
 import { type User, UserStatus } from '@bitcrm/types';
-import { USERS_TABLE, GSI1_NAME, GSI2_NAME } from './constants/dynamo.constants';
+import {
+  USERS_TABLE,
+  GSI1_NAME,
+  GSI2_NAME,
+  GSI3_NAME,
+  ALL_USERS_GSI_PK,
+  ALL_USERS_INDEX_STATE_KEY,
+  allUsersGsiSk,
+} from './constants/dynamo.constants';
 
 interface PaginatedResult {
   items: User[];
@@ -51,9 +59,28 @@ const BATCH_GET_MAX_KEYS = 100;
 const BATCH_GET_MAX_RETRIES = 5;
 const BATCH_GET_BACKOFF_MS = 20;
 
+/** How long a "not ready" answer about the all-users index is trusted. */
+const ALL_USERS_READY_RECHECK_MS = 60_000;
+
+/**
+ * Whether a list cursor was issued by `findAllIndexed` (its key names the
+ * index partition) rather than by the table Scan. The cursor picks the path,
+ * so a walk begun on one never continues on the other.
+ */
+export function isAllUsersIndexCursor(cursor?: string): boolean {
+  if (!cursor) return false;
+  try {
+    const key = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
+    return key?.GSI3PK === ALL_USERS_GSI_PK;
+  } catch {
+    return false;
+  }
+}
+
 @Injectable()
 export class UsersRepository {
   private readonly logger = new Logger(UsersRepository.name);
+  private allUsersIndexState?: { ready: boolean; at: number };
 
   constructor(private readonly dynamoDb: DynamoDbService) {}
 
@@ -68,6 +95,8 @@ export class UsersRepository {
           GSI1SK: `USER#${user.id}`,
           GSI2PK: `DEPT#${user.department}`,
           GSI2SK: `USER#${user.id}`,
+          GSI3PK: ALL_USERS_GSI_PK,
+          GSI3SK: allUsersGsiSk(user.id),
           ...user,
         },
         ConditionExpression: 'attribute_not_exists(PK)',
@@ -256,6 +285,54 @@ export class UsersRepository {
       items: page.items.map(this.toUser),
       nextCursor: this.encodeCursor(page.lastKey),
     };
+  }
+
+  /**
+   * One page of every user, off the all-users index (`USERS#ALL` on
+   * TechnicianIndex): a Query of exactly `limit` rows, projected to the user
+   * fields — the same `User`s and the same opaque-cursor contract as
+   * `findAll`, without reading the technicians' other rows. Ordered by id.
+   * Read only once `allUsersIndexReady()`, or to continue its own cursor.
+   */
+  async findAllIndexed(limit: number, cursor?: string): Promise<PaginatedResult> {
+    const result = await this.dynamoDb.client.send(
+      new QueryCommand({
+        TableName: USERS_TABLE,
+        IndexName: GSI3_NAME,
+        KeyConditionExpression: 'GSI3PK = :pk',
+        ExpressionAttributeValues: { ':pk': ALL_USERS_GSI_PK },
+        ...USER_PROJECTION,
+        Limit: limit,
+        ExclusiveStartKey: this.decodeCursor(cursor),
+      }),
+    );
+    return {
+      items: (result.Items || []).map(this.toUser),
+      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+    };
+  }
+
+  /**
+   * Whether the all-users index may be read: `USERSALLINDEX / STATE` (stamped
+   * by `backfill:users-all-index -- --apply`) exists. Asked again at most once
+   * a minute while it does not; once it does, kept for the life of the
+   * process. A failed read counts as not ready.
+   */
+  async allUsersIndexReady(now: number = Date.now()): Promise<boolean> {
+    const known = this.allUsersIndexState;
+    if (known?.ready) return true;
+    if (known && now - known.at < ALL_USERS_READY_RECHECK_MS) return false;
+    let ready = false;
+    try {
+      const res = await this.dynamoDb.client.send(
+        new GetCommand({ TableName: USERS_TABLE, Key: { ...ALL_USERS_INDEX_STATE_KEY } }),
+      );
+      ready = typeof res?.Item?.readyAt === 'string';
+    } catch (error) {
+      this.logger.warn(`all-users index readiness unreadable — treated as not ready: ${(error as Error).message}`);
+    }
+    this.allUsersIndexState = { ready, at: now };
+    return ready;
   }
 
   /**

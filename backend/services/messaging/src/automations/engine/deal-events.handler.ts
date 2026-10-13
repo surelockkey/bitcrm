@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { type CallCompletedEvent } from '@bitcrm/types';
 import {
   hasDealId,
@@ -6,9 +6,11 @@ import {
   isDealScheduledChangedPayload,
   isDealStatusChangedPayload,
   isDealTechAssignedPayload,
+  isDealTechUnassignedPayload,
   type DealScheduledChangedPayload,
   type DealStatusChangedPayload,
 } from '../deal-events';
+import { TechScopeService } from '../../tech-scope/tech-scope.service';
 import { NewJobSmsService } from '../new-job-sms.service';
 import { AutomationPeersClient } from '../internal/peers.client';
 import {
@@ -47,11 +49,13 @@ export class AutomationDealEventsHandler {
     private readonly engine: AutomationRuleEngine,
     private readonly peers: AutomationPeersClient,
     private readonly snapshots: DealSnapshotRepository,
+    @Optional() private readonly techScope?: TechScopeService,
   ) {}
 
   /** `deal.created`. */
   async onDealCreated(payload: unknown): Promise<void> {
     if (!hasDealId(payload)) return this.drop('deal.created', payload);
+    await this.keepTechScope(payload.dealId);
     await this.dispatch({ kind: 'deal.created', at: this.now(), dealId: payload.dealId });
   }
 
@@ -59,6 +63,7 @@ export class AutomationDealEventsHandler {
   async onDealStatusChanged(payload: unknown): Promise<void> {
     if (!isDealStatusChangedPayload(payload)) return this.drop('deal.status_changed', payload);
     const p = payload as DealStatusChangedPayload;
+    await this.keepTechScope(p.dealId);
     await this.dispatch({
       kind: 'deal.status_changed',
       at: this.now(),
@@ -74,6 +79,7 @@ export class AutomationDealEventsHandler {
 
   /** `deal.tech_assigned` — the built-in New-job SMS, then the rules. */
   async onTechAssigned(payload: unknown): Promise<void> {
+    if (isDealTechAssignedPayload(payload)) await this.keepTechScope(payload.dealId, [payload.techId]);
     await this.newJobSms.onTechAssigned(payload);
     if (!isDealTechAssignedPayload(payload)) return;
     await this.dispatch({
@@ -86,9 +92,22 @@ export class AutomationDealEventsHandler {
 
   /** `deal.updated` — the built-in reschedule text, then the rules (and the reschedule detector). */
   async onDealUpdated(payload: unknown): Promise<void> {
+    if (hasDealId(payload)) await this.keepTechScope(payload.dealId);
     await this.newJobSms.onDealUpdated(payload);
     if (!hasDealId(payload)) return;
     await this.dispatch({ kind: 'deal.updated', at: this.now(), dealId: payload.dealId });
+  }
+
+  /** `deal.tech_unassigned` — no rule listens; the technician it names leaves the job's inbox scope. */
+  async onTechUnassigned(payload: unknown): Promise<void> {
+    if (!isDealTechUnassignedPayload(payload)) return this.drop('deal.tech_unassigned', payload);
+    await this.keepTechScope(payload.dealId, [payload.techId]);
+  }
+
+  /** `deal.deleted` — no rule listens; the job leaves its technicians' inbox scope. */
+  async onDealDeleted(payload: unknown): Promise<void> {
+    if (!hasDealId(payload)) return this.drop('deal.deleted', payload);
+    await this.keepTechScope(payload.dealId);
   }
 
   /** `deal.scheduled_changed` — not published by deal-service today; honoured if it ever is. */
@@ -186,6 +205,15 @@ export class AutomationDealEventsHandler {
     }
 
     await this.engine.handle(event, facts);
+  }
+
+  /**
+   * The technician inbox scope (C4) follows the job's roster and client.
+   * First, so it is current even when an automation fails and SQS retries;
+   * `onDealEvent` never throws, so it cannot be the reason for a retry.
+   */
+  private async keepTechScope(dealId: string, techIds: string[] = []): Promise<void> {
+    await this.techScope?.onDealEvent(dealId, techIds);
   }
 
   private now(): string {

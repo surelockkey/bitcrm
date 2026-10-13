@@ -215,7 +215,7 @@ describe("DispatchPage — Workiz's Map", () => {
     expect(screen.getByTestId("job-row-deal-2")).toBeInTheDocument();
   });
 
-  it("reads every open job once, whatever the date — never the closed ones", async () => {
+  it("reads the open jobs of the days it shows — the week — never the closed ones", async () => {
     const urls: string[] = [];
     server.use(
       http.get("*/deals/map", ({ request }) => {
@@ -225,9 +225,44 @@ describe("DispatchPage — Workiz's Map", () => {
     );
     render(<DispatchPage />, { wrapper });
     await screen.findByTestId("job-row-deal-1");
-    // One request; no statuses and no days — deal-service's default is every open job.
+    // One request: the week's days, no statuses — deal-service's default is the open ones.
     expect(urls).toHaveLength(1);
-    expect([...new URL(urls[0]).searchParams.keys()]).toEqual([]);
+    const week = mapRangeWindow("week", localDay());
+    const params = new URL(urls[0]).searchParams;
+    expect(params.get("from")).toBe(week.from);
+    expect(params.get("to")).toBe(week.to);
+    expect(params.has("statuses")).toBe(false);
+  });
+
+  it("Any date reads every open job, whatever the date (no days asked)", async () => {
+    const urls: string[] = [];
+    server.use(
+      http.get("*/deals/map", ({ request }) => {
+        urls.push(request.url);
+        return mapReply([LOCATED, UNLOCATED]);
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DispatchPage />, { wrapper });
+    await screen.findByTestId("job-row-deal-1");
+    await user.click(screen.getByRole("combobox", { name: /range/i }));
+    await user.click(await screen.findByRole("option", { name: "Any date" }));
+    await waitFor(() => expect(urls.some((u) => [...new URL(u).searchParams.keys()].length === 0)).toBe(true));
+  });
+
+  it("counts the open jobs of any date as deal-service says (`totalAnyDate`), not just the week's", async () => {
+    server.use(
+      http.get("*/deals/map", () =>
+        HttpResponse.json({
+          success: true,
+          data: [LOCATED, UNLOCATED],
+          pagination: { count: 2, totalAnyDate: 9 },
+          included: INCLUDED,
+        }),
+      ),
+    );
+    render(<DispatchPage />, { wrapper });
+    expect(await screen.findByText("Found 2 out of 9 open jobs")).toBeInTheDocument();
   });
 
   it("shows the chosen week and says how many of the open jobs that is", async () => {
@@ -504,6 +539,29 @@ describe("DispatchPage — Workiz's Map", () => {
       expect(screen.queryByTestId("job-pin-deal-1")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Filter by" })).not.toBeInTheDocument();
+    });
+
+    it("on a week without today, the team still stands on today's jobs — read beside the week, for the Techs tab only", async () => {
+      const urls: URL[] = [];
+      server.use(
+        http.get("*/deals/map", ({ request }) => {
+          urls.push(new URL(request.url));
+          return mapReply([LOCATED, UNLOCATED, LATER]);
+        }),
+      );
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+      await screen.findByTestId("job-row-deal-1");
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await waitFor(() => expect(urls).toHaveLength(2));
+      // The Jobs tab draws no team: nothing read for today yet.
+      expect(urls.some((u) => u.searchParams.get("from") === localDay() && u.searchParams.get("to") === localDay())).toBe(false);
+
+      await user.click(screen.getByRole("tab", { name: "Techs" }));
+      await waitFor(() =>
+        expect(urls.some((u) => u.searchParams.get("from") === localDay() && u.searchParams.get("to") === localDay())).toBe(true),
+      );
+      expect(await screen.findByTestId("tech-row-tech-1")).toBeInTheDocument();
     });
 
     it("a tech's card shows where they are and their day", async () => {

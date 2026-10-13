@@ -84,6 +84,65 @@ describe('ActivityRepository — the period, newest first, by day', () => {
   });
 });
 
+describe('ActivityRepository — the day walk reads ahead', () => {
+  /** A week of events, two a day, Sep 1–7. */
+  const WEEK = Array.from({ length: 7 }, (_, d) => [
+    event(10 + d * 2, `2026-09-0${d + 1}T14:00:00.000Z`, 'u1', d === 1 ? 'Added note: needle' : 'Created Job'),
+    event(11 + d * 2, `2026-09-0${d + 1}T15:00:00.000Z`, 'u2'),
+  ]).flat();
+
+  function slowTable() {
+    const table = fakeActivityTable(WEEK);
+    const real = table.send.getMockImplementation()!;
+    let inFlight = 0;
+    const stats = { peak: 0 };
+    table.send.mockImplementation(async (cmd: any) => {
+      inFlight += 1;
+      stats.peak = Math.max(stats.peak, inFlight);
+      await new Promise((r) => setTimeout(r, 2));
+      inFlight -= 1;
+      return real(cmd);
+    });
+    return { ...table, stats };
+  }
+
+  it('a search asks several day partitions at once, 1000 rows a page, and answers exactly as the one-by-one walk', async () => {
+    const { dynamoDb, calls, stats } = slowTable();
+    const repo = new ActivityRepository(dynamoDb as never);
+    const page = await repo.page({ from: '2026-09-01', to: '2026-09-07', sort: 'desc', limit: 10, q: 'needle' });
+    expect(ids(page.items)).toEqual(['e12']);
+    expect(page.next).toBeUndefined();
+    expect(stats.peak).toBeGreaterThanOrEqual(4);
+    expect(calls.every((c) => c.input.Limit === 1000)).toBe(true);
+  });
+
+  it('without a search the first day goes alone; the days after it are read ahead together', async () => {
+    const { dynamoDb, calls, stats } = slowTable();
+    const repo = new ActivityRepository(dynamoDb as never);
+    const base = { from: '2026-09-01', to: '2026-09-07', sort: 'desc' as const, limit: 5 };
+    const first = await repo.page(base);
+    expect(ids(first.items)).toEqual(['e23', 'e22', 'e21', 'e20', 'e19']);
+    expect(calls[0].input.ExpressionAttributeValues[':pk']).toContain('2026-09-07');
+    expect(stats.peak).toBeGreaterThan(1);
+
+    // The cursor resumes inside the day it stopped in, and the walk carries on.
+    const second = await repo.page({ ...base, cursor: first.next });
+    expect(ids(second.items)).toEqual(['e18', 'e17', 'e16', 'e15', 'e14']);
+    const third = await repo.page({ ...base, cursor: second.next });
+    expect(ids(third.items)).toEqual(['e13', 'e12', 'e11', 'e10']);
+    expect(third.next).toBeUndefined();
+  });
+
+  it('never spends more queries than its budget, read-ahead included', async () => {
+    const { dynamoDb, calls } = slowTable();
+    const repo = new ActivityRepository(dynamoDb as never);
+    const page = await repo.page({ from: '2026-09-01', to: '2026-09-07', sort: 'desc', limit: 10, q: 'nothing', budget: 3 });
+    expect(calls).toHaveLength(3);
+    expect(page.items).toEqual([]);
+    expect(page.next).toEqual({ d: '2026-09-04' });
+  });
+});
+
 describe('ActivityRepository — chosen people', () => {
   it('merges each person’s events by time and pages on the last one handed out', async () => {
     const { dynamoDb, calls } = fakeActivityTable(ROWS);

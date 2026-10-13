@@ -151,6 +151,7 @@ EXTRA_ENV_JSON=$(jq -n \
     {name: "CRM_SERVICE_URL",       value: "http://crm:4002"},
     {name: "DEAL_SERVICE_URL",      value: "http://deal:4003"},
     {name: "INVENTORY_SERVICE_URL", value: "http://inventory:4004"},
+    {name: "SEARCH_SERVICE_URL",    value: "http://search:4005"},
     {name: "TELEPHONY_SERVICE_URL", value: "http://telephony:4006"},
     {name: "MESSAGING_SERVICE_URL", value: "http://messaging:4007"},
     {name: "BILLING_SERVICE_URL",   value: "http://billing:4008"}

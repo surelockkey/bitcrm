@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, Optional } from '@nestjs/common';
 import { getDataScopeFilter, hasPermission } from '@bitcrm/shared';
 import {
   DataScope,
@@ -9,6 +9,8 @@ import {
 } from '@bitcrm/types';
 import { ConversationsRepository } from '../../conversations/conversations.repository';
 import { conversationActivityAt } from '../../conversations/conversation-keys';
+import { TechScopeService } from '../../tech-scope/tech-scope.service';
+import { jobPartiesOf, scopeDealsOf, type TechScopeParty } from '../../tech-scope/tech-scope.logic';
 import { DealReadService, type DealForMessaging } from './deal-read.service';
 
 /**
@@ -31,14 +33,12 @@ export interface Viewer {
   seesNumbers: boolean;
 }
 
-/** Party-lookups fan out in chunks so a tech with many jobs does not open 200 reads at once. */
-const PARTY_LOOKUP_CHUNK = 25;
-
 @Injectable()
 export class ConversationScopeService {
   constructor(
     private readonly conversations: ConversationsRepository,
     private readonly deals: DealReadService,
+    @Optional() private readonly techScope?: TechScopeService,
   ) {}
 
   viewerFor(user: JwtUser, perms: ResolvedPermissions | undefined): Viewer {
@@ -105,35 +105,45 @@ export class ConversationScopeService {
   /**
    * The inbox of an `assigned_only` caller, newest activity first: the
    * threads of every party on their jobs, their own team thread and the
-   * groups they are a member of (§6, through `MEMBEROF#`). Read through the
-   * `CONVOF#` pointers (A8) — there is no per-technician index and a tech
-   * has tens of jobs, not thousands. A deal service that cannot answer
-   * yields only the caller's own threads.
+   * groups they are a member of (§6, through `MEMBEROF#`).
+   *
+   * The jobs' parties come from the stored technician scope
+   * (`TechScopeService` — one GetItem) once its gate is open, from
+   * deal-service on the request until then; the group memberships are read
+   * beside them. Every party is then resolved in two BatchGets (`CONVOF#`
+   * pointers, then conversations) rather than two reads per party. A deal
+   * service that cannot answer yields only the caller's own threads.
    */
   async assignedConversations(userId: string): Promise<Conversation[]> {
-    const deals = (await this.deals.listByTech(userId)) ?? [];
+    const [jobParties, memberships] = await Promise.all([
+      this.techScope ? this.techScope.jobParties(userId) : this.liveJobParties(userId),
+      this.conversations.listMemberOf(userId),
+    ]);
+
     const parties = new Map<string, { kind: ConversationPointerKind; id: string }>();
-    for (const deal of deals) {
-      if (!deal.assignedTechIds.includes(userId)) continue;
-      if (deal.contactId) parties.set(`contact:${deal.contactId}`, { kind: 'contact', id: deal.contactId });
-      if (deal.companyId) parties.set(`company:${deal.companyId}`, { kind: 'company', id: deal.companyId });
-    }
+    for (const p of jobParties) parties.set(`${p.kind}:${p.id}`, p);
     parties.set(`user:${userId}`, { kind: 'user', id: userId });
-    for (const m of await this.conversations.listMemberOf(userId)) {
+    for (const m of memberships) {
       parties.set(`group:${m.conversationId}`, { kind: 'group', id: m.conversationId });
     }
 
-    const found = new Map<string, Conversation>();
     const list = [...parties.values()];
-    for (let i = 0; i < list.length; i += PARTY_LOOKUP_CHUNK) {
-      const chunk = list.slice(i, i + PARTY_LOOKUP_CHUNK);
-      const results = await Promise.all(chunk.map((p) => this.conversations.getByParty(p.kind, p.id)));
-      for (const c of results) if (c) found.set(c.id, c);
+    const byParty = await this.conversations.getManyByParty(list);
+    // Party order decides the order of equal timestamps, as it always has.
+    const found = new Map<string, Conversation>();
+    for (const p of list) {
+      const c = byParty.get(`${p.kind}:${p.id}`);
+      if (c && !found.has(c.id)) found.set(c.id, c);
     }
 
     return [...found.values()].sort((a, b) =>
       conversationActivityAt(b).localeCompare(conversationActivityAt(a)),
     );
+  }
+
+  private async liveJobParties(userId: string): Promise<TechScopeParty[]> {
+    const deals = (await this.deals.listByTech(userId)) ?? [];
+    return jobPartiesOf(scopeDealsOf(deals, userId));
   }
 }
 

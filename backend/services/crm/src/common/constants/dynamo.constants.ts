@@ -2,6 +2,13 @@ export const CONTACTS_TABLE = process.env.CONTACTS_TABLE || 'BitCRM_Contacts';
 export const COMPANIES_TABLE = process.env.COMPANIES_TABLE || 'BitCRM_Companies';
 
 export const CONTACTS_GSI1_NAME = 'CompanyIndex';
+/**
+ * Sparse GSI2 on the contacts table: CONTACTS#ACTIVE / <name>#<id> on every
+ * active contact's METADATA row — the client list, A→Z, without a Scan
+ * (`contacts/contact-list-index.ts`). Read only once `CONTACTLISTINDEX /
+ * STATE` exists (stamped by `backfill:contact-list-index -- --apply`).
+ */
+export const CONTACTS_GSI2_NAME = 'ContactListIndex';
 export const COMPANIES_GSI1_NAME = 'ClientTypeIndex';
 
 // Company compliance documents (W-9 / COI): PK=COMPANY#<id>, SK=DOC#<docType>.
