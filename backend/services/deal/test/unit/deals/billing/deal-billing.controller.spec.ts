@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { RequestMethod } from '@nestjs/common';
-import { PATH_METADATA, METHOD_METADATA } from '@nestjs/common/constants';
+import { PATH_METADATA, METHOD_METADATA, GUARDS_METADATA } from '@nestjs/common/constants';
+import { InternalGuard } from 'src/common/guards/internal.guard';
 import { TimelineEventType } from '@bitcrm/types';
 import { DealBillingController } from 'src/deals/billing/deal-billing.controller';
 import { DealBillingService } from 'src/deals/billing/deal-billing.service';
@@ -23,6 +24,8 @@ describe('DealBillingController', () => {
       setInvoiceLink: jest.fn(),
       addTimeline: jest.fn(),
       listByContact: jest.fn().mockResolvedValue([]),
+      needsInvoiceCount: jest.fn().mockResolvedValue(12),
+      listNeedsInvoice: jest.fn().mockResolvedValue({ items: [createMockDeal()], nextCursor: 'n' }),
     };
     const module = await Test.createTestingModule({
       controllers: [DealBillingController],
@@ -87,5 +90,30 @@ describe('DealBillingController', () => {
     expect(service.addTimeline).toHaveBeenCalledWith('d', entry);
 
     expect(await controller.byContact('c')).toEqual({ success: true, data: [] });
+  });
+
+  describe('needs invoice (billing internal)', () => {
+    it('GET internal/needs-invoice/count → { count }', async () => {
+      expect(route('needsInvoiceCount')).toEqual({ path: 'internal/needs-invoice/count', method: RequestMethod.GET });
+      expect(await controller.needsInvoiceCount()).toEqual({ success: true, data: { count: 12 } });
+    });
+
+    it('GET internal/needs-invoice → a page of deals with a cursor', async () => {
+      expect(route('listNeedsInvoice')).toEqual({ path: 'internal/needs-invoice', method: RequestMethod.GET });
+      const out = await controller.listNeedsInvoice('50', 'c1');
+      expect(service.listNeedsInvoice).toHaveBeenCalledWith('50', 'c1');
+      expect(out).toEqual({
+        success: true,
+        data: [expect.objectContaining({ id: 'deal-1' })],
+        pagination: { nextCursor: 'n', count: 1 },
+      });
+    });
+
+    it('both are internal-only (the internal-secret guard)', () => {
+      const guards = (name: keyof DealBillingController) =>
+        (Reflect.getMetadata(GUARDS_METADATA, DealBillingController.prototype[name] as unknown as object) ?? []) as unknown[];
+      expect(guards('needsInvoiceCount')).toContain(InternalGuard);
+      expect(guards('listNeedsInvoice')).toContain(InternalGuard);
+    });
   });
 });

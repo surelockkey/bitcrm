@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { RedisService } from '@bitcrm/shared';
+import { RedisBatchCache } from './redis-batch-cache';
 
 const USER_SERVICE_URL =
   process.env.USER_SERVICE_URL || 'http://localhost:4001';
@@ -12,45 +14,42 @@ export interface UserSummary {
   roleId?: string;
 }
 
-interface CacheEntry {
-  user: UserSummary;
-  expiresAt: number;
-}
-
 /**
  * Resolves system user ids to display names (and their role) through the
  * user-service internal API (`GET /api/users/internal/:id`,
- * `x-internal-secret`) with a small in-memory cache. Resolution is
+ * `x-internal-secret`), cached in Redis for ten minutes (shared by every task,
+ * a ten-second in-process layer in front). Resolution is
  * best-effort: an unreachable user service degrades to showing the raw id,
  * never to failing the calls endpoints.
  */
 @Injectable()
 export class UserNamesService {
   private readonly logger = new Logger(UserNamesService.name);
-  private readonly cache = new Map<string, CacheEntry>();
+  /** By user id, shared through Redis. A failed lookup is never cached. */
+  private readonly cache: RedisBatchCache<UserSummary>;
+
+  constructor(@Optional() redis?: RedisService) {
+    this.cache = new RedisBatchCache<UserSummary>(redis, 'telephony:names:user:v1', {
+      hitTtlMs: CACHE_TTL_MS,
+      // Nothing caches a miss here: an unknown id is an error, not an answer.
+      missTtlMs: 0,
+    });
+  }
 
   async resolve(userIds: string[]): Promise<Record<string, UserSummary>> {
     const unique = [...new Set(userIds.filter(Boolean))];
-    const out: Record<string, UserSummary> = {};
-    const misses: string[] = [];
-
-    const now = Date.now();
-    for (const id of unique) {
-      const hit = this.cache.get(id);
-      if (hit && hit.expiresAt > now) out[id] = hit.user;
-      else misses.push(id);
-    }
-
-    await Promise.all(
-      misses.map(async (id) => {
-        const user = await this.fetchUser(id);
-        if (user) {
-          this.cache.set(id, { user, expiresAt: now + CACHE_TTL_MS });
-          out[id] = user;
-        }
-      }),
-    );
-    return out;
+    if (!unique.length) return {};
+    const found = await this.cache.getMany(unique, async (misses) => {
+      const loaded = new Map<string, UserSummary | null>();
+      await Promise.all(
+        misses.map(async (id) => {
+          const user = await this.fetchUser(id);
+          if (user) loaded.set(id, user);
+        }),
+      );
+      return loaded;
+    });
+    return Object.fromEntries(found);
   }
 
   private async fetchUser(id: string): Promise<UserSummary | null> {

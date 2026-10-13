@@ -96,7 +96,13 @@ export class TechniciansService {
    * joined from the user record, the photo linked.
    */
   private async resolve(profile: TechnicianProfile): Promise<TechnicianProfile> {
-    return this.withPhoto(await this.withPhone(profile));
+    // Independent reads (the user record; the photo document + its link), so
+    // they run side by side — the photo only ever adds `profilePhotoUrl`.
+    const [withPhone, profilePhotoUrl] = await Promise.all([
+      this.withPhone(profile),
+      this.photoUrl(profile.userId),
+    ]);
+    return profilePhotoUrl ? { ...withPhone, profilePhotoUrl } : withPhone;
   }
 
   /**
@@ -106,12 +112,11 @@ export class TechniciansService {
    * Not audited the way a document view is — an avatar drawn on every open of
    * the card is not someone reading a licence.
    */
-  private async withPhoto(profile: TechnicianProfile): Promise<TechnicianProfile> {
-    if (!this.documentsRepository || !this.s3) return profile;
-    const doc = await this.documentsRepository.getByType(profile.userId, 'profile_photo');
-    if (!doc) return profile;
-    const profilePhotoUrl = await this.s3.getPresignedDownloadUrl(doc.s3Key, PHOTO_URL_TTL_SECONDS);
-    return { ...profile, profilePhotoUrl };
+  private async photoUrl(userId: string): Promise<string | undefined> {
+    if (!this.documentsRepository || !this.s3) return undefined;
+    const doc = await this.documentsRepository.getByType(userId, 'profile_photo');
+    if (!doc) return undefined;
+    return this.s3.getPresignedDownloadUrl(doc.s3Key, PHOTO_URL_TTL_SECONDS);
   }
 
   /**
@@ -374,11 +379,14 @@ export class TechniciansService {
 
   /** Privileged = Super Admin, or any role ranked above a field Technician. */
   private async isPrivilegedCaller(caller: JwtUser): Promise<boolean> {
-    const callerRole = await this.rolesService.findById(
-      this.resolveCallerRoleId(caller),
-    );
+    // The reference role is asked for alongside the caller's, but only awaited
+    // where the old sequential code read it: a Super Admin never depends on it
+    // (a missing reference role must not 404 them), anyone else gets its error.
+    const techRoleRead = this.rolesService.findById(TECHNICIAN_ROLE_ID);
+    techRoleRead.catch(() => undefined);
+    const callerRole = await this.rolesService.findById(this.resolveCallerRoleId(caller));
     if (callerRole.isSystem && callerRole.name === 'Super Admin') return true;
-    const techRole = await this.rolesService.findById(TECHNICIAN_ROLE_ID);
+    const techRole = await techRoleRead;
     return callerRole.priority > techRole.priority;
   }
 

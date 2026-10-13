@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { UserEventType, type JwtUser } from '@bitcrm/types';
 import { TechnicianAssignmentsService } from '../../../src/technicians/assignments/technician-assignments.service';
 import { createMockTechnicianAssignmentsRepository } from '../mocks';
@@ -162,6 +162,116 @@ describe('TechnicianAssignmentsService', () => {
     it('is a manager view: a technician may not read everyone else', async () => {
       await expect(service.listApproved(tech)).rejects.toThrow(ForbiddenException);
       expect(repo.listAllApproved).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('approved-set cache (Redis)', () => {
+    const KEY = 'technicians:assignments:approved';
+    let store: Map<string, string>;
+    let redis: { client: { get: jest.Mock; set: jest.Mock; del: jest.Mock } };
+    let cached: TechnicianAssignmentsService;
+
+    beforeEach(() => {
+      store = new Map();
+      redis = {
+        client: {
+          get: jest.fn(async (k: string) => store.get(k) ?? null),
+          set: jest.fn(async (k: string, v: string) => {
+            store.set(k, v);
+            return 'OK';
+          }),
+          del: jest.fn(async (k: string) => (store.delete(k) ? 1 : 0)),
+        },
+      };
+      cached = new TechnicianAssignmentsService(repo as never, roles as never, sns as never, redis as never);
+      repo.listAllApproved.mockImplementation((kind: string) =>
+        Promise.resolve(kind === 'job_type' ? [asAssignment({ catalogId: 'jt-1' })] : []),
+      );
+    });
+
+    it('reads the GSI once, then answers from Redis', async () => {
+      const first = await cached.listApproved(manager);
+      const second = await cached.listApproved(manager);
+
+      expect(second).toEqual(first);
+      expect(repo.listAllApproved).toHaveBeenCalledTimes(2); // one per kind, first call only
+      expect(redis.client.set).toHaveBeenCalledWith(KEY, expect.any(String), 'EX', 300);
+    });
+
+    it('still checks the caller before answering from the cache', async () => {
+      await cached.listApproved(manager);
+      await expect(cached.listApproved(tech)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('works without Redis answering (a failed cache read falls through)', async () => {
+      redis.client.get.mockRejectedValue(new Error('down'));
+      redis.client.set.mockRejectedValue(new Error('down'));
+      await expect(cached.listApproved(manager)).resolves.toMatchObject({
+        jobTypes: [expect.objectContaining({ jobTypeId: 'jt-1' })],
+      });
+    });
+
+    it.each([
+      ['assign', () => cached.assign('tech-1', 'job_type', ['jt-9'], manager)],
+      ['propose', () => cached.propose('tech-1', 'job_type', ['jt-9'], tech)],
+      ['approve', () => cached.approve('tech-1', 'job_type', 'jt-1', {}, manager)],
+      ['reject', () => cached.reject('tech-1', 'job_type', 'jt-1', { comments: 'no' }, manager)],
+      ['revoke', () => cached.revoke('tech-1', 'job_type', 'jt-1', manager)],
+    ])('%s deletes the cached approved set', async (_name, write) => {
+      repo.listByUser.mockResolvedValue([asAssignment({ catalogId: 'jt-1', status: 'pending' })]);
+      repo.updateStatus.mockResolvedValue(asAssignment({ catalogId: 'jt-1' }));
+      store.set(KEY, '{"jobTypes":[],"serviceAreas":[]}');
+
+      await write();
+
+      expect(redis.client.del).toHaveBeenCalledWith(KEY);
+      expect(store.has(KEY)).toBe(false);
+    });
+  });
+
+  describe('isPrivileged — a missing reference role', () => {
+    const missingTechRole = (callerRole: Record<string, unknown>) =>
+      jest.fn((id: string) =>
+        id === 'role-technician'
+          ? Promise.reject(new NotFoundException('Role role-technician not found'))
+          : Promise.resolve(callerRole),
+      );
+
+    it('never costs a Super Admin their access', async () => {
+      roles.findById = missingTechRole({ id: 'role-super-admin', name: 'Super Admin', isSystem: true, priority: 100 });
+      const superAdmin = { ...manager, roleId: 'role-super-admin' };
+
+      await expect(service.listApproved(superAdmin)).resolves.toBeDefined();
+    });
+
+    it('is a 404 for anyone else, as it always was', async () => {
+      roles.findById = missingTechRole({ id: 'role-manager', name: 'Manager', isSystem: false, priority: 50 });
+
+      await expect(service.listApproved(manager)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('isPrivileged', () => {
+    it("reads the caller's role and the technician role concurrently, not one after the other", async () => {
+      const pending: Array<() => void> = [];
+      roles.findById.mockImplementation(
+        (id: string) =>
+          new Promise((resolve) =>
+            pending.push(() =>
+              resolve(
+                id === 'role-manager'
+                  ? { id, name: 'Manager', priority: 50, isSystem: false }
+                  : { id, name: 'Technician', priority: 10, isSystem: false },
+              ),
+            ),
+          ),
+      );
+
+      const answer = service.listApproved(manager);
+      await new Promise((r) => setImmediate(r));
+      expect(roles.findById).toHaveBeenCalledTimes(2);
+      pending.forEach((release) => release());
+      await expect(answer).resolves.toBeDefined();
     });
   });
 });

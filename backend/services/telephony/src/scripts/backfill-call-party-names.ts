@@ -6,10 +6,11 @@
  * ---
  * `GET /calls?q=` matches a party's NAME with `contains(partyNames, …)`
  * (calls/call-search.ts). Call rows store their parties as ids only, so the
- * names are copied on: the log's own read path stamps them whenever it has
- * just named a finished call and the row disagrees. Rows nobody has opened
- * since that shipped — every imported Workiz call — carry none, and a row
- * without them is found by its digits only, never by a name.
+ * names are copied on: CallFinalizer stamps them once, when a call ends (and
+ * again on a manual party change) — the log's read path never writes. Rows
+ * that ended before that, every imported Workiz call, and rows whose party
+ * was renamed since carry none or stale ones, and a row without them is
+ * found by its digits only, never by a name.
  *
  * WHAT
  * ----
@@ -21,8 +22,9 @@
  *    METADATA rows only, projected to the frozen party fields; computes the
  *    text with the very functions the service uses (`storedParties`,
  *    `partyNamesText`) and writes only what differs.
- * 3. Leaves alone: a row with no frozen association (its first read resolves
- *    it by number, freezes it and stamps it), a row naming a party none of the
+ * 3. Leaves alone: a row with no frozen association (named by number on
+ *    every read, never frozen — only calls that end now are frozen, by
+ *    CallFinalizer), a row naming a party none of the
  *    tables holds any more, and the hidden internal leg. Each write is
  *    conditional on the row existing. Idempotent, upsert-only
  *    (backend/CLAUDE.md §5): a second run writes nothing.
@@ -40,8 +42,9 @@
  *   CONTACTS_TABLE=bitcrm-dev-contacts COMPANIES_TABLE=bitcrm-dev-companies \
  *   npm run backfill:call-party-names -w backend/services/telephony [-- --apply]
  *
- * Run it after the deploy that ships the search, and again after every Workiz
- * import (the importer does not stamp `partyNames`). No index is involved, so
+ * Run it after the deploy that ships the search, again after every Workiz
+ * import (the importer does not stamp `partyNames`), and now and then to pick
+ * up renamed clients (a rename no longer restamps rows on read). No index is involved, so
  * no Terraform is needed first.
  *
  * TIME / COST (the full import: ~1.8 M calls, ~1.6 M of them with a frozen
@@ -260,7 +263,7 @@ async function main(): Promise<void> {
   console.log(
     `\nScanned ${counts.scanned} calls in ${Math.round((Date.now() - started) / 1000)} s: ` +
       `${counts.stamped} ${apply ? 'stamped' : 'to stamp'}, ${counts.same} already correct, ` +
-      `${counts.unfrozen} with no frozen party (named on their first read), ` +
+      `${counts.unfrozen} with no frozen party (named by number on read), ` +
       `${counts.unknown} naming a party no table holds` +
       (apply ? `, ${counts.gone} gone before the write` : '') +
       '.',

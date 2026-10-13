@@ -3,7 +3,9 @@ import { ContactLookupService } from '../../src/common/contact-lookup.service';
 /**
  * The cache in front of the CRM. The interesting case is a *miss*: an unknown
  * caller becomes a client the moment someone clicks "Add client" on that very
- * call, so a miss must not be remembered for long or the feature looks broken.
+ * call. A miss is kept five minutes (shared through Redis), and contact-events
+ * drop the new client's numbers at once (`forgetContact`, see
+ * redis-batch-cache.spec) — so the expiry is only the backstop.
  */
 describe('ContactLookupService', () => {
   const jane = { kind: 'contact', id: 'c1', firstName: 'Jane', lastName: 'Roe' };
@@ -45,7 +47,7 @@ describe('ContactLookupService', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('re-asks soon after a miss, so a new client shows up', async () => {
+  it('re-asks once a miss expires, so a new client shows up', async () => {
     jest.useFakeTimers();
     const fetchMock = mockCrm({}); // nobody owns this number yet
     global.fetch = fetchMock as never;
@@ -59,8 +61,8 @@ describe('ContactLookupService', () => {
     await service.resolve(['+14045551234']);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    // The client gets created; a refresh a moment later has to see them.
-    jest.advanceTimersByTime(21_000);
+    // The client gets created; past the miss window a refresh has to see them.
+    jest.advanceTimersByTime(5 * 60_000 + 1_000);
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, data: { '+14045551234': jane } }),
@@ -78,7 +80,7 @@ describe('ContactLookupService', () => {
     const service = new ContactLookupService();
 
     await service.resolve(['+14045551234']);
-    jest.advanceTimersByTime(21_000); // past the miss window, inside the hit one
+    jest.advanceTimersByTime(5 * 60_000 + 1_000); // past the miss window, inside the hit one
     await service.resolve(['+14045551234']);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);

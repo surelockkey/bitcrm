@@ -15,6 +15,7 @@ import { CallFlowsService } from '../../call-flows/call-flows.service';
 import { NumberSettingsRepository } from '../../numbers/number-settings.repository';
 import { DealTotalsClient } from '../../common/deal-totals.client';
 import { CallTrackingRepository } from './call-tracking.repository';
+import { StoredDealTotals } from '../stored-deal-totals';
 import {
   CallTrackingTally,
   serveTracking,
@@ -108,18 +109,25 @@ export class CallTrackingService {
     const started = Date.now();
     const window = { from, to, ...accountWindowUtc(from, to) };
     const tally = new CallTrackingTally(window);
+    const stored = new StoredDealTotals();
     const [walk, flowCatalog, numbers] = await Promise.all([
-      this.repo.walk(window, (call) => tally.add(call)),
+      this.repo.walk(window, (call) => {
+        tally.add(call);
+        stored.add(call);
+      }),
       this.callFlows?.list().catch((err: Error) => this.skip('call flows', err)) ?? [],
       this.numberSettings?.list().catch((err: Error) => this.skip('number settings', err)) ?? [],
     ]);
 
-    let totals = new Map<string, number>();
+    // The rows carry their job's total; deal-service is asked only for the
+    // jobs whose rows have none yet (old data, before the backfill).
+    let totals = stored.totals;
     let complete = !walk.atLeast;
     const dealIds = tally.dealIds();
-    if (dealIds.length && this.deals) {
+    const missing = stored.missing(dealIds);
+    if (missing.length && this.deals) {
       try {
-        totals = await this.deals.totals(dealIds);
+        totals = stored.merged(await this.deals.totals(missing));
       } catch (err) {
         // Counts are still right; the money is not. Serve it, never keep it.
         this.logger.warn(`Call Tracking ${from}..${to}: job totals unavailable — ${(err as Error).message}`);

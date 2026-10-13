@@ -21,6 +21,12 @@ import { CallFlowsModule } from '../call-flows/call-flows.module';
 import { CallTagsModule } from '../call-tags/call-tags.module';
 
 import { FlowSnapshotScheduler } from './flow-snapshot.scheduler';
+import { CallDealEventsHandler } from './call-deal-events.handler';
+import { CallContactEventsHandler } from './call-contact-events.handler';
+import { CallFinalizer } from './call-finalizer';
+import { RecentCallsStore } from './recent-calls.store';
+import { CallCountersRepository } from './call-counters.repository';
+import { RecordingArchiveService } from './recording-archive.service';
 @Module({
   // VoiceModule provides ConferenceService (monitor grants) and itself imports
   // CallsModule for the record writer — hence the forwardRef pair.
@@ -54,6 +60,17 @@ import { FlowSnapshotScheduler } from './flow-snapshot.scheduler';
     CallsExportService,
     DealNumbersClient,
     JobSourceNamesClient,
+    // deal-events (queue deal-events-to-telephony) → restamp `dealTotal`.
+    CallDealEventsHandler,
+    // contact-events (same queue) → drop a client's numbers from the name cache.
+    CallContactEventsHandler,
+    // A call that ended: freeze parties, stamp search names, list it as recent.
+    CallFinalizer,
+    RecentCallsStore,
+    // CALLCOUNT / MONTH#<YYYY-MM> — the unfiltered count.
+    CallCountersRepository,
+    // Twilio recording → our bucket, on VoiceModule's WebhookQueue.
+    RecordingArchiveService,
   ],
   exports: [CallsService, CallEventsBus, BridgeService],
 })

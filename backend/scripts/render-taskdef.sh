@@ -209,7 +209,7 @@ EXTRA_ENV_JSON=$(jq -n \
       + (if $stripe_publishable_key != "" then [{name: "STRIPE_PUBLISHABLE_KEY", value: $stripe_publishable_key}] else [] end)
     else [] end)
   # SQS consumers only poll when explicitly enabled.
-  + (if ($service == "deal" or $service == "inventory" or $service == "search" or $service == "messaging" or $service == "billing") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)
+  + (if ($service == "deal" or $service == "inventory" or $service == "search" or $service == "messaging" or $service == "billing" or $service == "telephony") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)
   # search does NOT re-index on boot (ENABLE_SEARCH_BACKFILL is left unset):
   # a full backfill walks every other service internal list route, and running it
   # on every task start (~every deploy) flooded them. The SQS indexer keeps the

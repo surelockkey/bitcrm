@@ -17,6 +17,7 @@ import {
 const LATER_INDEXES = [
   { name: 'EndIndex', pk: 'GSI7PK', sk: 'GSI7SK', backfill: 'backfill:end-index' },
   { name: 'ContactActivityIndex', pk: 'GSI10PK', sk: 'GSI10SK', backfill: 'backfill:contact-index' },
+  { name: 'NeedsInvoiceIndex', pk: 'GSI11PK', sk: 'GSI11SK', backfill: 'backfill:needs-invoice-index -- --apply' },
 ];
 
 const TABLE_NAME = 'BitCRM_Deals';
@@ -57,6 +58,8 @@ async function main() {
           { AttributeName: 'GSI7SK', AttributeType: 'S' },
           { AttributeName: 'GSI10PK', AttributeType: 'S' },
           { AttributeName: 'GSI10SK', AttributeType: 'S' },
+          { AttributeName: 'GSI11PK', AttributeType: 'S' },
+          { AttributeName: 'GSI11SK', AttributeType: 'S' },
         ],
         GlobalSecondaryIndexes: [
           {
@@ -125,6 +128,16 @@ async function main() {
             KeySchema: [
               { AttributeName: 'GSI10PK', KeyType: 'HASH' },
               { AttributeName: 'GSI10SK', KeyType: 'RANGE' },
+            ],
+            Projection: { ProjectionType: 'ALL' },
+          },
+          {
+            // Sparse: the jobs that still need an invoice (live, lines, no
+            // invoiceId) — billing's count and list (`deals/needs-invoice-index.ts`).
+            IndexName: 'NeedsInvoiceIndex',
+            KeySchema: [
+              { AttributeName: 'GSI11PK', KeyType: 'HASH' },
+              { AttributeName: 'GSI11SK', KeyType: 'RANGE' },
             ],
             Projection: { ProjectionType: 'ALL' },
           },

@@ -154,9 +154,14 @@ export class CalendarService {
 
   private async isPrivileged(caller: JwtUser): Promise<boolean> {
     if (!caller.roleId) throw new ForbiddenException('User has no roleId assigned');
+    // The reference role is asked for alongside the caller's, but only awaited
+    // where the old sequential code read it: a Super Admin never depends on it
+    // (a missing reference role must not 404 them), anyone else gets its error.
+    const techRoleRead = this.rolesService.findById(TECHNICIAN_ROLE_ID);
+    techRoleRead.catch(() => undefined);
     const callerRole = await this.rolesService.findById(caller.roleId);
     if (callerRole.isSystem && callerRole.name === 'Super Admin') return true;
-    const techRole = await this.rolesService.findById(TECHNICIAN_ROLE_ID);
+    const techRole = await techRoleRead;
     return callerRole.priority > techRole.priority;
   }
 }

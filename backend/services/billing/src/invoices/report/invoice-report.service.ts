@@ -139,14 +139,15 @@ export class InvoiceReportService {
     const today = reportToday();
     const [{ open, indexReady }, needing] = await Promise.all([
       this.openInvoices(caller),
-      this.invoices ? this.invoices.needingInvoice(authorization) : Promise.resolve([]),
+      // deal-service's count (C1, cached 30 s), not its list.
+      this.invoices ? this.invoices.needsInvoiceCount(caller, authorization) : Promise.resolve(0),
     ]);
     const cards = invoiceCards(open, dayWindow(q.from, q.to), today);
     return {
       ...(q.from && { from: q.from }),
       ...(q.to && { to: q.to }),
       ...cards,
-      needInvoices: { count: needing.length },
+      needInvoices: { count: needing },
       indexReady,
     };
   }

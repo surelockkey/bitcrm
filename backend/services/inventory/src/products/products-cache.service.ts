@@ -32,6 +32,22 @@ export class ProductsCacheService {
     );
   }
 
+  /** Every cached product of these ids, in one MGET; misses are simply absent. */
+  async getMany(ids: string[]): Promise<Map<string, Product>> {
+    const hits = new Map<string, Product>();
+    if (ids.length === 0) return hits;
+    const raw = await this.redis.client.mget(...ids.map(productCacheKey));
+    raw.forEach((data, i) => {
+      if (data) hits.set(ids[i], JSON.parse(data) as Product);
+    });
+    return hits;
+  }
+
+  /** Caches each product under its own key (same TTL as `set`). */
+  async setMany(products: Product[]): Promise<void> {
+    await Promise.all(products.map((p) => this.set(p.id, p)));
+  }
+
   async invalidate(id: string): Promise<void> {
     await this.redis.client.del(productCacheKey(id));
   }

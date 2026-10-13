@@ -59,6 +59,10 @@ export interface TrackedCall {
   /** Imported calls: Workiz's flow id (always), beside `flowId` when the flow was imported. */
   workizFlowId?: string | number;
   dealId?: string;
+  /** The linked job's total, stamped on the call row (see StoredDealTotals). */
+  dealTotal?: number;
+  /** When `dealTotal` was read from deal-service. */
+  dealTotalAt?: string;
   /** Imported calls: Workiz's job id — present even when the job never became a deal. */
   workizJobId?: string | number;
   sourceId?: string;
@@ -83,6 +87,8 @@ export const TRACKED_CALL_ATTRIBUTES: (keyof TrackedCall)[] = [
   'flowName',
   'workizFlowId',
   'dealId',
+  'dealTotal',
+  'dealTotalAt',
   'workizJobId',
   'sourceId',
   'externalId',

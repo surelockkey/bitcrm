@@ -198,7 +198,7 @@ display names per table.
 | `BitCRM_Users` (also roles + technician profiles) | `USERS_TABLE` | RoleIndex | DepartmentIndex | TechnicianIndex | SkillStatusIndex |
 | `BitCRM_Contacts` | `CONTACTS_TABLE` | CompanyIndex | | | |
 | `BitCRM_Companies` (also work orders) | `COMPANIES_TABLE` | ClientTypeIndex | | | |
-| `BitCRM_Deals` (deals, line items, timeline, catalogs, eligibility) | `DEALS_TABLE` | StageIndex | TechIndex | ContactIndex | DispatcherIndex |
+| `BitCRM_Deals` (deals, line items, timeline, catalogs, eligibility) | `DEALS_TABLE` | StageIndex | TechIndex | ContactIndex | DispatcherIndex (… GSI11 NeedsInvoiceIndex, sparse) |
 | `BitCRM_Inventory` | `INVENTORY_TABLE` | CategoryIndex | TypeIndex | OwnerIndex | TransferEntityIndex |
 | `BitCRM_Calls` (also job dial-in codes) | `CALLS_TABLE` | AgentIndex | AllCallsIndex | PartyIndex | |
 | `BitCRM_CallGroups`, `BitCRM_CallFlows` | `CALL_GROUPS_TABLE`, `CALL_FLOWS_TABLE` | — | | | |
@@ -250,6 +250,13 @@ BLOCKED#ALL        / <E.164>         a blocked caller (Workiz Phone → Blocked 
                                      `GET /blocked-callers/internal/numbers` (cached 60 s, fail-open), which drops the text.
                                      `calls.block` gates the list / block / unblock routes. Unblock deletes the row
 EXT#<code> / EXTOF#<dealId>          job dial-in codes (both directions, for idempotent minting)
+DEALCALLS#<dealId> / CALL#<sid>      a job's linked calls (no GSI keys) — how a deal event finds the calls whose
+                                     `dealTotal` to restamp; put/removed whenever a call's job link changes
+CALLCOUNT / MONTH#<YYYY-MM>          { count } calls per UTC month of startedAt, ADDed on a call's first log write;
+                                     CALLCOUNT / STATE { readyAt } (stamped by `recount:calls`) = trust them
+DEAL#<id> / METADATA (deals)        … sparse GSI11 NEEDS_INVOICE / <createdAt>#DEAL#<id> while status=active,
+                                     itemCount>0 and no invoiceId — set/cleared by the repository on every write;
+                                     NEEDSINVOICEINDEX / STATE { readyAt, count } (stamped by the backfill) gates it
 DEAL#<id> / TIMELINE#<ts>#<id>, <owner> / ACT#<ts>#<id>   job events / job-less imported Workiz events; sparse GSI8
                                      ActivityDayIndex ACTDAY#<New York day> and GSI9 ActorIndex ACTOR#<actorId>, both
                                      SK <ts>#<id>, + `activitySearch` — Reports → Activity (`GET /deals/activity`).
@@ -377,8 +384,9 @@ locking the string values. Publishers and consumers both import them.
 Topics: `user-events`, `deal-events`, `contact-events`, `inventory-events`,
 `call-events`, `message-events`, `billing-events`. Consumers: deal-service
 (`contact.merged`, `tech.approved`, `tech.updated`), messaging-service
-(`contact.merged`, `contact.updated` — handlers land with the inbound webhook)
-and search-service (every topic, one `search-index` queue). DLQ
+(`contact.merged`, `contact.updated` — handlers land with the inbound webhook),
+telephony-service (deal + contact events on `deal-events-to-telephony`: `dealTotal`
+on linked calls, caller-name cache invalidation) and search-service (every topic, one `search-index` queue). DLQ
 `maxReceiveCount = 5`.
 
 **`EVENTS.md` is the catalog and is expected to stay accurate — update it in the
@@ -713,6 +721,48 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   other tasks can serve the old list for up to 60 s; uniqueness and overlap checks
   still read the repository. Catalog list Queries follow `LastEvaluatedKey`
   (`common/utils/query-all-pages.ts`) — the Workiz import made job types 898 rows.
+- **Report windows are cached in Redis** (`common/cache/report-window-cache.ts`,
+  `deal:report-window:v1:<kind>:<from>:<to>:<by>…`, gzipped, not stored above 4 MB):
+  the Jobs report, Job Statistics, Tax and Commissions share one read across tasks.
+  TTL 5 min when the window reaches today, 30 min if it ended in the last 3 days,
+  24 h otherwise — there is no write-time invalidation, so those are the staleness
+  bounds. Profit/commission rows (billing's ledger) stay per task for 60 s. The
+  nightly `DashboardSnapshotScheduler` (Redis day-lock) also warms last week and
+  last month. The dashboard's snapshot miss reads one projected window
+  (`readStatsWindow`), not 100-row `list()` pages.
+- **"Needs invoice" is an index, gated until backfilled.** GSI11 NeedsInvoiceIndex
+  (sparse, repository-owned) answers `GET /deals/internal/needs-invoice[/count]`
+  and `?needsInvoice=true`. Until `npm run backfill:needs-invoice-index -w
+  backend/services/deal -- --apply` has stamped `NEEDSINVOICEINDEX / STATE` (after
+  the Terraform apply that creates the GSI), the internal routes answer 404 and the
+  list keeps the old Scan; billing falls back on that 404 (and for assigned_only
+  callers always uses the scoped public list). Re-run the backfill (it reconciles)
+  after every Workiz import.
+- **Telephony stores job totals on calls.** `dealTotal` is stamped when a call is
+  linked and restamped from deal events; call stats, Call Tracking and the export
+  read it and ask deal-totals only for rows without one. It is stripped from API
+  responses (money behind `financials.view`). After the deploy and every import:
+  `backfill:call-deal-totals -- --apply`, then `recount:calls -- --apply` (until
+  `CALLCOUNT / STATE` exists, counts walk the log as before). Reads never write:
+  parties/names are frozen by `CallFinalizer` 5 s after a call ends. Caller names
+  are cached in Redis (`telephony:names:*`, 10 min found / 5 min unknown, cleared by
+  contact events); the user directory is an SWR Redis entry. Recordings are copied
+  to S3 (`calls/recordings/<callSid>/<recordingSid>.mp3`) after the webhook and
+  served from there with Range support; not-yet-copied ones still stream from Twilio.
+- **Messaging caches** (Redis, generation-keyed so a racing load never restores a
+  pre-edit value): automations list (5 min, key carries `TRANSLATOR_VERSION`),
+  templates list (5 min), party names (10 min / 5 min unknown, cleared by
+  `contact.updated`); telephony's owned numbers 5 min with background refresh. Run
+  `backfill:automation-specs -- --apply` after a deploy that raises
+  `TRANSLATOR_VERSION` and after imports with automation rules.
+- **User-service caches:** roles in Redis (`role:entity:<id>`, 5 min, generation-
+  keyed; ≤10 s in-process copy per task), the approved-assignments set
+  (`technicians:assignments:approved`, 5 min, cleared by every assignment write).
+  Login reads security settings fresh on purpose — never cache them.
+- **Batch routes for hot fan-outs:** inventory `POST /products/internal/by-ids`
+  (≤500 ids; deal's items report falls back to per-id on 404/405), user
+  `POST /users/internal/names-by-ids`, crm `contacts/internal/by-ids` — use them
+  instead of one request per id.
 - **Telephony caches:** the Twilio owned-number list and Messaging Service
   membership live in Redis (fresh 5 min, served stale up to 1 h while one reload
   runs; buy/release invalidate), so Twilio-console changes take up to 5 min to

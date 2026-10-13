@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { tryNormalizePhone } from '@bitcrm/shared';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { RedisService, tryNormalizePhone } from '@bitcrm/shared';
+import { forgetPartyName } from '../api/access/party-names.service';
 import { type Conversation, type ConversationAddressPointer } from '@bitcrm/types';
 import { ConversationsRepository } from '../conversations/conversations.repository';
 import { CrmContactsClient } from '../outbound/internal/crm-contacts.client';
@@ -47,6 +48,7 @@ export class ContactEventsHandler {
     private readonly conversations: ConversationsRepository,
     private readonly pointers: ContactPointersRepository,
     private readonly crm: CrmContactsClient,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   // ------------------------------------------------------ contact.merged
@@ -162,6 +164,8 @@ export class ContactEventsHandler {
       this.logger.warn(`Dropping malformed contact.updated payload: ${JSON.stringify(payload)}`);
       return;
     }
+    // The inbox's `included` name of this contact (cached 10 min) may be the old one.
+    await forgetPartyName(this.redis, 'contact', payload.contactId);
     await this.syncAddresses(payload);
   }
 

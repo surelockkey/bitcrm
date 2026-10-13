@@ -14,6 +14,8 @@ const TIMEOUT_MS = 10_000;
 const LEDGERS_PER_CALL = 100;
 const USERS_PER_CALL = 200;
 const CONTACTS_PER_CALL = 100;
+/** Bodies of one lookup in flight at once — a long period is several, never one after another. */
+const CHUNKS_PARALLEL = 4;
 
 /** A lookup that failed is `null`, never an empty answer: the report must say so, not print zeros. */
 export type Lookup<T> = Map<string, T> | null;
@@ -102,10 +104,19 @@ export class CommissionReportClient {
     const out = new Map<string, T>();
     if (!unique.length) return out;
     const timer = this.metrics?.internalHttpDuration?.startTimer({ target_service: service, operation });
+    const chunks: string[][] = [];
+    for (let i = 0; i < unique.length; i += size) chunks.push(unique.slice(i, i + size));
     try {
-      for (let i = 0; i < unique.length; i += size) {
-        for (const [id, value] of await call(unique.slice(i, i + size))) out.set(id, value);
-      }
+      // A small pool: each worker takes the next body until none is left. The
+      // first failure rejects the lot — a partial answer must read as none.
+      let next = 0;
+      const worker = async (): Promise<void> => {
+        while (next < chunks.length) {
+          const chunk = chunks[next++];
+          for (const [id, value] of await call(chunk)) out.set(id, value);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CHUNKS_PARALLEL, chunks.length) }, worker));
       timer?.();
       return out;
     } catch (error) {

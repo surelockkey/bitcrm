@@ -15,9 +15,20 @@ import { UsersRepository } from '../users/users.repository';
 import { DEFAULT_ROLES } from './constants/default-roles';
 import { reconcileRolePermissions } from './reconcile-role-permissions';
 
+/**
+ * In-process copy of a role, in front of the shared Redis one. Short on
+ * purpose: a write on another task reaches this one only when it expires, so
+ * this bounds how stale a peer task's role can be (Redis itself is deleted on
+ * every write). The same task's own writes drop it at once.
+ */
+const ROLE_L1_TTL_MS = 10_000;
+
 @Injectable()
 export class RolesService implements OnModuleInit {
   private readonly logger = new Logger(RolesService.name);
+  private readonly roleL1 = new Map<string, { role: Role; expiresAt: number }>();
+  /** Bumped by every local invalidation, so a load it overtakes cannot refill L1. */
+  private readonly roleL1Gen = new Map<string, number>();
 
   constructor(
     private readonly rolesRepository: RolesRepository,
@@ -70,6 +81,7 @@ export class RolesService implements OnModuleInit {
     };
 
     await this.rolesRepository.create(role);
+    await this.forgetRole(role.id);
     return role;
   }
 
@@ -85,8 +97,8 @@ export class RolesService implements OnModuleInit {
 
     const updated = await this.rolesRepository.update(id, dto);
 
-    // Invalidate role cache
-    await this.rolesCache.invalidateRole(id);
+    // Invalidate role cache (the resolved matrix and the cached role row)
+    await this.forgetRole(id);
 
     // Invalidate all users with this role — every page of them: the cache
     // lives for minutes, so a user past a page cap would keep the old matrix.
@@ -116,14 +128,53 @@ export class RolesService implements OnModuleInit {
     }
 
     await this.rolesRepository.delete(id);
+    await this.forgetRole(id);
   }
 
+  /**
+   * Read-through: in-process (≤ 10 s) → Redis `role:entity:<id>` (5 min,
+   * generation-checked, see `RolesCacheService`) → DynamoDB. A Redis failure
+   * only costs the cache (nothing is written then); a missing role is never
+   * cached. A load that an invalidation overtakes writes nothing usable: its
+   * Redis entry carries the old generation, and its in-process copy is
+   * dropped by the local generation check. Writes (`update`, `delete`) read
+   * the table directly, never this.
+   */
   async findById(id: string): Promise<Role> {
-    const role = await this.rolesRepository.findById(id);
+    const local = this.roleL1.get(id);
+    if (local && local.expiresAt > Date.now()) return local.role;
+
+    const localGen = this.roleL1Gen.get(id) ?? 0;
+    const read = await this.rolesCache.readRole(id).catch((err: Error) => {
+      this.logger.warn(`role cache read failed for ${id}: ${err?.message}`);
+      return null;
+    });
+    let role = read?.role ?? null;
     if (!role) {
-      throw new NotFoundException(`Role ${id} not found`);
+      role = await this.rolesRepository.findById(id);
+      if (!role) {
+        throw new NotFoundException(`Role ${id} not found`);
+      }
+      if (read) {
+        await this.rolesCache.writeRole(role, read.gen).catch((err: Error) =>
+          this.logger.warn(`role cache write failed for ${id}: ${err?.message}`),
+        );
+      }
+    }
+    if ((this.roleL1Gen.get(id) ?? 0) === localGen) {
+      this.roleL1.set(id, { role, expiresAt: Date.now() + ROLE_L1_TTL_MS });
     }
     return role;
+  }
+
+  /**
+   * Drops every cached copy of a role: this task's (and disowns its loads in
+   * flight), and the shared Redis keys with a generation bump.
+   */
+  private async forgetRole(id: string): Promise<void> {
+    this.roleL1.delete(id);
+    this.roleL1Gen.set(id, (this.roleL1Gen.get(id) ?? 0) + 1);
+    await this.rolesCache.invalidateRole(id);
   }
 
   async findAll(): Promise<Role[]> {
@@ -142,6 +193,7 @@ export class RolesService implements OnModuleInit {
           updatedAt: now,
         };
         await this.rolesRepository.create(role);
+        await this.forgetRole(role.id);
         continue;
       }
 
@@ -153,7 +205,7 @@ export class RolesService implements OnModuleInit {
       );
       if (changed) {
         await this.rolesRepository.update(existing.id, { permissions, dataScope });
-        await this.rolesCache.invalidateRole(existing.id);
+        await this.forgetRole(existing.id);
         const users = await this.usersRepository.findByRoleId(existing.id);
         await this.rolesCache.invalidateAllUsersWithRole(
           existing.id,

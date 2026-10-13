@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { hasPermission } from '@bitcrm/shared';
 import {
   JOBS_REPORT_BY,
@@ -21,6 +21,7 @@ import { JobStatusesService } from '../../job-statuses/job-statuses.service';
 import { ServiceAreasService } from '../../service-areas/service-areas.service';
 import { ExternalCompaniesService } from '../../external-companies/external-companies.service';
 import { JobsReportSettingsRepository } from './jobs-report-settings.repository';
+import { ReportWindowCache, shapeTag } from '../../common/cache/report-window-cache';
 import { parseJobsReportQuery, type JobsReportQuery, type JobsReportQueryDto } from './jobs-report.query';
 import {
   REPORT_PROJECTION,
@@ -54,9 +55,11 @@ export interface CsvSink {
 
 /**
  * A window read is the report's whole cost; paging, sorting and filtering
- * then run over it in memory. Kept a minute per (date, days) so turning a
- * page or ticking a filter does not read DynamoDB again — the Workiz report
- * is minutes-fresh too. At most three windows, the oldest dropped first.
+ * then run over it in memory. The read itself is shared by every task
+ * through Redis (`ReportWindowCache`: 5 min while the window reaches today,
+ * 30 min just after, a day once settled); on top of it this task keeps the
+ * mapped window a minute per (date, days) so turning a page or ticking a
+ * filter costs nothing at all. At most three windows, the oldest dropped first.
  */
 const WINDOW_TTL_MS = 60_000;
 const WINDOW_CACHE_MAX = 3;
@@ -70,6 +73,8 @@ const CONTACT_BATCH = 100;
 const CONTACT_PARALLEL = 6;
 /** Rows the export names, fills and writes per step. */
 const CSV_CHUNK_ROWS = 500;
+/** The projection's name in the shared cache key. */
+const REPORT_SHAPE = shapeTag(REPORT_PROJECTION);
 
 interface Entry {
   deal: ReportDeal;
@@ -124,6 +129,7 @@ export class JobsReportService {
     private readonly jobStatuses: JobStatusesService,
     private readonly serviceAreas: ServiceAreasService,
     private readonly externalCompanies: ExternalCompaniesService,
+    @Optional() private readonly windowCache?: ReportWindowCache,
   ) {}
 
   /* --------------------------------------------------------------- settings */
@@ -262,7 +268,7 @@ export class JobsReportService {
 
     // The areas' zones put a job booked here on the account's clock; without them its slot reads as Eastern.
     const catalogs = this.catalogLookups().catch(() => emptyLookups());
-    const deals = Promise.all([this.repository.readReportWindow(by, from, to, REPORT_PROJECTION), catalogs])
+    const deals = Promise.all([this.readWindow(by, from, to), catalogs])
       .then(([items, catalogs]) => items.map((item) => toReportDeal(item, catalogs.serviceAreaZones)))
       .catch((err: unknown) => {
         this.windows.delete(key);
@@ -275,6 +281,23 @@ export class JobsReportService {
       this.windows.delete(k);
     }
     return deals;
+  }
+
+  /** The window's rows — through the shared Redis cache when it is wired. */
+  private readWindow(by: JobsReportBy, from: string, to: string, fresh = false): Promise<Record<string, unknown>[]> {
+    const read = () => this.repository.readReportWindow(by, from, to, REPORT_PROJECTION);
+    if (!this.windowCache) return read();
+    return this.windowCache.read({ kind: 'jobs', from, to, parts: [by, REPORT_SHAPE] }, read, { fresh });
+  }
+
+  /** The nightly warm: re-reads one window into the shared cache (`ReportWindowWarmer`). */
+  async warmWindow(by: JobsReportBy, from: string, to: string): Promise<void> {
+    await this.readWindow(by, from, to, true);
+  }
+
+  /** The account's saved "By:" — what the report opens on, so what the warm reads. */
+  async defaultBy(): Promise<JobsReportBy> {
+    return (await this.settingsRepository.get()).by;
   }
 
   /**

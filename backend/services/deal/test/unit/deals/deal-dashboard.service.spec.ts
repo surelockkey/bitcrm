@@ -3,7 +3,8 @@ import { JobSuperStatus, type DealStats, type DealStatsBucket } from '@bitcrm/ty
 import { DealDashboardService } from 'src/deals/dashboard/deal-dashboard.service';
 
 /**
- * Сервіс віджетів дашборда: вікно → агрегат `/deals/stats` (увесь акаунт, а
+ * Сервіс віджетів дашборда: вікно → агрегат `/deals/stats` (`windowStats` — одне
+ * спроєктоване читання вікна; увесь акаунт, а
  * не рядки користувача) → зріз. Агрегат кешується на тридцять секунд, бо
  * п'ять віджетів на одній сторінці питають те саме вікно.
  */
@@ -26,7 +27,7 @@ describe('DealDashboardService', () => {
 
   function make(result: DealStats = statsFor()) {
     const deals = {
-      stats: jest.fn(async () => result),
+      windowStats: jest.fn(async (..._args: unknown[]) => result),
       jobsByStatus: jest.fn(async () => ({ days: [], atLeast: false, computedAt: '2026-09-28T07:00:00.000Z' })),
       counts: jest.fn(async () => ({
         submitted: 2, pending: 3, in_progress: 1, done_pending_approval: 4, done: 50, canceled: 6,
@@ -76,12 +77,7 @@ describe('DealDashboardService', () => {
 
       await service.shares('source', window, caller);
 
-      expect(deals.stats).toHaveBeenCalledWith(
-        expect.objectContaining({ createdFrom: '2026-09-14', createdTo: '2026-09-28' }),
-        caller,
-        'all',
-        { money: false },
-      );
+      expect(deals.windowStats).toHaveBeenCalledWith('created', { from: '2026-09-14', to: '2026-09-28' }, { money: false });
     });
 
     it('names a source from its catalog', async () => {
@@ -117,7 +113,7 @@ describe('DealDashboardService', () => {
       await service.shares('jobType', window, caller);
       await service.shares('serviceArea', window, caller);
 
-      expect(deals.stats).toHaveBeenCalledTimes(1);
+      expect(deals.windowStats).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -127,12 +123,7 @@ describe('DealDashboardService', () => {
 
       await service.sales(window, caller);
 
-      expect(deals.stats).toHaveBeenCalledWith(
-        expect.objectContaining({ closedFrom: '2026-09-14', closedTo: '2026-09-28' }),
-        caller,
-        'all',
-        { money: true },
-      );
+      expect(deals.windowStats).toHaveBeenCalledWith('closed', { from: '2026-09-14', to: '2026-09-28' }, { money: true });
     });
 
     it('money and no-money aggregates are cached apart', async () => {
@@ -141,7 +132,7 @@ describe('DealDashboardService', () => {
       await service.sales(window, caller);
       await service.scoreboard('tech', window, caller, false);
 
-      expect(deals.stats).toHaveBeenCalledTimes(2);
+      expect(deals.windowStats).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -176,12 +167,8 @@ describe('DealDashboardService', () => {
 
       await service.today('2026-09-28', caller, true);
 
-      expect(deals.stats).toHaveBeenCalledWith(
-        expect.objectContaining({ closedFrom: '2026-09-28', closedTo: '2026-09-28' }), caller, 'all', { money: true },
-      );
-      expect(deals.stats).toHaveBeenCalledWith(
-        expect.objectContaining({ createdFrom: '2026-09-28', createdTo: '2026-09-28' }), caller, 'all', { money: false },
-      );
+      expect(deals.windowStats).toHaveBeenCalledWith('closed', { from: '2026-09-28', to: '2026-09-28' }, { money: true });
+      expect(deals.windowStats).toHaveBeenCalledWith('created', { from: '2026-09-28', to: '2026-09-28' }, { money: false });
     });
 
     it('refuses a day that is not YYYY-MM-DD', async () => {
@@ -243,7 +230,7 @@ describe('DealDashboardService', () => {
       await service.shares('source', window, caller, { fresh: true });
       await service.shares('source', window, caller);
 
-      expect(deals.stats).toHaveBeenCalledTimes(2);
+      expect(deals.windowStats).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -256,10 +243,10 @@ describe('DealDashboardService', () => {
 
       await service.warm(now);
 
-      const asked = deals.stats.mock.calls.map((c) => {
-        const [q, , scope, opts] = c as unknown as [Record<string, string>, unknown, string, { money: boolean }];
-        const by = q.createdFrom ? 'created' : 'closed';
-        return `${by}:${q[`${by}From`]}:${q[`${by}To`]}:${opts.money}:${scope}`;
+      // Always the whole account: `windowStats` has no caller and no scope.
+      const asked = deals.windowStats.mock.calls.map((c) => {
+        const [by, w, opts] = c as unknown as [string, { from: string; to: string }, { money: boolean }];
+        return `${by}:${w.from}:${w.to}:${opts.money}:all`;
       });
       expect(asked.sort()).toEqual(
         // Workiz's four ranges on Monday Sep 28: this week (the Monday alone),
@@ -288,7 +275,7 @@ describe('DealDashboardService', () => {
       await service.warm(now);
 
       // The one already cached is built again: 12 by the warm, 1 before it.
-      expect(deals.stats).toHaveBeenCalledTimes(13);
+      expect(deals.windowStats).toHaveBeenCalledTimes(13);
     });
 
     it('builds the Jobs By Status series too', async () => {
@@ -355,7 +342,7 @@ describe('DealDashboardService', () => {
       const { service, deals } = make();
 
       await expect(service.bundle(window, '2026-09-28', caller, () => false, true)).resolves.toEqual({});
-      expect(deals.stats).not.toHaveBeenCalled();
+      expect(deals.windowStats).not.toHaveBeenCalled();
     });
 
     it('widgets on one window share one aggregate, even asked for at once', async () => {
@@ -365,7 +352,7 @@ describe('DealDashboardService', () => {
 
       // created (pies), closed with money (sales, boards), and the day twice
       // for Today — not one per widget.
-      const windows = deals.stats.mock.calls.map((c) => JSON.stringify([(c as unknown[])[0], (c as unknown[])[3]]));
+      const windows = deals.windowStats.mock.calls.map((c) => JSON.stringify(c));
       expect(new Set(windows).size).toBe(windows.length);
     });
   });

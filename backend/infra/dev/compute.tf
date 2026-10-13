@@ -367,6 +367,25 @@ data "aws_iam_policy_document" "task_telephony" {
     actions   = ["sns:Publish", "sns:GetTopicAttributes"]
     resources = [module.sns_sqs.topic_arns["call-events"]]
   }
+
+  # deal-events → `dealTotal` on linked calls (CallDealEventsHandler).
+  statement {
+    sid       = "ConsumeDealEvents"
+    effect    = "Allow"
+    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+    resources = [module.sns_sqs.queue_arns["deal-events-to-telephony"]]
+  }
+
+  # Call recordings in the app bucket, under calls/: the audio imported from
+  # Workiz (read) and Twilio recordings copied after their webhook
+  # (calls/recordings/<callSid>/<recordingSid>.mp3 — written, then read or
+  # presigned for the player). The bucket is SSE-S3, so no KMS grant.
+  statement {
+    sid       = "CallRecordings"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["${module.s3_app.arn}/calls/*"]
+  }
 }
 
 # messaging-svc: DDB messaging + S3 messaging/* (SSE-KMS) + SNS message-events

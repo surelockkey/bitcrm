@@ -57,6 +57,20 @@ export function monthsDescending(from?: string, to?: string): string[] {
 
 export const partyGsiPk = (kind: string, id: string) => `PARTY#${kind}#${id}`;
 
+/**
+ * The calls linked to one job, as adjacency rows in the calls table — no GSI
+ * keys, so never in the log:
+ *
+ *   PK=DEALCALLS#<dealId>, SK=CALL#<callSid>  { dealId, callSid, linkedAt }
+ *
+ * Written and removed with the link (CallsService.linkDeal); read when a
+ * deal-event says the job's total may have moved, to restamp `dealTotal` on
+ * those calls. A row and not an index: the table's three GSIs are taken, and
+ * a sparse fourth would be one more index copy on every call write for a
+ * lookup that runs once per deal event.
+ */
+export const dealCallsPk = (dealId: string) => `DEALCALLS#${dealId}`;
+
 export const callPk = (callSid: string) => `CALL#${callSid}`;
 export const agentGsiPk = (userId: string) => `AGENT#${userId}`;
 export const allCallsSk = (startedAt: string, callSid: string) =>

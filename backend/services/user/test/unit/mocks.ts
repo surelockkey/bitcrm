@@ -152,6 +152,8 @@ export function createMockRolesCacheService() {
     getRolePermissions: jest.fn(),
     setRolePermissions: jest.fn(),
     invalidateRole: jest.fn(),
+    readRole: jest.fn().mockResolvedValue({ role: null, gen: '0' }),
+    writeRole: jest.fn().mockResolvedValue(undefined),
     getUserPermissions: jest.fn(),
     setUserPermissions: jest.fn(),
     invalidateUserPermissions: jest.fn(),

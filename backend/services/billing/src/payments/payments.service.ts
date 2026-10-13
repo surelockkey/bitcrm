@@ -126,10 +126,11 @@ export interface PaymentOwner {
  * delta to a stored total.
  */
 /**
- * Ledgers read at once by `ledgersByDeals` — one Query each, so a 100-job
- * report page is three waves rather than ten.
+ * Ledger Queries kept in flight by `ledgersByDeals` — a pool: each finished
+ * read starts the next, so one slow ledger never holds a wave back, and a
+ * 100-job report page never has more than this many reads open.
  */
-export const LEDGER_READ_CONCURRENCY = 40;
+export const LEDGER_READ_CONCURRENCY = 50;
 /** The DTO's cap, held here too: the body is not validated on every deployment. */
 const LEDGERS_MAX_DEALS = 100;
 
@@ -175,12 +176,16 @@ export class PaymentsService {
     const ids = Array.isArray(dealIds) ? dealIds.filter((id) => typeof id === 'string' && id) : [];
     const unique = [...new Set(ids)].slice(0, LEDGERS_MAX_DEALS);
     const out: Record<string, Payment[]> = {};
-    for (let i = 0; i < unique.length; i += LEDGER_READ_CONCURRENCY) {
-      const batch = unique.slice(i, i + LEDGER_READ_CONCURRENCY);
-      const ledgers = await Promise.all(batch.map((id) => this.repo.listByInvoice(id)));
-      batch.forEach((id, n) => (out[id] = ledgers[n]));
-    }
-    return out;
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < unique.length) {
+        const id = unique[next++];
+        out[id] = await this.repo.listByInvoice(id);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(LEDGER_READ_CONCURRENCY, unique.length) }, worker));
+    // Keys in request order, as the waves produced them.
+    return Object.fromEntries(unique.map((id) => [id, out[id]]));
   }
 
   /**
@@ -209,8 +214,11 @@ export class PaymentsService {
 
   /** The job's ledger, for a job `accessibleJob` already let through. */
   async ledgerForJob(view: DealBillingView): Promise<JobPaymentLedger> {
-    const invoice = await this.invoices.getStored(view.deal.id);
-    const { payments, summary } = await this.ledger(view.deal.id);
+    // Independent reads once access is decided: side by side.
+    const [invoice, { payments, summary }] = await Promise.all([
+      this.invoices.getStored(view.deal.id),
+      this.ledger(view.deal.id),
+    ]);
     const total = jobTotal(view, summary.settled);
     return {
       dealId: view.deal.id,

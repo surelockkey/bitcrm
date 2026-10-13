@@ -31,7 +31,16 @@ import {
   DEALS_GSI5_NAME,
   DEALS_GSI6_NAME,
   DEALS_GSI7_NAME,
+  DEALS_GSI11_NAME,
 } from '../common/constants/dynamo.constants';
+import {
+  NEEDS_INVOICE_INPUTS,
+  NEEDS_INVOICE_PK,
+  NEEDS_INVOICE_STATE_KEY,
+  needsInvoiceKeys,
+  needsInvoiceWrite,
+  planNeedsInvoice,
+} from './needs-invoice-index';
 import { generateDealNumberCode } from './deal-number.util';
 import { BALANCE_DUE_FILTER, hasBalanceDue } from './deal-balance';
 import { dayStartUtc, jobEndAt, shiftDay, type ReportDateSource } from './report/report-dates';
@@ -194,6 +203,31 @@ const INDEX_KEY_FIELDS: ReadonlySet<string> = new Set([
   'jobTimezone',
 ]);
 
+/**
+ * What `aggregateDealStats` reads of a deal (plus `stage`, which `toDeal`
+ * falls back on for a row without `superStatus`) — the dashboard's window read
+ * projects to these, not the ~4 KB METADATA row.
+ */
+export const DEAL_STATS_PROJECTION: readonly string[] = [
+  'id',
+  'status',
+  'superStatus',
+  'stage',
+  'createdAt',
+  'closedAt',
+  'scheduledDate',
+  'assignedTechIds',
+  'createdBy',
+  'jobTypeId',
+  'sourceId',
+  'serviceArea',
+  'address',
+  'totals',
+];
+
+/** How often a not-yet-ready NeedsInvoiceIndex is asked about again. */
+const NEEDS_INVOICE_READY_RECHECK_MS = 60_000;
+
 /** Which Jobs-report date a window read is on. */
 export type ReportWindowBy = 'created' | 'scheduled' | 'end';
 
@@ -346,6 +380,8 @@ export interface DealAssignment {
 export class DealsRepository {
   private readonly logger = new Logger(DealsRepository.name);
   private tableName = DEALS_TABLE;
+  /** `needsInvoiceIndexReady`'s answer and when it was read; `true` is kept for good. */
+  private needsInvoiceReady?: { ready: boolean; at: number };
 
   constructor(private readonly dynamoDb: DynamoDbService) {}
 
@@ -515,6 +551,7 @@ export class DealsRepository {
           ...statusScheduleKeys(deal),
           ...closedIndexKeys(deal),
           ...endIndexKeys(deal),
+          ...needsInvoiceKeys(deal as unknown as Record<string, unknown>),
           ...deal,
           ...dealSearchAttributes(deal as unknown as Record<string, unknown>),
         },
@@ -883,6 +920,45 @@ export class DealsRepository {
       );
     }
     return read.items;
+  }
+
+  /**
+   * Every live deal of a dashboard window, read to its end and projected to
+   * `DEAL_STATS_PROJECTION` — the snapshot miss path of `/deals/stats/dashboard`
+   * (`DealsService.windowStats`), which used to page the jobs list a hundred
+   * full rows at a time. The very same rows that list returned:
+   *
+   * - `created` — the status index, six statuses, the window's Eastern days as
+   *   instants (`readReportWindow('created')`, exact).
+   * - `closed` — the sparse ClosedIndex, one partition a month, on the closing
+   *   instant (the list's `findByClosed` key range, walked to the end).
+   *
+   * Deleted rows never come back; a row read twice (a status move during the
+   * read) is kept once. Throws `ReportWindowTooLargeError` past the guard.
+   */
+  async readStatsWindow(by: 'created' | 'closed', from: string, to: string): Promise<Deal[]> {
+    let items: Record<string, unknown>[];
+    if (by === 'created') {
+      items = await this.readReportWindow('created', from, to, DEAL_STATS_PROJECTION);
+    } else {
+      const instants = accountDayInstants({ from, to });
+      const read = new WindowRead(this.dynamoDb, this.tableName, DEAL_STATS_PROJECTION);
+      await read.partitions(
+        DEALS_GSI6_NAME,
+        'GSI6PK',
+        'GSI6SK',
+        monthsOf(instants).map((m) => `CLOSED#${m}`),
+        '#pk = :pk AND #sk BETWEEN :from AND :to',
+        this.dayRangeValues(instants),
+      );
+      items = read.items;
+    }
+    const byId = new Map<string, Deal>();
+    for (const item of items) {
+      const deal = this.toDeal(item);
+      byId.set(deal.id, deal);
+    }
+    return [...byId.values()];
   }
 
   /**
@@ -1819,7 +1895,105 @@ export class DealsRepository {
     if (Object.keys(attrs).some((k) => DEAL_SEARCH_INPUTS.has(k))) {
       row = await this.restampSearch(id, row);
     }
+    // "Needs invoice" (GSI11) follows lines, the invoice link and deletion.
+    if (Object.keys(attrs).some((k) => NEEDS_INVOICE_INPUTS.has(k))) {
+      row = await this.restampNeedsInvoice(id, row);
+    }
     return this.toDeal(row);
+  }
+
+  /**
+   * The NeedsInvoiceIndex keys, recomputed from the whole row after a write
+   * that touched one of their inputs — and written only when they differ.
+   * The write is guarded on the inputs it was computed from: two writes in a
+   * race (a line added, the invoice linked) would otherwise each restamp from
+   * their own snapshot, and the slower one could leave a stale key behind.
+   * A lost race re-reads the row (consistent) and decides again.
+   */
+  private async restampNeedsInvoice(id: string, row: Record<string, unknown>): Promise<Record<string, unknown>> {
+    let current = row;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const plan = planNeedsInvoice(current);
+      if (plan.action === 'same') return current;
+      try {
+        const result = await this.dynamoDb.client.send(
+          new UpdateCommand({
+            TableName: this.tableName,
+            Key: { PK: `DEAL#${id}`, SK: 'METADATA' },
+            ...needsInvoiceWrite(current, plan),
+            ReturnValues: 'ALL_NEW',
+          }),
+        );
+        return result.Attributes ?? current;
+      } catch (error) {
+        if ((error as Error).name !== 'ConditionalCheckFailedException') throw error;
+        const fresh = await this.dynamoDb.client.send(
+          new GetCommand({ TableName: this.tableName, Key: { PK: `DEAL#${id}`, SK: 'METADATA' }, ConsistentRead: true }),
+        );
+        if (!fresh.Item) return current;
+        current = fresh.Item;
+      }
+    }
+    // Three races in a row: the backfill's reconcile puts it right.
+    this.logger.warn(`needs-invoice index of deal ${id} not restamped after 3 attempts`);
+    return current;
+  }
+
+  /**
+   * Whether the NeedsInvoiceIndex may be read: its readiness row
+   * (`NEEDSINVOICEINDEX / STATE`, stamped by the backfill's `--apply`) exists.
+   * Asked again at most once a minute while it does not; once it does, the
+   * answer is kept for the life of the process — it only ever flips to ready.
+   * A failed read counts as not ready.
+   */
+  async needsInvoiceIndexReady(now: number = Date.now()): Promise<boolean> {
+    const known = this.needsInvoiceReady;
+    if (known?.ready) return true;
+    if (known && now - known.at < NEEDS_INVOICE_READY_RECHECK_MS) return false;
+    let ready = false;
+    try {
+      const res = await this.dynamoDb.client.send(new GetCommand({ TableName: this.tableName, Key: { ...NEEDS_INVOICE_STATE_KEY } }));
+      ready = typeof res.Item?.readyAt === 'string';
+    } catch (error) {
+      this.logger.warn(`needs-invoice readiness unreadable — treated as not ready: ${(error as Error).message}`);
+    }
+    this.needsInvoiceReady = { ready, at: now };
+    return ready;
+  }
+
+  /**
+   * How many jobs need an invoice: the NeedsInvoiceIndex walked with
+   * `Select: COUNT` (a page is a megabyte of keys — tens of thousands of
+   * rows), no Scan.
+   */
+  async countNeedsInvoice(): Promise<number> {
+    let count = 0;
+    let startKey: Record<string, unknown> | undefined;
+    do {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: DEALS_GSI11_NAME,
+          KeyConditionExpression: 'GSI11PK = :pk',
+          ExpressionAttributeValues: { ':pk': NEEDS_INVOICE_PK },
+          Select: 'COUNT',
+          ...(startKey && { ExclusiveStartKey: startKey }),
+        }),
+      );
+      count += result.Count ?? 0;
+      startKey = result.LastEvaluatedKey;
+    } while (startKey);
+    return count;
+  }
+
+  /**
+   * A page of the jobs that need an invoice, newest first, off the
+   * NeedsInvoiceIndex. `filters` still apply on top (the list's other
+   * filters, and `status = active` — the index only ever holds live rows, so
+   * that one is a safety net, not a cost).
+   */
+  findNeedsInvoice(limit: number, cursor?: string, filters?: DealFilters): Promise<PaginatedResult> {
+    return this.onePartitionPage(DEALS_GSI11_NAME, 'GSI11PK', 'GSI11SK', NEEDS_INVOICE_PK, limit, cursor, filters);
   }
 
   /**

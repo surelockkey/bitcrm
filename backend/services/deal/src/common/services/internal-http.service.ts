@@ -30,9 +30,16 @@ const USER_NAMES_MAX_IDS = 20;
 const USER_NAMES_TIMEOUT_MS = 3_000;
 /** user-service's batch names route takes this many ids in one body. */
 const USER_NAMES_BATCH_MAX_IDS = 200;
-/** Price-book reads a report sends at once — inventory answers one product a request. */
+/** Price-book reads sent at once on the per-id fallback — that route answers one product a request. */
 const PRODUCTS_PARALLEL = 8;
 const PRODUCT_TIMEOUT_MS = 5_000;
+/** inventory's `POST /products/internal/by-ids` takes this many ids in one body. */
+const PRODUCTS_BATCH_MAX_IDS = 500;
+/** Batch bodies in flight at once. */
+const PRODUCTS_BATCH_PARALLEL = 3;
+const PRODUCTS_BATCH_TIMEOUT_MS = 10_000;
+/** After a 404/405 on the batch route (inventory not yet deployed with it), the per-id route for this long. */
+const PRODUCTS_BATCH_RETRY_MS = 5 * 60_000;
 /** crm's `POST /contacts/by-ids` takes this many ids in one body. */
 const CONTACTS_BY_IDS_MAX = 100;
 const CONTACTS_BY_IDS_TIMEOUT_MS = 5_000;
@@ -78,6 +85,8 @@ export class InternalHttpService {
   /** crm's PUBLIC routes, called with the caller's own token — never the internal secret. */
   private readonly crmAsCallerClient: AxiosInstance;
   private readonly userClient: AxiosInstance;
+  /** When inventory last answered 404/405 on the products batch route. */
+  private productsBatchUnsupportedAt?: number;
   private readonly inventoryClient: AxiosInstance;
 
   constructor(
@@ -185,33 +194,15 @@ export class InternalHttpService {
   /**
    * Names of a handful of users — the people on a dashboard scoreboard.
    *
-   * One lookup each on user-service's internal route, all at once: a board
-   * holds five people, and user-service has no batch route for names. Names
-   * only, rebuilt field by field; a user it cannot fetch is left out rather
-   * than failing the board, which then shows the row without a name.
+   * One body on user-service's batch route (`internal/names-by-ids`), the
+   * same one the reports use — not one lookup per person. Names only,
+   * rebuilt field by field; a failed call leaves the names out rather than
+   * failing the board, which then shows the rows without them.
    */
   async getUserNames(ids: string[]): Promise<PersonName[]> {
     const unique = [...new Set(ids.filter(Boolean))].slice(0, USER_NAMES_MAX_IDS);
-    const rows = await Promise.all(
-      unique.map(async (id): Promise<PersonName | null> => {
-        try {
-          const response = await this.userClient.get(`/api/users/internal/${id}`, {
-            timeout: USER_NAMES_TIMEOUT_MS,
-          });
-          const user = response.data?.data;
-          if (!user || typeof user.id !== 'string') return null;
-          return {
-            id: user.id,
-            firstName: typeof user.firstName === 'string' ? user.firstName : '',
-            lastName: typeof user.lastName === 'string' ? user.lastName : '',
-          };
-        } catch (error: any) {
-          this.logger.warn(`Failed to load the name of user ${id}: ${error.message}`);
-          return null;
-        }
-      }),
-    );
-    return rows.filter((row): row is PersonName => row !== null);
+    if (!unique.length) return [];
+    return this.getUserNamesBatch(unique);
   }
 
   /**
@@ -385,17 +376,79 @@ export class InternalHttpService {
 
   /**
    * Many price-book items at once, for a report that prints their current
-   * name, type, model and category (Items and services). Inventory has no
-   * batch route, so this is `GET /products/internal/:id` per product,
-   * `PRODUCTS_PARALLEL` at a time, each answer as inventory sent it (the
+   * name, type, model and category (Items and services). Inventory's batch
+   * route (`POST /products/internal/by-ids`, `PRODUCTS_BATCH_MAX_IDS` a
+   * body, a few bodies at once), each answer as inventory sent it (the
    * importer's extras — `number`, `workizType`, `workizSerial` — included).
+   * An inventory deployed before that route (404/405) is asked one product a
+   * request instead (`productsOneByOne`), and not offered the batch again for
+   * `PRODUCTS_BATCH_RETRY_MS`.
+   *
    * Best effort: a product inventory does not know, or cannot answer for, is
    * left out with one warning for the lot, and the report prints the line's
-   * own words for it. An inventory that answers nothing but errors is asked
-   * no further.
+   * own words for it.
    */
   async getProductsForReport(ids: string[]): Promise<Map<string, Record<string, unknown>>> {
     const unique = [...new Set(ids.filter(Boolean))];
+    const out = new Map<string, Record<string, unknown>>();
+    if (!unique.length) return out;
+    if (this.productsBatchUnsupportedAt && Date.now() - this.productsBatchUnsupportedAt < PRODUCTS_BATCH_RETRY_MS) {
+      return this.productsOneByOne(unique);
+    }
+
+    const chunks: string[][] = [];
+    for (let i = 0; i < unique.length; i += PRODUCTS_BATCH_MAX_IDS) chunks.push(unique.slice(i, i + PRODUCTS_BATCH_MAX_IDS));
+    let unsupported = false;
+    let failed = 0;
+    let lastError = '';
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < chunks.length && !unsupported) {
+        const chunk = chunks[next++];
+        try {
+          const response = await this.inventoryClient.post(
+            '/api/inventory/products/internal/by-ids',
+            { ids: chunk },
+            { timeout: PRODUCTS_BATCH_TIMEOUT_MS },
+          );
+          const rows: unknown = response?.data?.data;
+          if (!Array.isArray(rows)) continue;
+          for (const row of rows) {
+            const id = (row as { id?: unknown } | null)?.id;
+            if (row && typeof row === 'object' && typeof id === 'string') out.set(id, row as Record<string, unknown>);
+          }
+        } catch (error: any) {
+          const status = error?.response?.status;
+          if (status === 404 || status === 405) {
+            unsupported = true;
+            return;
+          }
+          failed += chunk.length;
+          lastError = error?.message ?? String(error);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(PRODUCTS_BATCH_PARALLEL, chunks.length) }, worker));
+
+    if (unsupported) {
+      this.productsBatchUnsupportedAt = Date.now();
+      this.logger.warn('inventory has no products batch route yet — reading the price book one product at a time');
+      const rest = await this.productsOneByOne(unique.filter((id) => !out.has(id)));
+      for (const [id, p] of rest) out.set(id, p);
+      return out;
+    }
+    if (failed) {
+      this.businessMetrics?.internalHttpErrors.inc({ target_service: 'inventory', operation: 'getProductsForReport' });
+      this.logger.warn(`Failed to load ${failed} of ${unique.length} products for a report: ${lastError}`);
+    }
+    return out;
+  }
+
+  /**
+   * The per-id path: `GET /products/internal/:id`, `PRODUCTS_PARALLEL` at a
+   * time. An inventory that answers nothing but errors is asked no further.
+   */
+  private async productsOneByOne(unique: string[]): Promise<Map<string, Record<string, unknown>>> {
     const out = new Map<string, Record<string, unknown>>();
     let failed = 0;
     let lastError = '';

@@ -30,6 +30,21 @@ export interface UserNameRow {
   workizName?: string;
 }
 
+/**
+ * Exactly the attributes `toUser` reads — a list read projected to these
+ * returns the same `User` as a full-row read, minus the GSI keys and anything
+ * else a user row carries. Keep in step with `toUser`.
+ */
+const USER_ATTRIBUTES = [
+  'id', 'cognitoSub', 'email', 'firstName', 'lastName', 'workizName', 'roleId', 'department',
+  'phone', 'fieldTeamMember', 'userType', 'smsMfaEnabled', 'status', 'permissionOverrides',
+  'createdAt', 'updatedAt',
+] as const;
+const USER_PROJECTION = {
+  ProjectionExpression: USER_ATTRIBUTES.map((_, i) => `#ua${i}`).join(', '),
+  ExpressionAttributeNames: Object.fromEntries(USER_ATTRIBUTES.map((a, i) => [`#ua${i}`, a])),
+};
+
 /** BatchGetItem's hard limit on keys per request. */
 const BATCH_GET_MAX_KEYS = 100;
 /** Re-asks for `UnprocessedKeys` before a chunk settles for what it has. */
@@ -434,6 +449,7 @@ export class UsersRepository {
           IndexName: GSI1_NAME,
           KeyConditionExpression: 'GSI1PK = :pk',
           ExpressionAttributeValues: { ':pk': `ROLE_USER#${roleId}` },
+          ...USER_PROJECTION,
           ExclusiveStartKey: lastKey,
         }),
       );

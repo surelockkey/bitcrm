@@ -56,6 +56,8 @@ import { WebhookQueue } from '../common/webhook-queue';
     CallerIdResolver,
     ServiceAreaNumbersService,
     DealReadService,
+    // The same single instance, for CallsModule's recording copy.
+    WebhookQueue,
   ],
 })
 export class VoiceModule {}

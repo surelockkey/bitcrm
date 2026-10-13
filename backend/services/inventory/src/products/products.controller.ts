@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   NotFoundException,
   Param,
   Post,
@@ -21,6 +22,7 @@ import { ProductThumbnailsService } from './product-thumbnails';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
+import { ProductsByIdsDto } from './dto/products-by-ids.dto';
 import { Internal } from '../common/decorators/internal.decorator';
 import { coerceInternalLimit } from '../common/utils/internal-pagination';
 
@@ -246,6 +248,22 @@ export class ProductsController {
       coerceInternalLimit(limit),
       cursor,
     );
+    return { success: true, data };
+  }
+
+  @Post('internal/by-ids')
+  @Internal()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Internal: get many products by id',
+    description:
+      '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only. Body `{ ids }` — ' +
+      'duplicates ignored, more than 500 distinct ids is a 400. Answers the products in the order asked, ' +
+      'each the same item as `GET /products/internal/:id`; unknown ids are left out. Read-through the ' +
+      'per-product Redis cache, misses in one BatchGet.',
+  })
+  async findByIdsInternal(@Body() dto: ProductsByIdsDto) {
+    const data = await this.productsService.findByIdsInternal(dto.ids ?? []);
     return { success: true, data };
   }
 

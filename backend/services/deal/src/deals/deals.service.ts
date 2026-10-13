@@ -55,6 +55,7 @@ import {
   accountDayInstants,
   type DayWindow,
 } from './deals.repository';
+import { isMissingIndexError } from './needs-invoice-index';
 import {
   assertFromOwnContainer,
   assertPriceInBand,
@@ -756,6 +757,23 @@ export class DealsService {
       return this.repository.findByTech(query.techId, limit, query.cursor, filters);
     }
 
+    // "Needs invoice" with nothing narrower (billing's list) is the sparse
+    // NeedsInvoiceIndex, not a Scan of the whole table — once the backfill has
+    // stamped it ready. It holds live rows only, so a list of another status
+    // still takes the Scan; so does an environment whose index is not built.
+    if (
+      filters.needsInvoice &&
+      (!query.status || query.status === DealStatus.ACTIVE) &&
+      (await this.repository.needsInvoiceIndexReady())
+    ) {
+      try {
+        return await this.repository.findNeedsInvoice(limit, query.cursor, filters);
+      } catch (error) {
+        if (!isMissingIndexError(error)) throw error;
+        this.warnNeedsInvoiceIndexMissing(error);
+      }
+    }
+
     return this.repository.findAll(limit, query.cursor, {
       status: query.status,
       ...filters,
@@ -857,6 +875,30 @@ export class DealsService {
     }
     if (cursor) this.logger.warn(`stats: window ${window.by} ${window.from}..${window.to} stopped at ${deals.length} jobs`);
     return aggregateDealStats(deals, window, opts);
+  }
+
+  private needsInvoiceMissingLogged = false;
+
+  /** Logged once per process: the readiness row exists but the GSI does not (Terraform not applied). */
+  private warnNeedsInvoiceIndexMissing(error: unknown): void {
+    if (this.needsInvoiceMissingLogged) return;
+    this.needsInvoiceMissingLogged = true;
+    this.logger.warn(`NeedsInvoiceIndex missing — needsInvoice lists take the Scan: ${(error as Error).message}`);
+  }
+
+  /**
+   * The same aggregate as `stats` for one bare window over the whole account
+   * (no filters, `all` scope) — what the dashboard snapshots are built from.
+   * One projected window read (`readStatsWindow`) instead of the list paged a
+   * hundred full rows at a time: the same rows, a fraction of the bytes.
+   */
+  async windowStats(
+    by: 'created' | 'closed',
+    window: { from: string; to: string },
+    opts: { money: boolean },
+  ): Promise<DealStats> {
+    const deals = await this.repository.readStatsWindow(by, window.from, window.to);
+    return aggregateDealStats(deals, { by, from: window.from, to: window.to }, opts);
   }
 
   private statsWindow(query: ListDealsQueryDto): DealStatsWindow {
