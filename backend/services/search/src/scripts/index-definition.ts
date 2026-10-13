@@ -54,6 +54,26 @@ export const INDEX_BODY = {
       lastMessageAt: { type: 'date' },
       dealIds: { type: 'keyword' },
 
+      // product docs only — the Price Book list inventory reads instead of
+      // walking its PRODUCTS#ALL partition (`product-list/`). Exact fields:
+      // every filter is a term, the search a wildcard on the lowercased name /
+      // SKU (DynamoDB's `contains`), and the two sort keys are byte-for-byte
+      // the GSI4SK / GSI3SK of the inventory rows, so a cursor is good on both.
+      productList: {
+        properties: {
+          productType: { type: 'keyword' },
+          status: { type: 'keyword' },
+          brandId: { type: 'keyword' },
+          manageStock: { type: 'boolean' },
+          stockManaged: { type: 'boolean' },
+          stockLevel: { type: 'keyword' },
+          searchName: { type: 'keyword' },
+          searchSku: { type: 'keyword' },
+          catalogSort: { type: 'keyword' },
+          stockSort: { type: 'keyword' },
+        },
+      },
+
       // searchable text — ngram indexed, standard searched
       title: {
         type: 'text',

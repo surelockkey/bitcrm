@@ -298,7 +298,9 @@ describe("DispatchPage — one load, not waves", () => {
     await settle();
 
     const jobs = server.requests.filter((r) => /^\/deals(\/map)?(\?|$)/.test(r));
-    expect(jobs).toEqual(["/deals/map"]);
+    // The open jobs of the week the board opens on (deal-service reads only those days).
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatch(/^\/deals\/map\?from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}$/);
     expect(server.requests.some((r) => r.startsWith("/crm/contacts/by-ids"))).toBe(false);
   });
 
@@ -310,7 +312,7 @@ describe("DispatchPage — one load, not waves", () => {
     watch.stop();
 
     expect(watch.frame()).toMatchObject({ jobRows: 3, jobTitles: true, unknownClient: 0, jobCount: true, skeletons: 0 });
-    expect(server.requests).toContain("/deals/map");
+    expect(server.requests.some((r) => r.startsWith("/deals/map"))).toBe(true);
     expect(server.requests.some((r) => r.startsWith("/deals?") && r.includes("cursor=next"))).toBe(true);
     expect(server.requests).toContain("/crm/contacts/by-ids");
   });
@@ -421,7 +423,7 @@ describe("DispatchPage — one load, not waves", () => {
     expect(screen.queryByText(/no access/i)).not.toBeInTheDocument();
   });
 
-  it("filters among the jobs in hand: the date box and the Filters ask for nothing", async () => {
+  it("filters among the jobs in hand: the Filters ask for nothing, the date box for its new days only", async () => {
     renderWithClient(<DispatchPage />);
     await boardUp();
     await settle();
@@ -434,11 +436,16 @@ describe("DispatchPage — one load, not waves", () => {
     expect(screen.getByTestId("job-row-d3")).toBeInTheDocument();
     expect(screen.queryByTestId("job-row-d1")).not.toBeInTheDocument();
 
+    expect(server.requests.slice(asked)).toEqual([]);
+
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.queryByTestId("job-row-d3")).not.toBeInTheDocument();
     await settle();
 
-    expect(server.requests.slice(asked)).toEqual([]);
+    // Next week's open jobs, once — the team is not drawn on the Jobs tab, so not today's beside them.
+    const later = server.requests.slice(asked);
+    expect(later).toHaveLength(1);
+    expect(later[0]).toMatch(/^\/deals\/map\?from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}$/);
   });
 
   it("a request that fails does not hold the board off the screen", async () => {

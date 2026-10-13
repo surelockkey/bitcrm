@@ -544,6 +544,59 @@ describe('search-mappers', () => {
       expect(doc.url).toBe('/inventory/products/p1');
     });
 
+    describe('mapProduct — the Price Book list fields (productList)', () => {
+      const base = {
+        id: 'p1',
+        sku: ' SKU-123 ',
+        name: '  Kwikset Deadbolt ',
+        category: 'Locks',
+        type: ProductType.PRODUCT,
+        status: InventoryStatus.ACTIVE,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-02-01T00:00:00Z',
+      };
+      const list = (over: Record<string, unknown> = {}) =>
+        (mapProduct({ ...base, ...over } as unknown as Product) as any).productList;
+
+      it('carries the raw filters and the lowercased search fields', () => {
+        expect(list({ brandId: 'b1', manageStock: false })).toMatchObject({
+          productType: 'product',
+          status: 'active',
+          brandId: 'b1',
+          manageStock: false,
+          searchName: 'kwikset deadbolt',
+          searchSku: 'sku-123',
+        });
+        expect(list().manageStock).toBeUndefined();
+        expect(list({ sku: undefined }).searchSku).toBeUndefined();
+      });
+
+      it('sorts exactly as the DynamoDB partitions do: GSI4SK (200 chars) and GSI3SK (whole name)', () => {
+        expect(list().catalogSort).toBe('kwikset deadbolt#p1');
+        expect(list().stockSort).toBe('kwikset deadbolt#p1');
+        const long = 'A'.repeat(250);
+        expect(list({ name: long }).catalogSort).toBe(`${'a'.repeat(200)}#p1`);
+        expect(list({ name: long }).stockSort).toBe(`${'a'.repeat(250)}#p1`);
+      });
+
+      it('is stock-managed for a product whose flag is absent or true — never for a service', () => {
+        expect(list().stockManaged).toBe(true);
+        expect(list({ manageStock: true }).stockManaged).toBe(true);
+        expect(list({ manageStock: false }).stockManaged).toBe(false);
+        expect(list({ manageStock: false }).stockSort).toBeUndefined();
+        expect(list({ type: ProductType.SERVICE }).stockManaged).toBe(false);
+      });
+
+      it("precomputes Workiz's stock level from onHand against the re-order point", () => {
+        expect(list({ onHand: 5 }).stockLevel).toBe('stocked');
+        expect(list({ onHand: 5, reorderLevel: 2 }).stockLevel).toBe('stocked');
+        expect(list({ onHand: 2, reorderLevel: 2 }).stockLevel).toBe('low');
+        expect(list({ onHand: 0 }).stockLevel).toBe('low');
+        expect(list({}).stockLevel).toBe('low');
+        expect(list({ onHand: -1 }).stockLevel).toBe('low');
+      });
+    });
+
     it('mapWarehouse maps name', () => {
       const warehouse: Warehouse = {
         id: 'w1',

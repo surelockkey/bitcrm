@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { DynamoDbService } from '@bitcrm/shared';
 import { UserStatus } from '@bitcrm/types';
-import { UsersRepository } from '../../../src/users/users.repository';
+import { UsersRepository, isAllUsersIndexCursor } from '../../../src/users/users.repository';
 import { createMockDynamoDbClient, createMockUser } from '../mocks';
 
 describe('UsersRepository', () => {
@@ -38,6 +38,70 @@ describe('UsersRepository', () => {
       expect(input.Item.GSI2PK).toBe('DEPT#HVAC');
       expect(input.Item.GSI2SK).toBe('USER#user-1');
       expect(input.ConditionExpression).toBe('attribute_not_exists(PK)');
+    });
+
+    it('files every user on the all-users partition of TechnicianIndex (GSI3)', async () => {
+      dbClient.send.mockResolvedValue({});
+      await repository.create(createMockUser());
+      const { Item } = dbClient.send.mock.calls[0][0].input;
+      expect(Item.GSI3PK).toBe('USERS#ALL');
+      expect(Item.GSI3SK).toBe('USER#user-1');
+    });
+  });
+
+  describe('findAllIndexed — the all-users index', () => {
+    it('queries the USERS#ALL partition, one page of `limit`, projected to the user fields', async () => {
+      const user = createMockUser();
+      dbClient.send.mockResolvedValue({
+        Items: [{ ...user, phone: '+14045551234' }],
+        LastEvaluatedKey: { PK: 'USER#user-1', SK: 'METADATA', GSI3PK: 'USERS#ALL', GSI3SK: 'USER#user-1' },
+      });
+
+      const page = await repository.findAllIndexed(50);
+
+      const input = dbClient.send.mock.calls[0][0].input;
+      expect(dbClient.send.mock.calls[0][0].constructor.name).toBe('QueryCommand');
+      expect(input.IndexName).toBe('TechnicianIndex');
+      expect(input.KeyConditionExpression).toBe('GSI3PK = :pk');
+      expect(input.ExpressionAttributeValues[':pk']).toBe('USERS#ALL');
+      expect(input.Limit).toBe(50);
+      expect(input.ProjectionExpression).toBeDefined();
+      expect(page.items).toEqual([{ ...user, phone: '+14045551234' }]);
+      expect(isAllUsersIndexCursor(page.nextCursor)).toBe(true);
+    });
+
+    it('resumes from its own cursor', async () => {
+      const lek = { PK: 'USER#u9', SK: 'METADATA', GSI3PK: 'USERS#ALL', GSI3SK: 'USER#u9' };
+      dbClient.send.mockResolvedValueOnce({ Items: [], LastEvaluatedKey: lek }).mockResolvedValueOnce({ Items: [] });
+      const first = await repository.findAllIndexed(10);
+      const second = await repository.findAllIndexed(10, first.nextCursor);
+      expect(dbClient.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual(lek);
+      expect(second.nextCursor).toBeUndefined();
+    });
+
+    it('tells its cursors from the table scan’s', async () => {
+      const scanCursor = Buffer.from(JSON.stringify({ PK: 'USER#a', SK: 'METADATA' })).toString('base64url');
+      expect(isAllUsersIndexCursor(scanCursor)).toBe(false);
+      expect(isAllUsersIndexCursor(undefined)).toBe(false);
+      expect(isAllUsersIndexCursor('not base64 json')).toBe(false);
+    });
+  });
+
+  describe('allUsersIndexReady', () => {
+    it('is false until the backfill stamps USERSALLINDEX / STATE; rechecked at most once a minute', async () => {
+      dbClient.send.mockResolvedValueOnce({});
+      expect(await repository.allUsersIndexReady(1_000)).toBe(false);
+      expect(dbClient.send.mock.calls[0][0].input.Key).toEqual({ PK: 'USERSALLINDEX', SK: 'STATE' });
+      dbClient.send.mockResolvedValue({ Item: { readyAt: '2026-10-13T00:00:00.000Z' } });
+      expect(await repository.allUsersIndexReady(30_000)).toBe(false);
+      expect(await repository.allUsersIndexReady(62_000)).toBe(true);
+      expect(await repository.allUsersIndexReady(10_000_000)).toBe(true);
+      expect(dbClient.send).toHaveBeenCalledTimes(2);
+    });
+
+    it('counts an unreadable state row as not ready', async () => {
+      dbClient.send.mockRejectedValueOnce(new Error('throttled'));
+      expect(await repository.allUsersIndexReady(1)).toBe(false);
     });
   });
 

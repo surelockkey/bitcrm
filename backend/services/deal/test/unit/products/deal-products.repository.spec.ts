@@ -17,7 +17,8 @@ describe('DealProductsRepository', () => {
 
       await repository.addProduct('deal-1', product);
 
-      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+      // The Put, then the job read for the Done-lines keys (an open job: nothing more).
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
       const command = dynamoDb.client.send.mock.calls[0][0];
       const item = command.input.Item;
       expect(item.PK).toBe('DEAL#deal-1');

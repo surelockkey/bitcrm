@@ -151,6 +151,41 @@ describe('DealsRepository.readMapJobs', () => {
     ]);
   });
 
+  it('an open status with a window is ONE range read over its days (open partitions are small), paged to the end', async () => {
+    dynamoDb.client.send
+      .mockResolvedValueOnce({ Items: [row('a', { scheduledDate: '2026-10-11' })], LastEvaluatedKey: { k: 1 } })
+      .mockResolvedValueOnce({ Items: [row('b', { scheduledDate: '2026-10-17' })] });
+
+    const deals = await repository.readMapJobs([
+      { status: JobSuperStatus.PENDING, window: { from: '2026-10-11', to: '2026-10-17' } },
+    ]);
+
+    expect(deals.map((d) => d.id)).toEqual(['a', 'b']);
+    const asked = inputs(dynamoDb.client.send);
+    expect(asked).toHaveLength(2);
+    expect(asked[0].KeyConditionExpression).toBe('#pk = :pk AND #sk BETWEEN :from AND :to');
+    expect(asked[0].ExpressionAttributeValues).toMatchObject({ ':pk': 'STATUS#pending', ':from': '2026-10-11#', ':to': '2026-10-17#~~' });
+    expect(asked[1].ExclusiveStartKey).toEqual({ k: 1 });
+  });
+
+  it('countMapJobs: how many live jobs each status holds whatever their date — Select COUNT, paged, scoped', async () => {
+    dynamoDb.client.send.mockImplementation(async (cmd: any) => {
+      const pk = cmd.input.ExpressionAttributeValues[':pk'];
+      if (pk === 'STATUS#pending' && !cmd.input.ExclusiveStartKey) return { Count: 700, LastEvaluatedKey: { k: 1 } };
+      if (pk === 'STATUS#pending') return { Count: 5 };
+      return { Count: 10 };
+    });
+    const total = await repository.countMapJobs([JobSuperStatus.SUBMITTED, JobSuperStatus.PENDING], { techId: 'tech-7' });
+    expect(total).toBe(715);
+    for (const input of inputs(dynamoDb.client.send)) {
+      expect(input.IndexName).toBe('StatusScheduleIndex');
+      expect(input.Select).toBe('COUNT');
+      expect(input.KeyConditionExpression).toBe('#pk = :pk');
+      expect(input.FilterExpression).toBe('#status = :active AND contains(#assignedTechIds, :techId)');
+      expect(input.ExpressionAttributeValues[':techId']).toBe('tech-7');
+    }
+  });
+
   it('asks every status at once, and answers in the order asked, each in visit order', async () => {
     let inFlight = 0;
     let most = 0;

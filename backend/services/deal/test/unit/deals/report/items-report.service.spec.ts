@@ -40,7 +40,7 @@ const FULL = perms({ reports: { view: true }, financials: { view: true } });
 
 describe('ItemsReportService', () => {
   let repository: { readReportWindow: jest.Mock };
-  let lines: { linesOf: jest.Mock };
+  let lines: { linesOf: jest.Mock; linesOfWindow: jest.Mock };
   let http: { getProductsForReport: jest.Mock; getUserNamesBatch: jest.Mock; getContactNames: jest.Mock };
   let service: ItemsReportService;
   const caller = (p: ResolvedPermissions = FULL): ReportCaller => ({ user: createMockJwtUser({ id: 'me' }), perms: p });
@@ -59,6 +59,8 @@ describe('ItemsReportService', () => {
       ]),
     };
     lines = {
+      // The Done-lines index not ready: the report reads job by job.
+      linesOfWindow: jest.fn().mockResolvedValue(null),
       linesOf: jest.fn(async (ids: string[]) => {
         const all: Record<string, Record<string, unknown>[]> = {
           a: [

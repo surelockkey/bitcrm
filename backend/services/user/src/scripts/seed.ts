@@ -133,6 +133,8 @@ async function main() {
         GSI1SK: `USER#${id}`,
         GSI2PK: `DEPT#${SEED_USER.department}`,
         GSI2SK: `USER#${id}`,
+        GSI3PK: 'USERS#ALL',
+        GSI3SK: `USER#${id}`,
         createdAt: now,
         updatedAt: now,
       },

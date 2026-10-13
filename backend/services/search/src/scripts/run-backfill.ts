@@ -21,6 +21,7 @@ import { SearchIndexerService } from '../indexer/indexer.service';
 import { BACKFILL_DEFAULTS, BackfillService } from '../indexer/backfill/backfill.service';
 import { CatalogNamesService } from '../indexer/catalog-names.service';
 import { EntityFetcher } from '../indexer/entity-fetcher.service';
+import { ProductListReadiness } from '../product-list/product-list.readiness';
 
 /** `npm run backfill -- conversation deal` → ['conversation', 'deal']; nothing → undefined (all). */
 export function parseTypes(argv: string[]): SearchType[] | undefined {
@@ -38,7 +39,8 @@ async function main() {
   const opensearch = new OpenSearchService();
   const catalogNames = new CatalogNamesService();
   const indexer = new SearchIndexerService(opensearch, catalogNames, new EntityFetcher());
-  const backfill = new BackfillService(indexer, catalogNames);
+  // A complete product walk stamps inventory's Price Book list ready (index v4).
+  const backfill = new BackfillService(indexer, catalogNames, undefined, new ProductListReadiness(opensearch));
 
   console.log(
     `Backfill ${types ? types.join(', ') : 'all types'} ` +

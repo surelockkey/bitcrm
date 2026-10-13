@@ -72,6 +72,11 @@ describe('DealsRepository — writing the schedule index', () => {
     expect(item.slotStart).toBe('14:00');
   });
 
+  const metadataWrites = () =>
+    dynamoDb.client.send.mock.calls.filter(
+      (c: any[]) => c[0].constructor.name === 'UpdateCommand' && c[0].input.Key?.SK === 'METADATA',
+    );
+
   it('update() of a scheduling field restamps GSI5 from the row as it is after the write', async () => {
     const after = {
       ...createMockDeal({ id: 'd1', superStatus: JobSuperStatus.PENDING, scheduledTimeSlot: '08:00-09:00' }),
@@ -85,7 +90,8 @@ describe('DealsRepository — writing the schedule index', () => {
 
     const deal = await repository.update('d1', { scheduledDate: '2026-10-01' });
 
-    expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
+    // Two METADATA writes; then the job's lines are read for their Done-lines keys (done-lines-index.spec).
+    expect(metadataWrites()).toHaveLength(2);
     const restamp = dynamoDb.client.send.mock.calls[1][0].input;
     expect(restamp.Key).toEqual({ PK: 'DEAL#d1', SK: 'METADATA' });
     expect(restamp.ExpressionAttributeValues[':gsi5pk']).toBe('STATUS#pending');
@@ -98,7 +104,7 @@ describe('DealsRepository — writing the schedule index', () => {
     const after = { ...createMockDeal({ id: 'd1', superStatus: JobSuperStatus.DONE }), PK: 'DEAL#d1', SK: 'METADATA' };
     dynamoDb.client.send.mockResolvedValueOnce({ Attributes: after }).mockResolvedValueOnce({ Attributes: after });
     await repository.update('d1', { superStatus: JobSuperStatus.DONE });
-    expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
+    expect(metadataWrites()).toHaveLength(2);
     expect(dynamoDb.client.send.mock.calls[1][0].input.ExpressionAttributeValues[':gsi5pk']).toBe('STATUS#done');
   });
 

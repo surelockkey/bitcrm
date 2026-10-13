@@ -195,7 +195,20 @@ export class PaymentsService {
    * picks them up as its `amountPaid`.
    */
   async listForDeal(dealId: string, caller: Caller): Promise<JobPaymentLedger> {
-    return this.ledgerForJob(await this.accessibleJob(dealId, caller));
+    // The invoice Get and the ledger Query are side-effect free and keyed by
+    // the id asked for, so they run BESIDE the job's billing view (an HTTP hop
+    // to deal-service) instead of after it. The access check still decides
+    // first: nothing they read is answered, and none of their errors is
+    // raised, until `accessibleJob` has let the caller through.
+    const view$ = this.accessibleJob(dealId, caller);
+    const invoice$ = this.invoices.getStored(dealId);
+    const ledger$ = this.ledger(dealId);
+    invoice$.catch(() => undefined);
+    ledger$.catch(() => undefined);
+    const view = await view$;
+    if (view.deal.id !== dealId) return this.ledgerForJob(view);
+    const [invoice, ledger] = await Promise.all([invoice$, ledger$]);
+    return this.jobLedger(view, invoice, ledger);
   }
 
   /**
@@ -215,10 +228,15 @@ export class PaymentsService {
   /** The job's ledger, for a job `accessibleJob` already let through. */
   async ledgerForJob(view: DealBillingView): Promise<JobPaymentLedger> {
     // Independent reads once access is decided: side by side.
-    const [invoice, { payments, summary }] = await Promise.all([
-      this.invoices.getStored(view.deal.id),
-      this.ledger(view.deal.id),
-    ]);
+    const [invoice, ledger] = await Promise.all([this.invoices.getStored(view.deal.id), this.ledger(view.deal.id)]);
+    return this.jobLedger(view, invoice, ledger);
+  }
+
+  private jobLedger(
+    view: DealBillingView,
+    invoice: Invoice | null,
+    { payments, summary }: InvoiceLedger,
+  ): JobPaymentLedger {
     const total = jobTotal(view, summary.settled);
     return {
       dealId: view.deal.id,

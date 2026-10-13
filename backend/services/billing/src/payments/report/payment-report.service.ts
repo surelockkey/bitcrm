@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
+import { hasPermission } from '@bitcrm/shared';
 import {
+  DealStatus,
   paymentReportTypeLabel,
   type Deal,
   type PaymentReportPage,
@@ -107,11 +109,13 @@ export class PaymentReportService {
 
     let cursor: LineWalkCursor;
     let totals: PaymentReportTotals | undefined;
+    let expected: Map<string, number> | undefined;
     if (query.cursor) {
       cursor = this.decode(query.cursor);
     } else {
       const rows = await this.repo.readBuckets(aggregatePlan(window.fromDay, window.toDay));
-      cursor = { ms: sortMonths([...monthCounts(rows, filter).keys()], dir) };
+      expected = monthCounts(rows, filter);
+      cursor = { ms: sortMonths([...expected.keys()], dir) };
       totals = search ? await this.totals(query, caller) : totalsFrom(rows, filter);
     }
 
@@ -121,10 +125,13 @@ export class PaymentReportService {
       dir,
       filter,
       want: limit,
+      // The buckets say how many lines each month holds: the walk reads the
+      // months this page needs side by side instead of one after another.
+      ...(expected && { expected }),
       ...(search && { accept: (l: ReportLine) => matchesSearch(l, search) }),
     });
     return {
-      items: await this.rows(lines, authorization),
+      items: await this.rows(lines, caller, authorization),
       ...(next && { nextCursor: encodeCursor(next) }),
       ...(totals && { totals }),
     };
@@ -147,7 +154,9 @@ export class PaymentReportService {
     const search = parseSearch(query.search);
     const dir = query.dir === 'asc' ? 'asc' : 'desc';
 
-    let cursor: LineWalkCursor | undefined = { ms: await this.months(window, filter, dir) };
+    const expected = await this.monthCountsFor(window, filter);
+    let cursor: LineWalkCursor | undefined = { ms: sortMonths([...expected.keys()], dir) };
+    let first = true;
     let count = 0;
     let truncated = false;
     while (cursor && cursor.ms.length) {
@@ -162,10 +171,12 @@ export class PaymentReportService {
         dir,
         filter,
         want,
+        ...(first && { expected }),
         ...(search && { accept: (l: ReportLine) => matchesSearch(l, search) }),
         maxRounds: 200,
       });
-      for (const row of await this.rows(page.lines, authorization)) {
+      first = false;
+      for (const row of await this.rows(page.lines, caller, authorization)) {
         out.push(
           csvLine({
             ...row,
@@ -229,8 +240,13 @@ export class PaymentReportService {
   }
 
   private async months(window: Window, filter: ReportFilter, dir: 'asc' | 'desc'): Promise<string[]> {
+    return sortMonths([...(await this.monthCountsFor(window, filter)).keys()], dir);
+  }
+
+  /** Lines per month of the window under the filter, from the buckets. */
+  private async monthCountsFor(window: Window, filter: ReportFilter): Promise<Map<string, number>> {
     const rows = await this.repo.readBuckets(aggregatePlan(window.fromDay, window.toDay));
-    return sortMonths([...monthCounts(rows, filter).keys()], dir);
+    return monthCounts(rows, filter);
   }
 
   private decode(raw: string): LineWalkCursor {
@@ -249,14 +265,14 @@ export class PaymentReportService {
   }
 
   /** Lines → table rows, with the job, client, technician and collector names joined in. */
-  private async rows(lines: ReportLine[], authorization?: string): Promise<PaymentReportRow[]> {
+  private async rows(lines: ReportLine[], caller: Caller, authorization?: string): Promise<PaymentReportRow[]> {
     if (lines.length === 0) return [];
     const dealIds = unique(lines.map((l) => l.dealId));
     const contactIds = unique(lines.map((l) => l.contactId));
     const userIds = unique(lines.flatMap((l) => [l.technicianId, l.collectedById]));
 
     const [deals, contacts, users, jobTypes] = await Promise.all([
-      this.chunked(dealIds, 100, (ids) => this.deal?.getDealsByIds(ids, authorization) ?? Promise.resolve([] as Deal[]), 'deals'),
+      this.dealsFor(dealIds, caller, authorization),
       this.chunked(contactIds, 100, (ids) => this.crm?.contactNamesByIds(ids) ?? Promise.resolve([]), 'contacts'),
       this.chunked(userIds, 200, (ids) => this.users?.namesByIds(ids) ?? Promise.resolve([]), 'users'),
       (this.deal?.listJobTypes() ?? Promise.resolve([])).catch(() => []),
@@ -309,17 +325,51 @@ export class PaymentReportService {
     });
   }
 
-  /** A lookup in slices of `size`; a peer that is down leaves names empty, never fails the report. */
-  private async chunked<T>(ids: string[], size: number, fetch: (ids: string[]) => Promise<T[]>, what: string): Promise<T[]> {
-    const out: T[] = [];
-    for (let i = 0; i < ids.length; i += size) {
+  /**
+   * The lines' jobs. Through deal-service's internal by-ids (K1) — one hop,
+   * no second auth round, answers cached 60 s by `DealClient` — narrowed to
+   * exactly what the public `POST /deals/by-ids` on the caller's bearer let
+   * through: nothing without `deals.view`, active jobs only, and under the
+   * `deals` data scope `assigned_only` only the caller's own. A deal-service
+   * without K1 (`null`), or a caller whose permissions were not resolved,
+   * goes the old way: the public route on the bearer.
+   */
+  private async dealsFor(ids: string[], caller: Caller, authorization?: string): Promise<Deal[]> {
+    if (!this.deal || ids.length === 0) return [];
+    if (caller.perms && typeof this.deal.getDealsByIdsInternal === 'function') {
+      let deals: Deal[] | null;
       try {
-        out.push(...(await fetch(ids.slice(i, i + size))));
+        deals = await this.deal.getDealsByIdsInternal(ids);
       } catch (err) {
-        this.logger.warn(`payments report: ${what} lookup failed: ${(err as Error).message}`);
+        this.logger.warn(`payments report: deals lookup failed: ${(err as Error).message}`);
+        return [];
+      }
+      if (deals) {
+        const perms = caller.perms;
+        if (!hasPermission(perms, 'deals', 'view')) return [];
+        // The public route reads the raw `deals` scope (DealsController.findByIds).
+        const mineOnly = perms.dataScope?.deals === 'assigned_only';
+        return deals.filter(
+          (d) => d.status === DealStatus.ACTIVE && (!mineOnly || (d.assignedTechIds ?? []).includes(caller.user.id)),
+        );
       }
     }
-    return out;
+    return this.chunked(ids, 100, (chunk) => this.deal!.getDealsByIds(chunk, authorization), 'deals');
+  }
+
+  /** A lookup in slices of `size`, side by side; a peer that is down leaves names empty, never fails the report. */
+  private async chunked<T>(ids: string[], size: number, fetch: (ids: string[]) => Promise<T[]>, what: string): Promise<T[]> {
+    const slices: string[][] = [];
+    for (let i = 0; i < ids.length; i += size) slices.push(ids.slice(i, i + size));
+    const parts = await Promise.all(
+      slices.map((slice) =>
+        fetch(slice).catch((err: Error) => {
+          this.logger.warn(`payments report: ${what} lookup failed: ${err.message}`);
+          return [] as T[];
+        }),
+      ),
+    );
+    return parts.flat();
   }
 }
 

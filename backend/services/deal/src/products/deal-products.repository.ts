@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   PutCommand,
   DeleteCommand,
@@ -16,6 +16,7 @@ import {
 import { randomUUID } from 'crypto';
 import { DEALS_TABLE } from '../common/constants/dynamo.constants';
 import { lineCustomAttributes } from '../deals/deal-line-rules';
+import { DONE_LINES_DEAL_PROJECTION, doneLineWrite, doneLinesDay, planDoneLine } from '../deals/done-lines-index';
 
 /**
  * A job's lines: `PK = DEAL#<dealId>`, `SK = PRODUCT#<lineId>`.
@@ -32,6 +33,7 @@ export type DealProductDraft = Omit<DealProduct, 'lineId'> & { lineId?: string }
 @Injectable()
 export class DealProductsRepository {
   private tableName = DEALS_TABLE;
+  private readonly logger = new Logger(DealProductsRepository.name);
 
   constructor(private readonly dynamoDb: DynamoDbService) {}
 
@@ -49,6 +51,37 @@ export class DealProductsRepository {
         },
       }),
     );
+    await this.fileDoneLine(dealId, lineId);
+  }
+
+  /**
+   * The Done-lines keys of a line just written (`deals/done-lines-index.ts`).
+   * The job is read AFTER the line is in, strongly consistent: a status move
+   * racing this write either restamped the line already (it read the lines
+   * after the line landed) or is seen here. Best effort — a failure costs the
+   * report this line until `backfill:done-lines-index`, never the write.
+   */
+  private async fileDoneLine(dealId: string, lineKey: string): Promise<void> {
+    try {
+      const res = await this.dynamoDb.client.send(
+        new GetCommand({
+          TableName: this.tableName,
+          Key: { PK: `DEAL#${dealId}`, SK: 'METADATA' },
+          ProjectionExpression: DONE_LINES_DEAL_PROJECTION,
+          ExpressionAttributeNames: { '#status': 'status' },
+          ConsistentRead: true,
+        }),
+      );
+      // The Put above replaced the row whole: it carries no keys now.
+      const plan = planDoneLine({ PK: `DEAL#${dealId}`, SK: `PRODUCT#${lineKey}` }, res.Item ? doneLinesDay(res.Item) : undefined);
+      if (plan.action === 'same') return;
+      await this.dynamoDb.client.send(
+        new UpdateCommand(doneLineWrite(this.tableName, { PK: `DEAL#${dealId}`, SK: `PRODUCT#${lineKey}` }, plan)),
+      );
+    } catch (err) {
+      if ((err as { name?: string }).name === 'ConditionalCheckFailedException') return;
+      this.logger.warn(`done-lines keys of ${dealId}/${lineKey} not written: ${(err as Error).message}`);
+    }
   }
 
   async removeProduct(dealId: string, lineKey: string): Promise<void> {

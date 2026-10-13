@@ -74,13 +74,39 @@ describe('PaymentScheduleService', () => {
   });
 
   it("refuses a job the caller may not see — the ledger's own check — even when it has no schedule", async () => {
+    const answers: unknown[] = [];
     for (const schedule of [stored(), null]) {
-      const { service, payments, repo } = setup({ schedule });
+      const { service, payments } = setup({ schedule });
       payments.accessibleJob.mockRejectedValue(new ForbiddenException('You are not assigned to this job'));
-      await expect(service.get('d1', caller())).rejects.toBeInstanceOf(ForbiddenException);
-      // Not even whether a schedule exists is read for a caller who may not see the job.
-      expect(repo.get).not.toHaveBeenCalled();
+      const err = await service.get('d1', caller()).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ForbiddenException);
+      // The schedule row is read beside the access check, but a caller who may
+      // not see the job learns nothing from it: the same refusal either way,
+      // and the ledger is never built.
+      expect(payments.ledgerForJob).not.toHaveBeenCalled();
+      answers.push((err as ForbiddenException).getResponse());
     }
+    expect(answers[0]).toEqual(answers[1]);
+  });
+
+  it('a schedule read that fails for a caller who may not see the job still answers 403', async () => {
+    const { service, payments, repo } = setup();
+    payments.accessibleJob.mockRejectedValue(new ForbiddenException('You are not assigned to this job'));
+    repo.get.mockRejectedValue(new Error('throttled'));
+    await expect(service.get('d1', caller())).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('reads the schedule row while the access check is still in flight (one round trip, not two)', async () => {
+    const { service, payments, repo } = setup({ schedule: null });
+    let release!: () => void;
+    payments.accessibleJob.mockImplementation(
+      () => new Promise((resolve) => (release = () => resolve({ deal: { id: 'd1', assignedTechIds: [] } }))),
+    );
+    const answer = service.get('d1', caller());
+    await new Promise((r) => setImmediate(r));
+    expect(repo.get).toHaveBeenCalledWith('d1');
+    release();
+    await expect(answer).resolves.toBeNull();
   });
 
   it('404s for a job that does not exist', async () => {

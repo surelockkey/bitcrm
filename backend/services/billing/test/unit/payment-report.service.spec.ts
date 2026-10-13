@@ -165,3 +165,92 @@ describe('PaymentReportService', () => {
     expect(lines[3]).toContain('J-d1,Job J-d1,Credit charge,Paid,120.00,0.00,120.00,20.00,Tom Tech,Jane Doe');
   });
 });
+
+/**
+ * K1: the job names come from deal-service's INTERNAL by-ids — no bearer, no
+ * second auth round — with exactly the visibility the public route applied
+ * (`deals.view`, the `deals` data scope, deleted jobs absent). A deal-service
+ * without K1 (`null`) sends the report back to the public route.
+ */
+describe('PaymentReportService — job lookup through K1', () => {
+  const dealsView = (scope: DataScope = DataScope.ALL) => {
+    const c = caller(scope, scope === DataScope.ASSIGNED_ONLY ? { id: TECH } : {});
+    (c.perms as any).permissions.deals = { view: true };
+    return c;
+  };
+  const range = { from: '2026-09-03', to: '2026-09-05' }; // p1 (d1) + p2 (d2)
+
+  async function withK1(answer: (ids: string[]) => any) {
+    const s = await seeded(september);
+    (s.deal as any).getDealsByIdsInternal = jest.fn(async (ids: string[]) => answer(ids));
+    return s;
+  }
+
+  it('uses the internal route and never the public one — no bearer needed', async () => {
+    const { service, deal } = await withK1((ids) =>
+      ids.map((id) => dealOf({ id, dealNumber: `K-${id}`, jobTypeId: 'jt-lock', superStatus: 'done' as any })),
+    );
+    const { items } = await service.list(range, dealsView());
+    expect(items.map((r) => [r.id, r.dealNumber, r.jobTypeName, r.jobStatus])).toEqual([
+      ['p2', 'K-d2', 'Lockout', 'Done'],
+      ['p1', 'K-d1', 'Lockout', 'Done'],
+    ]);
+    expect((deal as any).getDealsByIdsInternal).toHaveBeenCalledWith(expect.arrayContaining(['d1', 'd2']));
+    expect((deal as any).getDealsByIds).not.toHaveBeenCalled();
+  });
+
+  it('a deleted job is absent, as on the public route', async () => {
+    const { service } = await withK1((ids) =>
+      ids.map((id) => dealOf({ id, dealNumber: `K-${id}`, status: (id === 'd1' ? 'deleted' : 'active') as any })),
+    );
+    const { items } = await service.list(range, dealsView());
+    const p1 = items.find((r) => r.id === 'p1')!;
+    expect(p1.dealNumber).toBe('J-d1'); // the line's own number, not the deleted job's
+    expect(p1.jobStatus).toBeUndefined();
+    expect(items.find((r) => r.id === 'p2')!.dealNumber).toBe('K-d2');
+  });
+
+  it('`deals` assigned_only: only the jobs the caller is on, as on the public route', async () => {
+    const { service } = await withK1((ids) =>
+      ids.map((id) => dealOf({ id, dealNumber: `K-${id}`, assignedTechIds: id === 'd1' ? [TECH] : [OTHER_TECH] })),
+    );
+    const c = dealsView(DataScope.ASSIGNED_ONLY);
+    // The report's own scope (payments) is the lead-tech filter; widen it so both lines show.
+    (c.perms as any).dataScope.payments = DataScope.ALL;
+    const { items } = await service.list(range, c);
+    expect(items.find((r) => r.id === 'p1')!.dealNumber).toBe('K-d1');
+    // d2 is not theirs: the line keeps its own number, nothing from the job is joined in.
+    expect(items.find((r) => r.id === 'p2')!.dealNumber).toBe('J-d2');
+  });
+
+  it('without deals.view no job is joined in — the public route would have answered 403', async () => {
+    const { service, deal } = await withK1((ids) => ids.map((id) => dealOf({ id, dealNumber: `K-${id}` })));
+    const { items } = await service.list(range, caller());
+    expect(items.every((r) => !r.jobTypeName && !r.dealNumber?.startsWith('K-'))).toBe(true);
+    expect((deal as any).getDealsByIds).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the public route on the caller’s bearer when deal-service lacks K1', async () => {
+    const { service, deal } = await withK1(() => null);
+    const { items } = await service.list(range, dealsView(), 'Bearer x');
+    expect(items.find((r) => r.id === 'p1')!.dealNumber).toBe('J-d1');
+    expect((deal as any).getDealsByIds).toHaveBeenCalledWith(expect.arrayContaining(['d1', 'd2']), 'Bearer x');
+  });
+
+  it('K1 failing leaves the names empty and the report up', async () => {
+    const { service } = await withK1(() => {
+      throw new Error('deal down');
+    });
+    const { items } = await service.list(range, dealsView());
+    expect(items).toHaveLength(2);
+    expect(items.every((r) => r.jobTypeName === undefined)).toBe(true);
+  });
+
+  it('the first page hands the walk its per-month line counts, so the months it needs are read side by side', async () => {
+    const { service, repo } = await seeded(september);
+    await service.list({ from: '2026-08-01', to: '2026-09-30', limit: 10 }, caller());
+    const opts = (repo.walkLines as jest.Mock).mock.calls[0][0];
+    expect(opts.expected).toBeInstanceOf(Map);
+    expect([...opts.expected.keys()].sort()).toEqual(['2026-08', '2026-09']);
+  });
+});

@@ -46,6 +46,9 @@ export function createMockContactsRepository() {
     findIdByPhone: jest.fn().mockResolvedValue(null),
     findByCompany: jest.fn(),
     findAll: jest.fn(),
+    // The client list / count: ContactListIndex when ready, else the Scan.
+    findActive: jest.fn(),
+    countActive: jest.fn(),
     update: jest.fn(),
     updatePhoneIndex: jest.fn(),
     isCustomFieldAnswered: jest.fn().mockResolvedValue(false),
@@ -53,7 +56,13 @@ export function createMockContactsRepository() {
 }
 
 export function createMockContactsCacheService() {
-  return { get: jest.fn(), set: jest.fn(), invalidate: jest.fn() };
+  return {
+    get: jest.fn(),
+    set: jest.fn(),
+    invalidate: jest.fn(),
+    getMany: jest.fn().mockResolvedValue(new Map()),
+    setMany: jest.fn().mockResolvedValue(undefined),
+  };
 }
 
 export function createMockCompaniesRepository() {

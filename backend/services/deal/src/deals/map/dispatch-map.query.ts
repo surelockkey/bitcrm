@@ -19,12 +19,16 @@ export class DispatchMapQueryDto {
   @ApiPropertyOptional({
     description:
       'Super-statuses, comma-separated or repeated. Default: the four open ones (submitted, in_progress, pending, ' +
-      'done_pending_approval), each read whole whatever its date. `done` / `canceled` need `from`.',
+      'done_pending_approval) — each read whole whatever its date unless `from` is given. `done` / `canceled` need `from`.',
   })
   @IsOptional()
   statuses?: string | string[];
 
-  @ApiPropertyOptional({ description: 'First visit day Done / Canceled are read for, YYYY-MM-DD.' })
+  @ApiPropertyOptional({
+    description:
+      'First visit day read, YYYY-MM-DD. Bounds every status asked (open ones too — undated jobs are then left ' +
+      'out); without it the open statuses are read whole.',
+  })
   @IsOptional()
   from?: string;
 
@@ -39,7 +43,7 @@ export class DispatchMapQueryDto {
 export interface DispatchMapRead {
   /** In the board's order (`SUPER_STATUS_ORDER`), once each. */
   statuses: JobSuperStatus[];
-  /** Visit days, inclusive. Narrows Done / Canceled only — an open job is read whatever its date. */
+  /** Visit days, inclusive. Narrows every status read; without it the open ones are read whatever their date. */
   window?: { from: string; to: string };
 }
 
@@ -59,7 +63,8 @@ function day(value: string, name: string): number {
  * taken comma-separated or repeated, checked against the super-statuses and
  * put in the board's order. Done and Canceled are hundreds of thousands of
  * rows after the import, so they are only ever read for a window of at most
- * a month (`from`..`to`, `to` defaulting to `from`).
+ * a month (`from`..`to`, `to` defaulting to `from`). A window narrows the
+ * open statuses as well — the board asks for the days it shows.
  */
 export function parseDispatchMapQuery(query: DispatchMapQueryDto): DispatchMapRead {
   const raw = (Array.isArray(query.statuses) ? query.statuses : [query.statuses ?? ''])

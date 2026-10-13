@@ -3,6 +3,7 @@ import { SearchDocument, SearchType } from '@bitcrm/types';
 import { SearchIndexerService } from '../indexer.service';
 import { routeToDocument } from '../index-router';
 import { CatalogNamesService } from '../catalog-names.service';
+import { ProductListReadiness } from '../../product-list/product-list.readiness';
 
 const INTERNAL_SECRET = process.env.INTERNAL_SERVICE_SECRET || '';
 
@@ -93,6 +94,8 @@ export class BackfillService {
     private readonly indexer: SearchIndexerService,
     private readonly catalogNames: CatalogNamesService,
     @Optional() @Inject(BACKFILL_OPTIONS) options?: BackfillOptions,
+    // Stamps inventory's Price Book list ready once every product is written.
+    @Optional() private readonly productListReadiness?: ProductListReadiness,
   ) {
     this.concurrency = options?.concurrency ?? BACKFILL_DEFAULTS.concurrency;
     this.pageDelayMs = options?.pageDelayMs ?? BACKFILL_DEFAULTS.pageDelayMs;
@@ -107,7 +110,9 @@ export class BackfillService {
     const totals: Record<string, number> = {};
     for (const source of sources) {
       try {
-        totals[source.type] = await this.backfillType(source.type, source.base);
+        const { count, complete } = await this.backfillType(source.type, source.base);
+        totals[source.type] = count;
+        if (source.type === 'product') await this.stampProductList(count, complete);
       } catch (err) {
         this.logger.error(
           `Backfill for ${source.type} failed: ${(err as Error).message}`,
@@ -119,9 +124,30 @@ export class BackfillService {
     return totals;
   }
 
-  private async backfillType(type: SearchType, base: string): Promise<number> {
+  /**
+   * The index now holds every product with its `productList` fields: inventory
+   * may read its filtered Price Book here. Only after a walk where every
+   * document was written, and never for an empty walk (an inventory without
+   * its catalog index answers no products at all). A failed stamp fails
+   * nothing — inventory just keeps reading DynamoDB.
+   */
+  private async stampProductList(count: number, complete: boolean): Promise<void> {
+    if (!this.productListReadiness) return;
+    if (!complete || count === 0) {
+      this.logger.warn(`Product list not stamped ready (${count} written, complete: ${complete})`);
+      return;
+    }
+    try {
+      await this.productListReadiness.stamp(count);
+    } catch (err) {
+      this.logger.error(`Product list readiness stamp failed: ${(err as Error).message}`);
+    }
+  }
+
+  private async backfillType(type: SearchType, base: string): Promise<{ count: number; complete: boolean }> {
     let cursor: string | undefined;
     let count = 0;
+    let seen = 0;
     let pages = 0;
     // Deals denormalize their client and conversations their party and jobs;
     // one contact owns many deals and one deal many messages, so those
@@ -150,12 +176,13 @@ export class BackfillService {
         await mapLimit(items, this.concurrency, (e) => this.toDocument(type, e, fetchCache))
       ).filter((d): d is SearchDocument => d !== null);
 
+      seen += docs.length;
       count += await this.indexer.bulkIndex(docs);
       cursor = page.nextCursor;
     } while (cursor);
 
     this.logger.log(`Backfilled ${count} ${type} docs in ${pages} page(s)`);
-    return count;
+    return { count, complete: count === seen };
   }
 
   /** One entity → its document, with whatever enrichment its type needs. */

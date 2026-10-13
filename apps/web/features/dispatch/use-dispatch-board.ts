@@ -30,6 +30,17 @@ export interface DispatchBoard {
   window: DealsWindow;
   deals: Deal[];
   /**
+   * How many open jobs there are whatever the date — the sidebar's "out of N
+   * open jobs". `deals.length` when the board read them all (Any date).
+   */
+  openTotal: number;
+  /**
+   * Today's open jobs (Connecticut's day) — where the team is and what is
+   * left of its day. `deals`' own when the window holds today; read beside
+   * them when it does not and the team is drawn.
+   */
+  todayDeals: Deal[];
+  /**
    * Done / Canceled jobs read for `closedWindow` (ours: the Filters' Done /
    * Canceled ticks) — never among `deals`, which stays the open set.
    */
@@ -121,6 +132,15 @@ export function useDispatchBoard(
   const openQuery = useMemo(() => JSON.parse(openKey) as DispatchMapQuery, [openKey]);
   const query = useDispatchJobs(openQuery);
   const deals = query.data?.deals ?? NO_DEALS;
+  const openTotal = query.data?.totalAnyDate ?? deals.length;
+  // Where the team is comes from today's jobs: a window without today (an
+  // earlier or a later week) reads today's open jobs beside it, for the team only.
+  const today = todayISO();
+  const holdsToday = !window.from || (window.from <= today && today <= (window.to ?? window.from));
+  const todayKey = JSON.stringify({ from: today, to: today } satisfies DispatchMapQuery);
+  const todayQueryKey = useMemo(() => JSON.parse(todayKey) as DispatchMapQuery, [todayKey]);
+  const todayQuery = useDispatchJobs(todayQueryKey, { enabled: techs && shows.techs && !holdsToday });
+  const todayDeals = holdsToday ? deals : (todayQuery.data?.deals ?? NO_DEALS);
   // Closed jobs only when asked, for their days — part of the same whole board.
   const closedKey = JSON.stringify(closed ? mapQuery(closed) : NO_CLOSED);
   const closedQueryKey = useMemo(() => JSON.parse(closedKey) as DispatchMapQuery, [closedKey]);
@@ -158,18 +178,20 @@ export function useDispatchBoard(
   // brought them — so the roster says the same thing on every render.
   const fixesAt = locations.dataUpdatedAt;
   const technicians = useMemo(() => {
-    const derived = technicianPositions(roster.profiles, deals, todayISO());
+    const derived = technicianPositions(roster.profiles, todayDeals, today);
     // A real GPS fix beats the inferred home/last-job position when the
     // technician is online.
     return mergeLivePositions(derived, locations.data ?? NO_FIXES, fixesAt);
-  }, [roster.profiles, deals, locations.data, fixesAt]);
+  }, [roster.profiles, todayDeals, today, locations.data, fixesAt]);
   // Streets are looked up once the spots are final: asking while the jobs are
   // still on their way would geocode a home address the last job of the day
   // then replaces — a wasted lookup out of Google's small per-session allowance.
-  const placed = settled(query) && !roster.isLoading && settled(locations);
+  // A disabled read (today in the window, or the team not drawn) counts as settled.
+  const todaySettled = holdsToday || settled(todayQuery);
+  const placed = settled(query) && todaySettled && !roster.isLoading && settled(locations);
   const geo = useReverseGeocode(technicians, techs && placed);
 
-  const teamIn = !directory.isLoading && !roster.isLoading && settled(locations);
+  const teamIn = !directory.isLoading && !roster.isLoading && settled(locations) && todaySettled;
   const techsReady = teamIn && !geo.pending;
 
   const whole =
@@ -186,6 +208,8 @@ export function useDispatchBoard(
     () => ({
       window,
       deals,
+      openTotal,
+      todayDeals,
       closedDeals,
       closedWindow: closed,
       failed: query.isError,
@@ -201,6 +225,8 @@ export function useDispatchBoard(
     [
       window,
       deals,
+      openTotal,
+      todayDeals,
       closedDeals,
       closed,
       query.isError,

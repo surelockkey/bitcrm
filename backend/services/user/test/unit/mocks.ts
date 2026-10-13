@@ -69,6 +69,8 @@ export function createMockUsersRepository() {
     findByRoleId: jest.fn().mockResolvedValue([]),
     findByDepartment: jest.fn(),
     findAll: jest.fn(),
+    findAllIndexed: jest.fn(),
+    allUsersIndexReady: jest.fn().mockResolvedValue(false),
     findByStatus: jest.fn(),
     update: jest.fn(),
     attachSignInAccount: jest.fn().mockResolvedValue(undefined),

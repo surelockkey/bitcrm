@@ -18,6 +18,7 @@ import {
   DealClientSearchInput,
   TechnicianSearchInput,
 } from './mapper-input';
+import { productListFields, type ProductListFields } from '../../product-list/product-list.fields';
 import {
   compactUnique,
   looksLikePhone,
@@ -245,7 +246,10 @@ export function mapTechnician(input: TechnicianSearchInput): SearchDocument {
   };
 }
 
-export function mapProduct(product: Product): SearchDocument {
+/** A product document carries the Price Book list fields too (index v4). */
+export type ProductSearchDocument = SearchDocument & { productList: ProductListFields };
+
+export function mapProduct(product: Product): ProductSearchDocument {
   return {
     docId: `product#${product.id}`,
     entityId: product.id,
@@ -260,6 +264,7 @@ export function mapProduct(product: Product): SearchDocument {
     url: `/inventory/products/${product.id}`,
     badges: compactUnique([product.type, product.category, product.status]),
     updatedAt: product.updatedAt,
+    productList: productListFields(product),
   };
 }
 

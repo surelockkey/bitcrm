@@ -45,8 +45,8 @@ const PRODUCT_CACHE_MAX = 50_000;
 const NAMES_TTL_MS = 5 * 60_000;
 const NAMES_CACHE_MAX = 20_000;
 /**
- * The most Done jobs one window may hold — each is a Query for its lines. A
- * year of this business is ~13 000.
+ * The most Done jobs one window may hold — each is a Query for its lines
+ * until the Done-lines index is ready. A year of this business is ~13 000.
  */
 export const ITEMS_REPORT_MAX_JOBS = 30_000;
 
@@ -63,8 +63,9 @@ const fullName = (p: PersonName): string => `${p.firstName ?? ''} ${p.lastName ?
  *
  * 1. The period's Done jobs off the StatusScheduleIndex (`STATUS#done`, the
  *    job date's days) — `DealsRepository.readReportWindow`, Done partitions only.
- * 2. Each job's `PRODUCT#` lines (`ItemsReportRepository`), service fee and
- *    discount lines dropped.
+ * 2. The jobs' `PRODUCT#` lines (`ItemsReportRepository`) — one Query per month
+ *    off the Done-lines index once it is ready, else one per job — service fee
+ *    and discount lines dropped; only the lines of the jobs of step 1 count.
  * 3. The price book for the items' current name, type, model and category
  *    (inventory's internal route, `InternalHttpService.getProductsForReport`).
  * 4. Everything else — Workiz's multi-filter, the grouping, search, sort,
@@ -236,10 +237,13 @@ export class ItemsReportService {
     if (deals.length > ITEMS_REPORT_MAX_JOBS) {
       throw new BadRequestException(`The period holds more than ${ITEMS_REPORT_MAX_JOBS} done jobs — choose a shorter period`);
     }
-    const linesByDeal = await this.lines.linesOf(
-      deals.map((d) => d.id),
-      ITEMS_LINE_PROJECTION,
-    );
+    // The Done-lines index once it is ready (a Query per month); until then, a Query per job.
+    const linesByDeal =
+      (await this.lines.linesOfWindow(from, to, ITEMS_LINE_PROJECTION)) ??
+      (await this.lines.linesOf(
+        deals.map((d) => d.id),
+        ITEMS_LINE_PROJECTION,
+      ));
     const entries: WindowLine[] = [];
     for (const deal of deals) {
       for (const row of linesByDeal.get(deal.id) ?? []) {

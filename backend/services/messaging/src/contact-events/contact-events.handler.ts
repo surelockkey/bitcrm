@@ -3,6 +3,7 @@ import { RedisService, tryNormalizePhone } from '@bitcrm/shared';
 import { forgetPartyName } from '../api/access/party-names.service';
 import { type Conversation, type ConversationAddressPointer } from '@bitcrm/types';
 import { ConversationsRepository } from '../conversations/conversations.repository';
+import { TechScopeService } from '../tech-scope/tech-scope.service';
 import { CrmContactsClient } from '../outbound/internal/crm-contacts.client';
 import { ContactPointersRepository } from './contact-pointers.repository';
 import {
@@ -49,6 +50,7 @@ export class ContactEventsHandler {
     private readonly pointers: ContactPointersRepository,
     private readonly crm: CrmContactsClient,
     @Optional() private readonly redis?: RedisService,
+    @Optional() private readonly techScope?: TechScopeService,
   ) {}
 
   // ------------------------------------------------------ contact.merged
@@ -58,6 +60,9 @@ export class ContactEventsHandler {
       this.logger.warn(`Dropping malformed contact.merged payload: ${JSON.stringify(payload)}`);
       return;
     }
+    // deal-service re-points the duplicate's jobs without a job event, so the
+    // technician inbox scope (C4) renames the contact itself. Never throws.
+    await this.techScope?.onContactMerged(payload.oldContactId, payload.newContactId);
     await this.merge(payload);
   }
 
