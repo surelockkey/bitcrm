@@ -1203,8 +1203,10 @@ export class DealsService {
   /**
    * The schedule window of a list query, or undefined when the query does
    * not touch the schedule index. Days are `YYYY-MM-DD`; `scheduledFrom`
-   * alone is that one day; a span is capped at 31 days so no request can
-   * page a whole status partition by accident.
+   * alone is that one day; a span is capped at six weeks — a month grid is
+   * up to six rows of seven, plus the day before it the schedule reads for
+   * the Connecticut clock — so no request can page a whole status partition
+   * by accident.
    */
   private parseScheduleWindow(query: ListDealsQueryDto): ScheduleWindow | undefined {
     const unscheduled = query.unscheduled === true || query.unscheduled === 'true';
@@ -1214,7 +1216,7 @@ export class DealsService {
     if (from && to) {
       if (to < from) throw new BadRequestException('scheduledTo is before scheduledFrom');
       const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
-      if (days > 30) throw new BadRequestException('The visit-date window is at most 31 days');
+      if (days > 41) throw new BadRequestException('The visit-date window is at most 42 days');
     }
     return { from, to, unscheduled };
   }
