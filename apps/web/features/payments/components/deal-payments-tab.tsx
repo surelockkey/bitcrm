@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { FileText, Loader2, MoreVertical, Plus, Receipt, Undo2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { FileText, Plus } from "lucide-react";
 import type { Deal, Payment } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,7 +16,9 @@ import { wzPill } from "@/components/workiz";
 import { formatMoney } from "@/features/billing/lib";
 import { formatYmd } from "@/features/billing/dates";
 import { useDealPayments, useResendReceipt } from "../hooks";
-import { CLEARING_NOTE, canRefund, isPartiallyPaid, paymentMethodLabel } from "../lib";
+import { CLEARING_NOTE, canDeletePayment, canRefund, isPartiallyPaid, paymentMethodLabel } from "../lib";
+import { DeletePaymentDialog } from "./delete-payment-dialog";
+import { PaymentRowMenu } from "./payment-row-menu";
 import { PartiallyPaidBadge, PaymentStatusBadge } from "./payment-status-badge";
 import { RecordPaymentDialog } from "./record-payment-dialog";
 import { RefundPaymentDialog } from "./refund-payment-dialog";
@@ -24,50 +26,6 @@ import { RefundPaymentDialog } from "./refund-payment-dialog";
 /** Workiz's payments table (jobshell_wz_N9YA2L_payments): 47px bold heads between 1px #ccc rules. */
 const TH = "h-[47px] border-y border-[#cccccc] px-[18px] py-[15px] text-left text-[14px] leading-4 font-bold capitalize";
 const TD = "border-t border-b border-t-[#e6e6e6] border-b-[#dddddd] py-5 pr-2.5 pl-5 align-top";
-
-/** The row's ⋮ (Workiz) with what may be done to that payment. */
-function RowMenu({ label, children }: { label: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <span className="relative inline-block">
-      <button
-        type="button"
-        aria-label={label}
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        className="grid size-8 place-items-center rounded-[8px] text-foreground hover:bg-[#f3f6f7]"
-      >
-        <MoreVertical className="size-6" strokeWidth={1.5} />
-      </button>
-      {open ? (
-        <>
-          <button type="button" aria-label="Close" className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} />
-          <span
-            role="menu"
-            onClick={() => setOpen(false)}
-            className="absolute top-full right-0 z-20 mt-1 flex w-44 flex-col rounded-[2px] bg-white py-1 text-left shadow-[0_3px_6px_2px_rgba(0,0,0,0.18),0_4px_15px_2px_rgba(0,0,0,0.15)] [&>*+*]:border-t [&>*+*]:border-[#cad3d6]"
-          >
-            {children}
-          </span>
-        </>
-      ) : null}
-    </span>
-  );
-}
-
-function MenuButton({ children, onClick, disabled }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      disabled={disabled}
-      onClick={onClick}
-      className="flex items-center gap-2.5 px-[15px] py-3 text-[14px] text-[#566d76] hover:bg-[#f3f6f7] disabled:opacity-50"
-    >
-      {children}
-    </button>
-  );
-}
 
 /** The Payments tab's label under the name, as Workiz shows it: "$0.00 balance". */
 export function paymentsTabCaption(balanceDue: number | undefined): string | null {
@@ -96,6 +54,7 @@ export function DealPaymentsTab({
   const resend = useResendReceipt();
   const [recording, setRecording] = useState(false);
   const [refunding, setRefunding] = useState<Payment | null>(null);
+  const [deleting, setDeleting] = useState<Payment | null>(null);
 
   const rows = useMemo(() => ledger.data?.payments ?? [], [ledger.data]);
   const collectors = useMemo(
@@ -199,7 +158,6 @@ export function DealPaymentsTab({
             </thead>
             <tbody>
               {rows.map((p) => {
-                const what = `the ${formatMoney(p.amount)} ${paymentMethodLabel(p.method).toLowerCase()} payment`;
                 const receiptable = p.status === "settled" || p.status === "refunded";
                 const resending = resend.isPending && resend.variables === p.id;
                 const canResend = canCollect && receiptable;
@@ -232,22 +190,17 @@ export function DealPaymentsTab({
                       <PaymentStatusBadge status={p.status} />
                     </td>
                     <td className={cn(TD, "pr-[33px] text-right")}>
-                      {canResend || canGiveBackThis ? (
-                        <RowMenu label={`Actions for ${what}`}>
-                          {canResend ? (
-                            <MenuButton disabled={resending} onClick={() => resend.mutate(p.id)}>
-                              {resending ? <Loader2 className="size-4 animate-spin" /> : <Receipt className="size-4" strokeWidth={1.25} />}
-                              Resend receipt
-                            </MenuButton>
-                          ) : null}
-                          {canGiveBackThis ? (
-                            <MenuButton onClick={() => setRefunding(p)}>
-                              <Undo2 className="size-4" strokeWidth={1.25} />
-                              Refund
-                            </MenuButton>
-                          ) : null}
-                        </RowMenu>
-                      ) : null}
+                      <PaymentRowMenu
+                        payment={p}
+                        canResend={canResend}
+                        canRefund={canGiveBackThis}
+                        // Deleting needs the same right as refunding (the server's rule).
+                        canDelete={canGiveBack && canDeletePayment(p)}
+                        resending={resending}
+                        onResend={() => resend.mutate(p.id)}
+                        onRefund={() => setRefunding(p)}
+                        onDelete={() => setDeleting(p)}
+                      />
                     </td>
                   </tr>
                 );
@@ -276,6 +229,10 @@ export function DealPaymentsTab({
           open
           onOpenChange={(o) => !o && setRefunding(null)}
         />
+      ) : null}
+
+      {canGiveBack ? (
+        <DeletePaymentDialog payment={deleting} invoiceId={deal.id} dealId={deal.id} onOpenChange={(o) => !o && setDeleting(null)} />
       ) : null}
     </section>
   );
