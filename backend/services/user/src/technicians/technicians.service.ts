@@ -98,11 +98,17 @@ export class TechniciansService {
   private async resolve(profile: TechnicianProfile): Promise<TechnicianProfile> {
     // Independent reads (the user record; the photo document + its link), so
     // they run side by side — the photo only ever adds `profilePhotoUrl`.
-    const [withPhone, profilePhotoUrl] = await Promise.all([
+    const [withPhone, documentUrl] = await Promise.all([
       this.withPhone(profile),
       this.photoUrl(profile.userId),
     ]);
-    return profilePhotoUrl ? { ...withPhone, profilePhotoUrl } : withPhone;
+    // A stored `profilePhotoUrl` counts only when it is a real link. The
+    // Workiz import wrote the S3 key path (`technicians/<id>/profile_photo`)
+    // for every user with a picture there, and nothing serves that path: a
+    // browser handed it drew one 404 per avatar on the schedule.
+    const { profilePhotoUrl: stored, ...rest } = withPhone;
+    const profilePhotoUrl = documentUrl ?? (stored && /^https?:\/\//i.test(stored) ? stored : undefined);
+    return profilePhotoUrl ? { ...rest, profilePhotoUrl } : rest;
   }
 
   /**
