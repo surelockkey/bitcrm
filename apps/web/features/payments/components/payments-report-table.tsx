@@ -115,8 +115,16 @@ export interface PaymentsReportTableProps {
   contactOf: (contactId: string) => PaymentsReportContact | undefined;
   /** A user's name as Workiz prints it ("(2) TX - Cannon Burt"), else the row's own. */
   nameOf: (userId: string | undefined, fallback?: string) => string | undefined;
+  /**
+   * Where a person's name leads, or nowhere: a payment is collected by whoever
+   * took it, the office included, and only a field-team member has a
+   * technician card to open. Default: every id has one.
+   */
+  technicianHref?: (userId: string) => string | undefined;
   busy?: boolean;
 }
+
+const defaultTechnicianHref = (userId: string) => `/technicians/${userId}`;
 
 /** A value standing alone in its cell: one line, "…" where it runs out. */
 const Text = ({ children }: { children?: ReactNode }) => <span className="block truncate">{children}</span>;
@@ -137,11 +145,13 @@ function Cell({
   column,
   contactOf,
   nameOf,
+  technicianHref,
 }: {
   row: PaymentReportRow;
   column: PaymentsReportColumnId;
   contactOf: PaymentsReportTableProps["contactOf"];
   nameOf: PaymentsReportTableProps["nameOf"];
+  technicianHref: (userId: string) => string | undefined;
 }) {
   switch (column) {
     case "id":
@@ -204,14 +214,16 @@ function Cell({
     case "technician": {
       const name = nameOf(row.technicianId, row.technicianName);
       if (!name) return null;
-      return row.technicianId ? <LinkLine href={`/technicians/${row.technicianId}`}>{name}</LinkLine> : <Text>{name}</Text>;
+      const href = row.technicianId ? technicianHref(row.technicianId) : undefined;
+      return href ? <LinkLine href={href}>{name}</LinkLine> : <Text>{name}</Text>;
     }
     case "transactionMethod":
       return <Text>{row.transactionMethod ?? ""}</Text>;
     case "collectedBy": {
       const name = nameOf(row.collectedById, row.collectedByName);
       if (!name) return null;
-      return row.collectedById ? <LinkLine href={`/technicians/${row.collectedById}`}>{name}</LinkLine> : <Text>{name}</Text>;
+      const href = row.collectedById ? technicianHref(row.collectedById) : undefined;
+      return href ? <LinkLine href={href}>{name}</LinkLine> : <Text>{name}</Text>;
     }
     case "jobType":
       return <Text>{row.jobTypeName ?? ""}</Text>;
@@ -254,7 +266,16 @@ function Colgroup({ columns, widthOf }: { columns: readonly { id: string }[]; wi
  * first; Payment date is the one order the server keeps (`dir`), so its
  * header is the only one that sorts.
  */
-export function PaymentsReportTable({ rows, money, dir, onSortDate, contactOf, nameOf, busy }: PaymentsReportTableProps) {
+export function PaymentsReportTable({
+  rows,
+  money,
+  dir,
+  onSortDate,
+  contactOf,
+  nameOf,
+  technicianHref = defaultTechnicianHref,
+  busy,
+}: PaymentsReportTableProps) {
   const { widthOf, setWidth, reset } = useColumnWidths(WIDTHS_KEY, WIDTHS);
   const columns = paymentsReportColumns(money);
 
@@ -296,7 +317,7 @@ export function PaymentsReportTable({ rows, money, dir, onSortDate, contactOf, n
             <TableRow key={`${row.kind}:${row.id}`} className="border-0 hover:bg-black/5!" style={ROW_STYLE}>
               {columns.map((c) => (
                 <TableCell key={c.id} className={CELL}>
-                  <Cell row={row} column={c.id} contactOf={contactOf} nameOf={nameOf} />
+                  <Cell row={row} column={c.id} contactOf={contactOf} nameOf={nameOf} technicianHref={technicianHref} />
                 </TableCell>
               ))}
             </TableRow>
