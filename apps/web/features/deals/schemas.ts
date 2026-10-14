@@ -92,6 +92,10 @@ export type UpdateDealValues = Partial<
     /** Workiz "Tech Cost" / "Company Cost" (parts / company_parts); null clears. */
     techCost: number | null;
     companyCost: number | null;
+    /** Workiz "Custom Tech Rate": on needs a rate; a null rate clears it and turns it off. Needs commission.edit. */
+    useTechSpecialRate: boolean;
+    techSpecialRate: number | null;
+    techSpecialRateUnit: "%" | "$";
   }
 >;
 

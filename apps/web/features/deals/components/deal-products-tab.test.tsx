@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   ClientType,
@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   prefetch: vi.fn(),
   prefetchCard: vi.fn(),
   updateDeal: vi.fn(),
+  commissionView: true,
+  commissionEdit: true,
   setTaxable: vi.fn(),
   setTax: vi.fn(),
   summaryProps: [] as Array<Record<string, unknown>>,
@@ -106,6 +108,16 @@ vi.mock("@/features/price-book/item-groups/item-group-dialog", () => ({
   },
 }));
 
+// The Commission rate block: commission.view to see it, commission.edit to change it.
+vi.mock("@/features/auth/use-permissions", () => ({
+  usePermissions: () => ({
+    isTechnician: false,
+    isLoading: false,
+    can: (resource: string, action?: string) =>
+      resource === "commission" ? (action === "edit" ? mocks.commissionEdit : mocks.commissionView) : true,
+  }),
+}));
+
 import { DealProductsTab } from "./deal-products-tab";
 
 const deal: Deal = {
@@ -155,6 +167,8 @@ beforeEach(() => {
   mocks.schedule = { data: null, isSuccess: true, isError: false, isPending: false, fetchStatus: "idle" };
   mocks.scheduleAsked.length = 0;
   mocks.updateDeal.mockClear();
+  mocks.commissionView = true;
+  mocks.commissionEdit = true;
   mocks.payProps.length = 0;
   mocks.scheduleDialogProps.length = 0;
   mocks.scheduleTableProps.length = 0;
@@ -282,6 +296,23 @@ describe("DealProductsTab (taxes)", () => {
 
     expect(screen.queryByRole("textbox", { name: "Tech expenses" })).toBeNull();
     expect(screen.getByRole("group", { name: "Tech expenses" })).toHaveTextContent("100.00");
+  });
+
+  it("Commission rate: with commission.view the block is there, and Update writes the rate to the job", async () => {
+    const u = userEvent.setup();
+    render(<DealProductsTab deal={deal} canEdit variant="job" />);
+
+    await u.click(screen.getByRole("switch", { name: "Custom Tech Rate" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Custom tech rate" }), { target: { value: "50" } });
+    await u.click(screen.getByRole("button", { name: "Update" }));
+
+    expect(mocks.updateDeal).toHaveBeenCalledWith({ useTechSpecialRate: true, techSpecialRate: 50, techSpecialRateUnit: "%" }, expect.anything());
+  });
+
+  it("Commission rate: without commission.view there is no block at all", () => {
+    mocks.commissionView = false;
+    render(<DealProductsTab deal={deal} canEdit variant="job" />);
+    expect(screen.queryByRole("heading", { name: "Commission rate" })).toBeNull();
   });
 
   it("shows the line description under the name", () => {

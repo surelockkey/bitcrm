@@ -38,6 +38,8 @@ import { formatMoney } from "../lib";
 import { AddProductDialog } from "./add-product-dialog";
 import { ItemsArt } from "./job-empty-art";
 import { JobItemsTotals } from "./job-items-totals";
+import { CommissionRateBlock } from "./commission-rate-block";
+import { usePermissions } from "@/features/auth/use-permissions";
 import { wzPill } from "@/components/workiz";
 import { ItemGroupDialog } from "@/features/price-book/item-groups/item-group-dialog";
 import { draftLinesFromJobLines } from "@/features/price-book/item-groups/lib";
@@ -178,6 +180,10 @@ export function DealProductsTab({
   usePrefetchJobItemCard(deal.assignedTechIds);
   // Workiz's "Tech expenses" box under the totals writes the job's own amount.
   const updateDeal = useUpdateDeal(deal.id);
+  // Workiz's "Commission rate" block: commission.view to see it, commission.edit (Override Rates) to change it.
+  const { can } = usePermissions();
+  const canSeeRate = can("commission", "view");
+  const canEditRate = can("commission", "edit");
   const techExpenses = {
     amount: deal.techCost,
     onChange: canEdit ? (next: number | null) => updateDeal.mutate({ techCost: next }, {}) : undefined,
@@ -445,6 +451,20 @@ export function DealProductsTab({
               onEdit={() => setScheduling(true)}
             />
           </div>
+        ) : null}
+
+        {canSeeRate ? (
+          <CommissionRateBlock
+            className="mt-10"
+            rate={{
+              useTechSpecialRate: deal.useTechSpecialRate,
+              techSpecialRate: deal.techSpecialRate,
+              techSpecialRateUnit: deal.techSpecialRateUnit,
+            }}
+            canEdit={canEdit && canEditRate}
+            pending={updateDeal.isPending}
+            onUpdate={(v) => updateDeal.mutate(v, {})}
+          />
         ) : null}
 
         {dialog}
