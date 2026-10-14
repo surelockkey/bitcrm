@@ -32,6 +32,8 @@ const WHOLE: Required<Deal> = {
   id: "d1",
   dealNumber: "K4T9ZW",
   contactId: "c1",
+  techCost: 0,
+  companyCost: 0,
   companyId: "co1",
   clientType: ClientType.COMMERCIAL,
   scheduledDate: TODAY,

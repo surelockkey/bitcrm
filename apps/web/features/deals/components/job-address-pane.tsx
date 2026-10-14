@@ -124,6 +124,13 @@ function PaneBody({
                 const found = properties.find((a) => addressKey(a) === key);
                 if (found) setDraft({ ...found });
               }}
+              // Workiz's first row (job_address_properties_open): the boxes
+              // empty for a new address, which the job's Save then offers to
+              // keep on the client ("Change client").
+              createOption={{
+                label: "Add New Property",
+                onCreate: () => setDraft((d) => ({ street: "", unit: "", city: "", state: "", zip: "", country: d.country })),
+              }}
               // Workiz's select here has no floating label: just the value, centred.
               className="[&>label]:sr-only [&_[data-slot=wz-select-value]]:top-[15.32px]"
             />

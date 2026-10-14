@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useQuickViewPeek } from "@/features/deals/quick-view-prefetch";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, TriangleAlert } from "lucide-react";
@@ -105,6 +106,7 @@ export function DealsPage() {
   const [searchText, setSearchText] = useState("");
   const search = useDebouncedValue(searchText, SEARCH_DEBOUNCE_MS);
   const [openId, setOpenId] = useState<string | null>(null);
+  const peek = useQuickViewPeek();
   const visibleFields = useJobFieldsStore((s) => s.visible);
   const fieldOrder = useJobFieldsStore((s) => s.order);
 
@@ -230,6 +232,7 @@ export function DealsPage() {
     userMap: tableNames,
     namesLoading: directoryLoading,
     onOpen: (d: Deal) => setOpenId(d.id),
+    onPeek: peek,
     onRowClick: (d: Deal) => router.push(`/deals/${d.id}`),
     visibleFields,
     order: fieldOrder,
