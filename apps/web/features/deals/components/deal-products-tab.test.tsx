@@ -12,6 +12,7 @@ import type { Deal, DealProduct } from "@bitcrm/types";
 const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
   prefetch: vi.fn(),
+  updateDeal: vi.fn(),
   setTaxable: vi.fn(),
   setTax: vi.fn(),
   summaryProps: [] as Array<Record<string, unknown>>,
@@ -58,6 +59,7 @@ vi.mock("@/features/payments/components/payment-schedule", async (importOriginal
 vi.mock("../hooks", () => ({
   useDealProducts: () => ({ data: mocks.products, isLoading: false }),
   usePrefetchCatalogProduct: () => mocks.prefetch,
+  useUpdateDeal: () => ({ mutate: mocks.updateDeal, isPending: false }),
   useRemoveProduct: () => ({ mutate: mocks.remove, isPending: false }),
   useMarkProductOrdered: () => ({ mutate: vi.fn(), isPending: false }),
   useDealTotals: () => ({ data: undefined, isFetching: false }),
@@ -150,6 +152,7 @@ beforeEach(() => {
   mocks.dialogProps.length = 0;
   mocks.schedule = { data: null, isSuccess: true, isError: false, isPending: false, fetchStatus: "idle" };
   mocks.scheduleAsked.length = 0;
+  mocks.updateDeal.mockClear();
   mocks.payProps.length = 0;
   mocks.scheduleDialogProps.length = 0;
   mocks.scheduleTableProps.length = 0;
@@ -230,6 +233,48 @@ describe("DealProductsTab (taxes)", () => {
     expect(screen.getByRole("checkbox", { name: /kwikset deadbolt is taxable/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /kwikset deadbolt is taxable/i })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: /rekey is taxable/i })).not.toBeChecked();
+  });
+
+  // Workiz's "Tech expenses" box under Job costing: what the technician paid
+  // out of pocket, typed by the office off the receipt — the commissions
+  // report's Parts, reimbursed to the technician in his balance.
+  it("Tech expenses shows the job's amount and writes a typed one to the job", async () => {
+    const u = userEvent.setup();
+    render(<DealProductsTab deal={{ ...deal, techCost: 100 }} canEdit variant="job" />);
+
+    const box = screen.getByRole("textbox", { name: "Tech expenses" });
+    expect(box).toHaveValue("100.00");
+    await u.clear(box);
+    await u.type(box, "125{Enter}");
+
+    expect(mocks.updateDeal).toHaveBeenCalledWith({ techCost: 125 }, expect.anything());
+  });
+
+  it("an emptied Tech expenses box clears the amount", async () => {
+    const u = userEvent.setup();
+    render(<DealProductsTab deal={{ ...deal, techCost: 100 }} canEdit variant="job" />);
+
+    await u.clear(screen.getByRole("textbox", { name: "Tech expenses" }));
+    await u.tab();
+
+    expect(mocks.updateDeal).toHaveBeenCalledWith({ techCost: null }, expect.anything());
+  });
+
+  it("leaving the Tech expenses box unchanged writes nothing", async () => {
+    const u = userEvent.setup();
+    render(<DealProductsTab deal={{ ...deal, techCost: 100 }} canEdit variant="job" />);
+
+    await u.click(screen.getByRole("textbox", { name: "Tech expenses" }));
+    await u.tab();
+
+    expect(mocks.updateDeal).not.toHaveBeenCalled();
+  });
+
+  it("read-only users see Tech expenses as a plain box", () => {
+    render(<DealProductsTab deal={{ ...deal, techCost: 100 }} canEdit={false} variant="job" />);
+
+    expect(screen.queryByRole("textbox", { name: "Tech expenses" })).toBeNull();
+    expect(screen.getByRole("group", { name: "Tech expenses" })).toHaveTextContent("100.00");
   });
 
   it("shows the line description under the name", () => {

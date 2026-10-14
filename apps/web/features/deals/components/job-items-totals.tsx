@@ -8,6 +8,7 @@ import { DiscountEditor } from "@/features/billing/components/document-summary-p
 import { TaxRateSelect } from "@/features/billing/components/tax-rate-select";
 import { discountLabel, formatPercent } from "@/features/billing/lib";
 import { formatBoxAmount } from "../job-shell";
+import { parseMoney } from "./quick-view/finance";
 
 /** Workiz's totals box: 132×28, #f7f7f7 on a 1px #ccc line, r2, 14px #666 (job_b_tab_items). */
 const BOX = "h-7 w-[132px] shrink-0 rounded-[2px] border border-[#cccccc] bg-[#f7f7f7] px-2.5 text-left text-[14px] leading-[26px] text-[#666666] tabular-nums";
@@ -17,8 +18,11 @@ const BOX = "h-7 w-[132px] shrink-0 rounded-[2px] border border-[#cccccc] bg-[#f
  * owed, "Pay" beside it) / Due on the left, Subtotal → Discount → Taxable →
  * Tax rate% → Tax (→ Job costing) on the right, each a label and a small grey
  * box, the right column closed by "+ Add payment schedule" (`extraRows`).
- * Workiz's Tech expenses, Tech invoice, Labor cost and Card expenses have
- * nothing behind them in BitCRM and are not drawn.
+ * Under Job costing, Workiz's "Tech expenses" box: what the technician paid
+ * out of pocket, typed by the office off his receipt (`Deal.techCost`) — the
+ * commissions report's Parts, reimbursed to him in his balance. Workiz's Tech
+ * invoice, Labor cost and Card expenses have nothing behind them in BitCRM
+ * and are not drawn.
  */
 export function JobItemsTotals({
   totals,
@@ -37,6 +41,7 @@ export function JobItemsTotals({
   exemptLabel,
   onPay,
   extraRows,
+  techExpenses,
 }: {
   totals: DocumentTotals;
   /** What is still owed on the job (the ledger's, else the job row's). */
@@ -59,6 +64,12 @@ export function JobItemsTotals({
   onResetTaxAuto?: () => void;
   onDiscountChange: (d: DocumentDiscount | null) => void;
   exemptLabel?: string;
+  /**
+   * Workiz "Tech expenses" (`Deal.techCost`): drawn when given; typed over
+   * when `onChange` is — Enter or leaving the box writes a changed amount,
+   * an emptied box clears it (`null`).
+   */
+  techExpenses?: { amount?: number; onChange?: (next: number | null) => void };
 }) {
   const [editingDiscount, setEditingDiscount] = useState(false);
   const exempt = taxSource === "exempt";
@@ -167,6 +178,15 @@ export function JobItemsTotals({
             {formatBoxAmount(cost)}
           </BoxRow>
         ) : null}
+        {techExpenses ? (
+          techExpenses.onChange && canEdit ? (
+            <MoneyBoxRow label="Tech expenses" amount={techExpenses.amount} disabled={pending} onCommit={techExpenses.onChange} />
+          ) : (
+            <BoxRow label="Tech expenses" colon="none">
+              {formatBoxAmount(techExpenses.amount ?? 0)}
+            </BoxRow>
+          )
+        ) : null}
         {exempt ? (
           <p className="max-w-[300px] text-right text-[12px] text-[#404040]">
             Tax exempt{exemptLabel ? ` — ${exemptLabel}` : ""}
@@ -193,7 +213,8 @@ function BoxRow({
   label: string;
   children: ReactNode;
   bold?: boolean;
-  colon?: boolean;
+  /** " :" (Workiz's most), ":" tight, or none at all ("Tech expenses"). */
+  colon?: boolean | "none";
   underline?: boolean;
   hint?: ReactNode;
   onClick?: () => void;
@@ -207,7 +228,7 @@ function BoxRow({
     <div role="group" aria-label={label} className={cn("flex items-center gap-2.5", after != null && "relative", className)}>
       <span className={cn("text-[14px] leading-5 text-[#404040]", underline && "underline")}>
         {label}
-        {colon ? " :" : ":"}
+        {colon === "none" ? "" : colon ? " :" : ":"}
       </span>
       {hint}
       {onClick ? (
@@ -220,6 +241,59 @@ function BoxRow({
         </span>
       )}
       {after != null ? <span className="absolute top-0 left-full ml-2.5 flex h-7 items-center">{after}</span> : null}
+    </div>
+  );
+}
+
+const box = (n: number | undefined) => (typeof n === "number" ? n.toFixed(2) : "");
+
+/**
+ * A label and a typed money box in the totals' own style: written on Enter
+ * or on leaving when the amount differs from what the job holds; emptied, it
+ * clears the amount. The job's amount changing under it (a save, a refetch)
+ * shows at once.
+ */
+function MoneyBoxRow({
+  label,
+  amount,
+  disabled,
+  onCommit,
+}: {
+  label: string;
+  amount: number | undefined;
+  disabled?: boolean;
+  onCommit: (next: number | null) => void;
+}) {
+  const [text, setText] = useState(box(amount));
+  const [seen, setSeen] = useState(amount);
+  if (seen !== amount) {
+    setSeen(amount);
+    setText(box(amount));
+  }
+  const commit = () => {
+    const next = parseMoney(text);
+    if (next === amount || (next === undefined && amount === undefined)) {
+      setText(box(amount));
+      return;
+    }
+    onCommit(next ?? null);
+  };
+  return (
+    <div role="group" aria-label={label} className="flex items-center gap-2.5">
+      <span className="text-[14px] leading-5 text-[#404040]">{label}</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        aria-label={label}
+        value={text}
+        disabled={disabled}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+        className={cn(BOX, "outline-none focus:border-[#6aa8ee] disabled:cursor-not-allowed")}
+      />
     </div>
   );
 }

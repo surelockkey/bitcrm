@@ -27,6 +27,7 @@ import {
   useMarkProductOrdered,
   usePrefetchCatalogProduct,
   useRemoveProduct,
+  useUpdateDeal,
   useResetDealTax,
   useSetDealDiscount,
   useSetDealTax,
@@ -173,6 +174,12 @@ export function DealProductsTab({
   const totalsQuery = useDealTotals(deal.id);
   const remove = useRemoveProduct(deal.id);
   const prefetchItem = usePrefetchCatalogProduct();
+  // Workiz's "Tech expenses" box under the totals writes the job's own amount.
+  const updateDeal = useUpdateDeal(deal.id);
+  const techExpenses = {
+    amount: deal.techCost,
+    onChange: canEdit ? (next: number | null) => updateDeal.mutate({ techCost: next }, {}) : undefined,
+  };
   const markOrdered = useMarkProductOrdered(deal.id);
   const setTaxable = useSetProductTaxable(deal.id);
   const setTax = useSetDealTax(deal.id);
@@ -420,6 +427,7 @@ export function DealProductsTab({
           onTaxChange={(taxRateId) => setTax.mutate(taxRateId)}
           onResetTaxAuto={() => resetTax.mutate()}
           onDiscountChange={(d) => setDiscount.mutate(d)}
+          techExpenses={techExpenses}
           exemptLabel={contact?.taxExemptReason}
         />
 
