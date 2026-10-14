@@ -914,8 +914,11 @@ export class UsersService implements OnModuleInit {
 
     await this.assertCallerCanManageUser(caller, user);
 
-    await this.repository.update(id, { status: UserStatus.INACTIVE });
+    // The account first: a refused Cognito call (an IAM gap, dev 2026-10-14)
+    // must not leave a record that says "inactive" over a person who can
+    // still sign in. The record follows only once sign-in is really off.
     await this.cognitoAdmin.disableUser(user.cognitoSub);
+    await this.repository.update(id, { status: UserStatus.INACTIVE });
     await this.permissionCacheReader.setUserDisabled(id);
     await this.cache.invalidateUser(id);
     // Nobody who cannot log in should still be offered for tomorrow's work.
@@ -927,10 +930,13 @@ export class UsersService implements OnModuleInit {
 
     await this.assertCallerCanManageUser(caller, user);
 
-    await this.repository.update(id, { status: UserStatus.ACTIVE });
-    // A subcontractor comes back to the team, not to the sign-in page.
+    // A subcontractor comes back to the team, not to the sign-in page. The
+    // account first, the record after — as deactivate does it.
     if (!isSubcontractor(user)) {
       await this.cognitoAdmin.enableUser(user.cognitoSub);
+    }
+    await this.repository.update(id, { status: UserStatus.ACTIVE });
+    if (!isSubcontractor(user)) {
       await this.permissionCacheReader.removeUserDisabled(id);
     }
     await this.cache.invalidateUser(id);
