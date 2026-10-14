@@ -1243,13 +1243,17 @@ describe('DealsService', () => {
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.tech_assigned', expect.objectContaining({ techId: 'tech-2' }));
     });
 
-    it('auto-transitions to In Progress on the first assignment', async () => {
+    it('leaves a Submitted job Submitted on its first assignment — as in Workiz, a tech on the job is not progress on it', async () => {
+      // QA 2026-10-14: /deals/new with a tech picked created the job, then
+      // assigned the tech — and the brand-new job landed in "In Progress".
       const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED, assignedTechIds: [] }));
       repo.update.mockResolvedValue(deal);
 
       await service.assignTechs('deal-1', ['tech-1'], caller);
 
-      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ superStatus: JobSuperStatus.IN_PROGRESS }));
+      const updateArg = repo.update.mock.calls[0][1];
+      expect(updateArg.assignedTechIds).toEqual(['tech-1']);
+      expect(updateArg).not.toHaveProperty('superStatus');
     });
 
     it('does not re-transition when techs are already assigned', async () => {
