@@ -4,10 +4,13 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  HttpStatus,
   Param,
   Post,
+  Res,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { type Response } from 'express';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { TechnicianLocationService } from './technician-location.service';
@@ -27,19 +30,36 @@ export class TechnicianLocationController {
     summary: 'Report a technician’s live location',
     description:
       '**Guard:** `technicians.edit` **and** self — a technician may only post ' +
-      'their own location (from their own device). Stored with a short TTL, so it ' +
-      'expires when they go offline.',
+      'their own location (from their own device). The newest fix replaces the ' +
+      'previous one and is kept for 12 hours after the last report, so a technician ' +
+      'who stops posting is off the map by the next morning; the map itself dims a ' +
+      'pin after 90 s and shows "Last seen" from `updatedAt`.\n\n' +
+      'Whether the fix is stored is the manager’s call: the card’s **Track location** ' +
+      '(`gpsTrackingEnabled` on `GET /technicians/:id/profile`), and never for a ' +
+      'subcontractor. When it is off the fix is **accepted and dropped** — `204`, no ' +
+      'body, nothing stored, and any earlier fix of theirs removed — rather than refused, ' +
+      'so a phone on an older build that keeps posting sees no errors.',
+  })
+  @ApiResponse({ status: 201, description: 'Stored; the body carries the fix with its server `updatedAt`.' })
+  @ApiResponse({
+    status: 204,
+    description: 'Accepted and dropped: Track location is off for this technician, or they are a subcontractor.',
   })
   async setLocation(
     @Param('id') id: string,
     @Body() dto: SetLocationDto,
     @CurrentUser() user: JwtUser,
+    @Res({ passthrough: true }) res: Response,
   ) {
     // Only the technician's own device reports their position.
     if (user.id !== id) {
       throw new ForbiddenException('You can only report your own location');
     }
     const data = await this.locationService.setLocation(id, dto);
+    if (!data) {
+      res.status(HttpStatus.NO_CONTENT);
+      return;
+    }
     return { success: true, data };
   }
 
@@ -47,7 +67,9 @@ export class TechnicianLocationController {
   @RequirePermission('technicians', 'edit')
   @ApiOperation({
     summary: 'Go offline (clear live location)',
-    description: '**Guard:** `technicians.edit` and self. Removes the live location immediately.',
+    description:
+      '**Guard:** `technicians.edit` and self. Removes the live location immediately — ' +
+      'the phone calls this on sign-out, rather than leaving the last fix to expire.',
   })
   async clearLocation(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     if (user.id !== id) {
@@ -65,7 +87,9 @@ export class TechnicianLocationController {
     description:
       '**Guard:** `technicians.view`, and **not** a field technician — a technician ' +
       'sees the map from their own app, not everyone else’s position. Powers the ' +
-      'dispatch map’s live layer; absent technicians fall back to their derived position.',
+      'dispatch map’s live layer; absent technicians fall back to their derived position. ' +
+      'Only technicians whose card has **Track location** on (and who are not ' +
+      'subcontractors) are listed, even when a fix of theirs still sits in the store.',
   })
   async listLocations(@CurrentUser() user: JwtUser) {
     if (user.roleId === TECHNICIAN_ROLE_ID) {

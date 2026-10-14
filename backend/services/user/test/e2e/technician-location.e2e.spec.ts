@@ -102,6 +102,52 @@ describe('Technician Location (e2e)', () => {
     expect(res.body.data).toEqual([]);
   });
 
+  describe('the card’s Track location', () => {
+    const trackingOff = () =>
+      request(app.getHttpServer())
+        .put(`${BASE}/tech-1/profile`)
+        .set('x-test-user', createTestUserHeader(admin))
+        .send({ gpsTrackingEnabled: false })
+        .expect(200);
+
+    const listedAs = async (as: JwtUser) => {
+      const res = await request(app.getHttpServer())
+        .get(`${BASE}/locations`)
+        .set('x-test-user', createTestUserHeader(as))
+        .expect(200);
+      return res.body.data as Array<{ userId: string }>;
+    };
+
+    it('accepts and drops a fix when tracking is off: 204, nothing stored', async () => {
+      await trackingOff();
+
+      const res = await post(tech, 'tech-1', { lat: 1, lng: 1 }).expect(204);
+
+      expect(res.body).toEqual({});
+      expect(await listedAs(admin)).toEqual([]);
+    });
+
+    it('hides a fix that lingers from before tracking was switched off', async () => {
+      await post(tech, 'tech-1', { lat: 1, lng: 1 }).expect(201);
+      await post(otherTech, 'tech-2', { lat: 2, lng: 2 }).expect(201);
+
+      await trackingOff();
+
+      expect((await listedAs(dispatcher)).map((l) => l.userId)).toEqual(['tech-2']);
+    });
+
+    it('serves the technician their own effective Track location on the profile', async () => {
+      await trackingOff();
+
+      const res = await request(app.getHttpServer())
+        .get(`${BASE}/tech-1/profile`)
+        .set('x-test-user', createTestUserHeader(tech))
+        .expect(200);
+
+      expect(res.body.data.gpsTrackingEnabled).toBe(false);
+    });
+  });
+
   it('lets a technician go offline', async () => {
     await post(tech, 'tech-1', { lat: 1, lng: 1 }).expect(201);
     await request(app.getHttpServer())
