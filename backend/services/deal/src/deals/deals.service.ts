@@ -1922,8 +1922,10 @@ export class DealsService {
   /**
    * Set the full technician roster on a deal (equal peers). Diffs the requested
    * set against the current one: adds/removes assignment rows, renumbers each
-   * affected tech's day, and emits a per-tech event + timeline entry. The deal
-   * auto-transitions to ASSIGNED only when it goes from unassigned → assigned.
+   * affected tech's day, and emits a per-tech event + timeline entry. The
+   * status is not touched: as in Workiz, a new job with a technician on it is
+   * still Submitted — In Progress is reached by a status move (the
+   * dispatcher's menu, the technician's Start), never by the roster.
    */
   async assignTechs(id: string, techIds: string[], caller: JwtUser): Promise<Deal> {
     const deal = await this.findById(id);
@@ -1939,15 +1941,6 @@ export class DealsService {
 
     const nextRoster = [...requested];
     const updates: Partial<Deal> = { assignedTechIds: nextRoster };
-
-    // First assignment advances a still-Submitted deal into In Progress.
-    if (
-      deal.assignedTechIds.length === 0 &&
-      nextRoster.length > 0 &&
-      deal.superStatus === JobSuperStatus.SUBMITTED
-    ) {
-      updates.superStatus = JobSuperStatus.IN_PROGRESS;
-    }
 
     // Drop removed techs' per-tech sequence entries.
     if (toRemove.length) {
