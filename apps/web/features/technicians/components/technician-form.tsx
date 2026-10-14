@@ -444,9 +444,13 @@ function Form({
                   </button>
                 ) : null}
               </div>
-              <span id={id("contact-why")} className="sr-only">
-                {NOT_YOURS}
-              </span>
+              {/* Only when something above points at it: in the DOM for everyone
+                  it read as a lock on an editable card (QA 2026-10-14 #10). */}
+              {contactWhy ? (
+                <span id={id("contact-why")} className="sr-only">
+                  {contactWhy}
+                </span>
+              ) : null}
 
               {/* "Call masking": they see the client's name and call through
                   the system, never the number. It writes through the
@@ -578,9 +582,11 @@ function Form({
               <div className="mt-6">
                 <OnboardingSection technicianId={technicianId} />
               </div>
-              <span id={id("work-why")} className="sr-only">
-                {MANAGER_ONLY}
-              </span>
+              {workWhy ? (
+                <span id={id("work-why")} className="sr-only">
+                  {workWhy}
+                </span>
+              ) : null}
             </div>
           </div>
         </div>
