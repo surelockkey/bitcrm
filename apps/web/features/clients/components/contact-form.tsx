@@ -116,7 +116,8 @@ export function ContactForm({
   const watchedPhones = useWatch({ control: form.control, name: "phones" });
   const taxExempt = useWatch({ control: form.control, name: "taxExempt" });
   const firstPhone = (watchedPhone ?? "").trim();
-  const dupe = useContactByPhone(firstPhone, !isEdit && firstPhone.length >= 7);
+  // The hook itself waits for a complete number, so a number in progress never goes out.
+  const dupe = useContactByPhone(firstPhone, !isEdit);
   // Dedup only surfaces while creating (isEdit === false), so any match is a
   // genuine other contact — no need to exclude "self".
   const duplicate = !isEdit ? dupe.data ?? null : null;

@@ -8,6 +8,8 @@ import { queryKeys } from "@/lib/query-keys";
 import { useGlobalSearch } from "@/features/search/use-global-search";
 import { globalSearch } from "@/features/search/api";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { isValidPhone } from "@/lib/phone";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import * as api from "./api";
 import type {
   CreateContactValues,
@@ -180,12 +182,21 @@ export function useContact(id: string) {
   });
 }
 
-/** Phone-dedup lookup for the create form. Returns the match or null. */
+/**
+ * Phone-dedup lookup for the create form. Returns the match or null.
+ *
+ * Asked only for a complete number — ten US digits, or a valid foreign
+ * `+code` one — and only once the typing has rested. The API refuses
+ * anything shorter with 400 "Invalid phone number", and a number in progress
+ * (`+15550142` while the seventh digit is still being typed) was going out
+ * on every keystroke (QA 2026-10-14 #17). Callers need no gate of their own.
+ */
 export function useContactByPhone(phone: string, enabled: boolean) {
+  const rested = useDebouncedValue(phone);
   return useQuery<Contact | null>({
-    queryKey: queryKeys.contacts.byPhone(phone),
-    queryFn: () => api.searchContactByPhone(phone),
-    enabled: enabled && phone.length >= 7,
+    queryKey: queryKeys.contacts.byPhone(rested),
+    queryFn: () => api.searchContactByPhone(rested),
+    enabled: enabled && isValidPhone(rested),
     staleTime: 30_000,
   });
 }
