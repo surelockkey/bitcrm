@@ -263,6 +263,26 @@ describe("DealDetailPage — one load, not waves", () => {
   });
 
   /**
+   * A job whose address was typed, not picked (no coordinates — a new
+   * client's on New Job, an unverified import), still has its hand-picked
+   * area: the technicians are asked by it, once, with the page.
+   */
+  it("a job with an area but no coordinates asks for the technicians once, by the area", async () => {
+    currentDeal = { ...deal, address: { street: "1 Main", city: "Marietta", state: "GA", zip: "30060" } };
+    const watch = watchJobFirstFrame();
+    renderPage();
+    await screen.findByText("#1042", {}, { timeout: 3000 });
+    watch.stop();
+    await settle();
+
+    expect(watch.frame()).toMatchObject({ techSummary: true, findingTechs: false });
+    const suggestions = server.requests.filter((r) => r.includes("/deals/qualified-techs"));
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]).toContain("serviceAreaId=sa-1");
+    expect(suggestions[0]).not.toContain("lat=");
+  });
+
+  /**
    * Behind the skeleton is the dispatcher's unsaved draft. A saved address
    * comes back as a job with new coordinates — so a new area and new
    * suggestions to ask for — and that must never take the page away to wait.

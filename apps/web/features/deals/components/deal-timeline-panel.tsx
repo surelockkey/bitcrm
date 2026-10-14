@@ -66,6 +66,8 @@ import { useJobTypes } from "@/features/job-types/hooks";
 import { useJobSources } from "@/features/job-sources/hooks";
 import { useExternalCompanies } from "@/features/external-companies/hooks";
 import { useJobTags } from "@/features/job-tags/hooks";
+import { useCustomFields } from "@/features/custom-fields/hooks";
+import { useAttachments } from "../attachments-hooks";
 import { SEND_TO_TECH_CHANNEL_LABEL, stageLabel, superStatusLabel } from "../lib";
 import {
   useAddNote,
@@ -226,6 +228,10 @@ export interface Lookups {
   externalCompanies: Map<string, string>;
   subStatuses: Map<string, string>;
   tags: Map<string, string>;
+  /** The names of the job's file custom fields — their answers are attachment ids. */
+  fileFields?: Set<string>;
+  /** An attachment id → the file's name, from the job's files. */
+  fileName?: (id: unknown) => string | null;
 }
 
 export function useTimelineLookups(contactIds: string[]): Lookups {
@@ -256,6 +262,23 @@ export function useTimelineLookups(contactIds: string[]): Lookups {
       tags: named(tags),
     };
   }, [userMap, contactMap, jobTypes, sources, externalCompanies, subStatuses, tags]);
+}
+
+/**
+ * A file field's answer is attachment ids, and the backend logs the change
+ * under the field's name ("WO File: — → 5bb13583-…", QA 2026-10-14). The
+ * job's files — in hand already, the Attachments tab's list — name the ids,
+ * and the catalog says which fields are file fields. A history without a job
+ * (the client card's) has neither and keeps the ids.
+ */
+export function useJobFileLookups(dealId: string): Pick<Lookups, "fileFields" | "fileName"> {
+  const { data: defs } = useCustomFields();
+  const { data: attachments } = useAttachments(dealId, !!dealId);
+  return useMemo(() => {
+    const fileFields = new Set((defs ?? []).filter((d) => d.type === "file").map((d) => d.name));
+    const names = new Map((attachments ?? []).map((a) => [a.id, a.fileName]));
+    return { fileFields, fileName: (id) => (typeof id === "string" ? (names.get(id) ?? null) : null) };
+  }, [defs, attachments]);
 }
 
 /* ------------------------------------------------------------ rendering */
@@ -373,6 +396,11 @@ function resolveFieldValue(field: string, v: unknown, lk: Lookups): string {
       return workizScheduleText({ date: o.date ?? null, slot: o.slot ?? null, allDay: o.allDay ?? null });
     }
     default:
+      // A file field: its attachment ids, named from the job's files.
+      if (lk.fileFields?.has(field)) {
+        const name = (id: unknown) => lk.fileName?.(id) ?? fmtValue(id);
+        return Array.isArray(v) ? (v.length ? v.map(name).join(", ") : "—") : name(v);
+      }
       return fmtValue(v);
   }
 }
@@ -748,7 +776,9 @@ function PanelBody({
   const updateNote = useUpdateNote(dealId);
   const deleteNote = useDeleteNote(dealId);
   const { map: userMap } = useUserMap();
-  const lookups = useTimelineLookups(useMemo(() => mentionedContactIds(entries), [entries]));
+  const catalogs = useTimelineLookups(useMemo(() => mentionedContactIds(entries), [entries]));
+  const files = useJobFileLookups(dealId);
+  const lookups = useMemo(() => ({ ...catalogs, ...files }), [catalogs, files]);
   const [searching, setSearching] = useState(false);
   const [search, setSearch] = useState("");
   const [composing, setComposing] = useState(false);

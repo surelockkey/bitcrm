@@ -38,7 +38,7 @@ import {
   requestContactAttachmentUpload,
   uploadAttachmentBytes,
 } from "@/features/deals/attachments-api";
-import { useAttachmentUrls } from "@/features/deals/attachments-hooks";
+import { useAttachmentUrls, useAttachments, useRefreshAttachments } from "@/features/deals/attachments-hooks";
 import { useContactFileUrls } from "../contact-file-urls";
 import { useFilePreviewStore } from "@/features/files/preview-store";
 import { useCustomFields } from "../hooks";
@@ -383,9 +383,24 @@ function FileControl(props: ControlProps) {
 
 function JobFileControl(props: ControlProps) {
   const ids = useMemo(() => answerIds(props.value), [props.value]);
-  const deferred = !props.dealId && Boolean(props.onPendingFiles);
-  const urls = useAttachmentUrls(props.dealId ?? "", deferred || !props.dealId ? [] : ids);
-  return <FileControlBody {...props} ids={ids} urls={urls} client={false} />;
+  return props.dealId ? (
+    <SavedJobFileControl {...props} dealId={props.dealId} ids={ids} />
+  ) : (
+    <FileControlBody {...props} ids={ids} urls={[]} client={false} />
+  );
+}
+
+/**
+ * A saved job's file field: thumbnails from the job's files, each named as
+ * the Attachments tab names it (the list is already in hand — the job page
+ * reads it for the tab bar's count), and an upload that tells that tab.
+ */
+function SavedJobFileControl({ ids, ...props }: ControlProps & { dealId: string; ids: string[] }) {
+  const urls = useAttachmentUrls(props.dealId, ids);
+  const { data: attachments } = useAttachments(props.dealId);
+  const refresh = useRefreshAttachments(props.dealId);
+  const names = useMemo(() => new Map((attachments ?? []).map((a) => [a.id, a.fileName])), [attachments]);
+  return <FileControlBody {...props} ids={ids} urls={urls} names={names} onUploaded={refresh} client={false} />;
 }
 
 function ClientFileControl(props: ControlProps) {
@@ -405,11 +420,24 @@ function FileControlBody({
   missing,
   ids,
   urls,
+  names,
+  onUploaded,
   client,
-}: ControlProps & { ids: string[]; urls: { data?: { downloadUrl: string } }[]; client: boolean }) {
+}: ControlProps & {
+  ids: string[];
+  urls: { data?: { downloadUrl: string } }[];
+  /** Attachment id → file name, where the files' list is in hand. */
+  names?: Map<string, string>;
+  /** After a pick has been uploaded — the files' list has a new row. */
+  onUploaded?: () => void;
+  client: boolean;
+}) {
   const held = pendingFiles ?? [];
   const deferred = !dealId && Boolean(onPendingFiles);
   const [uploading, setUploading] = useState(false);
+  // What was sent from here, by name — the files' list names it only once it
+  // has been read again.
+  const [sentNames, setSentNames] = useState<Map<string, string>>(() => new Map());
   const preview = useFilePreviewStore((s) => s.preview);
   const heldUrls = useObjectUrls(held);
 
@@ -422,9 +450,10 @@ function FileControlBody({
     );
   }
 
+  const nameOf = (id: string, i: number) => names?.get(id) ?? sentNames.get(id) ?? `File ${i + 1}`;
   const files: WzUploadedFile[] = deferred
     ? held.map((f, i) => ({ id: String(i), name: f.name, url: heldUrls[i] ?? "" }))
-    : ids.map((id, i) => ({ id, name: `File ${i + 1}`, url: urls[i]?.data?.downloadUrl ?? "" }));
+    : ids.map((id, i) => ({ id, name: nameOf(id, i), url: urls[i]?.data?.downloadUrl ?? "" }));
 
   const add = async (picked: File[]) => {
     if (deferred) {
@@ -435,6 +464,7 @@ function FileControlBody({
     setUploading(true);
     try {
       const added: string[] = [];
+      const sent = new Map(sentNames);
       for (const file of picked) {
         const body = {
           fileName: file.name,
@@ -446,9 +476,12 @@ function FileControlBody({
           : await requestAttachmentUpload(dealId!, body);
         await uploadAttachmentBytes(ticket.uploadUrl, file, ticket.headers);
         added.push(ticket.id);
+        sent.set(ticket.id, file.name);
       }
+      setSentNames(sent);
       const next = [...ids, ...added].slice(0, MAX_FILES);
       onChange(next.length ? next : undefined);
+      onUploaded?.();
       toast.success(added.length > 1 ? "Files uploaded" : "File uploaded");
     } catch (e) {
       toast.error(getApiErrorMessage(e));
@@ -470,7 +503,7 @@ function FileControlBody({
     if (deferred || (!dealId && !client)) return;
     const i = ids.indexOf(id);
     preview({
-      name: `File ${i + 1}`,
+      name: nameOf(id, i),
       load: async () =>
         (client ? await getContactAttachmentDownloadUrl(contactId!, id) : await getAttachmentDownloadUrl(dealId!, id))
           .downloadUrl,
@@ -488,6 +521,12 @@ function FileControlBody({
         onRemove={remove}
         onOpen={open}
       />
+      {/* The "+" tile alone going away said nothing (QA 2026-10-14). */}
+      {uploading ? (
+        <p role="status" className="mt-1 text-[11px] leading-4 text-wz-caption">
+          Uploading…
+        </p>
+      ) : null}
       {missing ? <WzFieldError className="ml-0">{REQUIRED}</WzFieldError> : null}
     </div>
   );
