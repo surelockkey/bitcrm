@@ -504,6 +504,21 @@ describe('TechniciansService (unit)', () => {
       expect(result.profilePhotoUrl).toBe('https://s3/download');
     });
 
+    // The Workiz import stored the S3 key path (`technicians/<id>/profile_photo`)
+    // for every user with a picture there; nothing serves that path, and a
+    // browser handed it drew one 404 per avatar (QA 2026-10-14).
+    it('does not hand out a stored photo path as a link — only a real URL or the document', async () => {
+      cache.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', profilePhotoUrl: 'technicians/tech-1/profile_photo' }),
+      );
+      documents.getByType.mockResolvedValue(null);
+
+      const result = await service.getProfile('tech-1', caller('role-admin'));
+
+      expect(result.profilePhotoUrl).toBeUndefined();
+      expect(s3.getPresignedDownloadUrl).not.toHaveBeenCalled();
+    });
+
     it('leaves the photo empty when none has been uploaded', async () => {
       cache.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
       documents.getByType.mockResolvedValue(null);
