@@ -25,6 +25,13 @@ describe('backfill:close-end-time — what each row needs', () => {
     });
   });
 
+  it('a job closed before its visit began keeps its schedule: no end is written, only its EndIndex keys from the planned end', () => {
+    const row = { ...base, ...visit, closedAt: '2026-04-19T20:00:00.000Z' };
+    const keys = { GSI7PK: 'END#2026-04', GSI7SK: '2026-04-20T12:00#DEAL#d1' };
+    expect(planCloseEnd(row, { areaTimezone: 'America/New_York' })).toEqual({ action: 'set', patch: {}, keys });
+    expect(planCloseEnd({ ...row, ...keys }, { areaTimezone: 'America/New_York' })).toEqual({ action: 'skip', reason: 'same' });
+  });
+
   it('leaves an open job, and a closed one without a closing moment, alone', () => {
     expect(planCloseEnd({ ...base, ...visit, superStatus: 'in_progress', closedAt: '2026-04-20T18:30:00.000Z' }, {})).toEqual({ action: 'skip', reason: 'open' });
     expect(planCloseEnd({ ...base, ...visit }, {})).toEqual({ action: 'skip', reason: 'no_closed_at' });

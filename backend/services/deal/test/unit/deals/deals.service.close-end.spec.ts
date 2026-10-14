@@ -119,6 +119,25 @@ describe('DealsService — the job end time on Done / Canceled', () => {
     }
   });
 
+  it('Done on a job whose visit has not begun (scheduled tomorrow) stamps closedAt and leaves the schedule alone', async () => {
+    // QA 2026-10-14 §3c: Oct 15 10:00–12:00 marked Done on Oct 14 08:53 EDT
+    // ended up ending "Oct 14, 2026 08:53 AM", 25 h before its start.
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-14T12:53:00.000Z'));
+    try {
+      mockFindById(createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS, serviceAreaId: 'area-ct', scheduledDate: '2026-10-15', scheduledEndDate: '2026-10-15', scheduledTimeSlot: '10:00-12:00' }));
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.DONE }, caller);
+
+      const patch = patchOfLastUpdate();
+      expect(patch).toMatchObject({ superStatus: JobSuperStatus.DONE, closedAt: '2026-10-14T12:53:00.000Z' });
+      expect(patch).not.toHaveProperty('scheduledEndDate');
+      expect(patch).not.toHaveProperty('scheduledTimeSlot');
+      expect(patch).not.toHaveProperty('jobEndDateUtc');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('leaves the visit alone when the account switched the rule off', async () => {
     jobRules.get.mockResolvedValue({ updateJobEndTimeOnClose: false });
     mockFindById(createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS, scheduledDate: '2026-04-20', scheduledTimeSlot: '09:00-12:00' }));
