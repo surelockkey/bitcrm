@@ -24,6 +24,20 @@ export function ItemsArt() {
   );
 }
 
+/** The quick view's empty Notes: a notepad and a pencil on the pale disc, ≈110px. */
+export function NotesArt() {
+  return (
+    <svg aria-hidden width="110" height="110" viewBox="0 0 110 110" fill="none">
+      <circle cx="55" cy="55" r="54" fill="#f3f6f7" />
+      <rect x="30" y="26" width="46" height="58" rx="4" fill="#fff" stroke={INK} strokeWidth="1.5" />
+      <path d="M38 26v-6M48 26v-6M58 26v-6M68 26v-6" stroke={INK} strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M38 44h30M38 54h30M38 64h18" stroke={INK} strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M62 86l22-22 6 6-22 22-8 2z" fill={YELLOW} stroke={INK} strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M80 68l6 6" stroke={INK} strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 export function PaymentsArt() {
   return (
     <svg aria-hidden width="120" height="116" viewBox="0 0 120 116" fill="none">

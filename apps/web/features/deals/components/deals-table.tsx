@@ -175,6 +175,7 @@ export function DealsTable({
   userMap,
   namesLoading = false,
   onOpen,
+  onPeek,
   onRowClick,
   visibleFields = DEFAULT_VISIBLE,
   order = [],
@@ -214,6 +215,11 @@ export function DealsTable({
   namesLoading?: boolean;
   /** Workiz's "Quick view" chip under the Job ID: the preview drawer. */
   onOpen: (deal: Deal) => void;
+  /**
+   * The cursor is on a Job ID: the moment to warm the quick view's data, so
+   * the drawer opens whole instead of as a spinner and then a jump.
+   */
+  onPeek?: (deal: Deal) => void;
   /** A row click: Workiz opens the job itself. */
   onRowClick?: (deal: Deal) => void;
   visibleFields?: VisibleFields;
@@ -515,7 +521,7 @@ export function DealsTable({
               window.open(`/deals/${d.id}`, "_blank", "noopener,noreferrer");
             }}
           >
-            <TableCell className={cn(CELL, "group/id")}>
+            <TableCell className={cn(CELL, "group/id")} onMouseEnter={onPeek ? () => onPeek(d) : undefined}>
               <div className="whitespace-nowrap">{d.dealNumber}</div>
               {/* Workiz shows "Quick view" under the ID while the cursor is on it. */}
               <button
@@ -526,6 +532,7 @@ export function DealsTable({
                   onOpen(d);
                 }}
                 onContextMenu={(e) => e.stopPropagation()}
+                onFocus={onPeek ? () => onPeek(d) : undefined}
                 // jobslist_wz_jobid_hover: 80×18, 12px/500 white on #61747d, r3.
                 className="mt-[5px] rounded-[3px] bg-[#61747d] px-[5.5px] py-px text-xs leading-4 font-medium tracking-[0.4px] text-white opacity-0 group-hover/id:opacity-100 focus-visible:opacity-100"
               >

@@ -12,6 +12,8 @@ import { DEFAULT_VISIBLE } from "../fields";
 import { useJobFieldsStore } from "../fields-store";
 import { DealsPage } from "./deals-page";
 
+// The list warms the quick view through the QueryClient; these tests render the page without one.
+vi.mock("@/features/deals/quick-view-prefetch", () => ({ useQuickViewPeek: () => () => {} }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...rest}>

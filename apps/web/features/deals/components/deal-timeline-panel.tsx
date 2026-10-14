@@ -154,6 +154,9 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
 };
 
 const FIELD_LABEL: Record<string, string> = {
+  total: "Total",
+  techCost: "Tech cost",
+  companyCost: "Company cost",
   notes: "Notes",
   internalNotes: "Internal notes",
   scheduledDate: "Scheduled date",

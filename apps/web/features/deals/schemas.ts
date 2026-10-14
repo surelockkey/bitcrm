@@ -87,6 +87,11 @@ export type UpdateDealValues = Partial<
     businessProfileId: string | null;
     /** Workiz "Job name" (≤ 200 chars, stored trimmed); null clears it. */
     jobName: string | null;
+    /** Finance "Total" typed by hand — only while the job has no line items; null clears it. */
+    total: number | null;
+    /** Workiz "Tech Cost" / "Company Cost" (parts / company_parts); null clears. */
+    techCost: number | null;
+    companyCost: number | null;
   }
 >;
 
