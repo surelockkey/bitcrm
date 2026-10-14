@@ -64,6 +64,6 @@ export class LoggerModule implements NestModule {
   }
 
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(CorrelationMiddleware).forRoutes('*');
+    consumer.apply(CorrelationMiddleware).forRoutes('{*splat}');
   }
 }

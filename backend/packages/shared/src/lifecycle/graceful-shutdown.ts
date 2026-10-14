@@ -17,9 +17,59 @@ import { shutdownTracing } from '../tracing/tracing';
 const SHUTDOWN_GRACE_MS = Number(process.env.SHUTDOWN_GRACE_MS ?? 5_000);
 
 /**
- * Stop cleanly on SIGTERM/SIGINT, and stop regardless if that takes too long.
+ * How long a stopping task keeps serving before it closes its listener.
+ *
+ * ECS sends SIGTERM at the same moment it starts taking the task out of
+ * Service Connect, so for a moment peers still route requests here. Answering
+ * them normally for a short while is cheaper than refusing them. Off in
+ * development, where nothing routes around a restart.
  */
-export function installGracefulShutdown(app: INestApplication): void {
+const SHUTDOWN_DRAIN_MS = Number(
+  process.env.SHUTDOWN_DRAIN_MS ?? (process.env.NODE_ENV === 'production' ? 3_000 : 0),
+);
+
+export interface GracefulShutdownOptions {
+  drainMs?: number;
+  graceMs?: number;
+}
+
+/** Stop accepting connections and drop the idle keep-alive ones; resolves once in-flight requests ended. */
+function closeHttp(app: INestApplication, timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const done = setTimeout(resolve, timeoutMs);
+    done.unref();
+    try {
+      const server = app.getHttpServer() as {
+        close: (cb?: (err?: Error) => void) => void;
+        closeIdleConnections?: () => void;
+      };
+      server.close(() => {
+        clearTimeout(done);
+        resolve();
+      });
+      server.closeIdleConnections?.();
+    } catch {
+      clearTimeout(done);
+      resolve();
+    }
+  });
+}
+
+/**
+ * Stop cleanly on SIGTERM/SIGINT, and stop regardless if that takes too long.
+ *
+ * The order is the point: keep serving for the drain delay, close the HTTP
+ * listener and let in-flight requests finish, and only then `app.close()`.
+ * Nest runs the destroy hooks (Redis `quit()`, among others) BEFORE it closes
+ * the HTTP server, so calling `app.close()` first left requests that were
+ * still being served with a closed Redis.
+ */
+export function installGracefulShutdown(
+  app: INestApplication,
+  options: GracefulShutdownOptions = {},
+): void {
+  const drainMs = options.drainMs ?? SHUTDOWN_DRAIN_MS;
+  const graceMs = options.graceMs ?? SHUTDOWN_GRACE_MS;
   let stopping = false;
 
   const stop = async (signal: string) => {
@@ -30,13 +80,15 @@ export function installGracefulShutdown(app: INestApplication): void {
     // this timer from being the thing holding the process open.
     const forced = setTimeout(() => {
       console.warn(
-        `[shutdown] ${signal}: still closing after ${SHUTDOWN_GRACE_MS}ms — exiting anyway`,
+        `[shutdown] ${signal}: still closing after ${drainMs + graceMs}ms — exiting anyway`,
       );
       process.exit(0);
-    }, SHUTDOWN_GRACE_MS);
+    }, drainMs + graceMs);
     forced.unref();
 
     try {
+      if (drainMs > 0) await new Promise((r) => setTimeout(r, drainMs));
+      await closeHttp(app, Math.max(graceMs - 1_000, 500));
       await app.close();
       await shutdownTracing();
     } catch (error) {

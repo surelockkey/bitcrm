@@ -1,4 +1,5 @@
 import { createSseParser } from "@/features/calls/sse";
+import { renewSessionOrSignOut } from "@/lib/api/http";
 
 export interface SseStreamOptions<T> {
   url: string;
@@ -10,6 +11,12 @@ export interface SseStreamOptions<T> {
   onConnect?: () => void;
   /** The stream ended or failed; a reconnect is scheduled unless closed. */
   onDisconnect?: () => void;
+  /**
+   * Called on a 401: renew the session and resolve true to reconnect at once
+   * with the new token, false to end the stream. Defaults to the API client's
+   * renewal, which signs the user out when it fails.
+   */
+  renewSession?: () => Promise<boolean>;
   /** Injectable for tests. */
   fetchImpl?: typeof fetch;
   reconnectMinMs?: number;
@@ -28,19 +35,24 @@ const RECONNECT_MAX_MS = 30_000;
 /**
  * Opens an SSE stream with fetch (EventSource cannot send the
  * Bearer header), parses frames incrementally and reconnects with
- * exponential backoff. A 401/403 stops the backoff from tightening — the
- * token is renewed elsewhere and the next attempt picks it up.
+ * exponential backoff. A 401 renews the session first (a tab left open
+ * makes no API calls, so nothing else would) and reconnects with the new
+ * token; a renewal that fails ends the stream rather than retrying an expired
+ * token forever.
  */
 export function openSseStream<T>(opts: SseStreamOptions<T>): StreamHandle {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const schedule = opts.schedule ?? setTimeout;
   const minMs = opts.reconnectMinMs ?? RECONNECT_MIN_MS;
   const maxMs = opts.reconnectMaxMs ?? RECONNECT_MAX_MS;
+  const renewSession = opts.renewSession ?? renewSessionOrSignOut;
 
   const controller = new AbortController();
   let backoff = minMs;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let closed = false;
+  /** A renewal already happened since the last good connect: a second 401 backs off instead. */
+  let renewed = false;
 
   const connect = async () => {
     if (closed) return;
@@ -50,9 +62,24 @@ export function openSseStream<T>(opts: SseStreamOptions<T>): StreamHandle {
         headers: { Authorization: `Bearer ${opts.getToken() ?? ""}` },
         signal: controller.signal,
       });
+      if (res.status === 401 && !renewed) {
+        renewed = true;
+        if (!(await renewSession())) {
+          closed = true;
+          return;
+        }
+        if (closed) return;
+        backoff = minMs;
+        timer = schedule(() => {
+          timer = null;
+          void connect();
+        }, 0);
+        return;
+      }
       if (!res.ok || !res.body) throw new Error(`stream ${res.status}`);
 
       connected = true;
+      renewed = false;
       backoff = minMs;
       opts.onConnect?.();
 
@@ -75,6 +102,8 @@ export function openSseStream<T>(opts: SseStreamOptions<T>): StreamHandle {
         timer = null;
         if (closed) return;
         backoff = Math.min(backoff * 2, maxMs);
+        // At the longest backoff, a 401 may try one renewal again.
+        if (backoff >= maxMs) renewed = false;
         void connect();
       }, backoff);
     }

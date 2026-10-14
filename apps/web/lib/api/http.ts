@@ -40,6 +40,17 @@ function renewOnce(): Promise<boolean> {
   return refreshing;
 }
 
+/**
+ * For long-lived connections that cannot go through `request` (the SSE
+ * streams): renew the session once, or end it. True when a fresh token is
+ * available.
+ */
+export async function renewSessionOrSignOut(): Promise<boolean> {
+  if (await renewOnce()) return true;
+  onUnauthorized?.();
+  return false;
+}
+
 export function setUnauthorizedHandler(fn: () => void): void {
   onUnauthorized = fn;
 }

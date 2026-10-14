@@ -29,6 +29,9 @@
 #                          simply report unavailable. An empty GitHub secret
 #                          emits nothing, so it can never overwrite a value
 #                          with "".
+#   GOOGLE_MAPS_API_KEY  - deal only: geocodes job addresses and ZIP service
+#                          areas. Without it jobs saved with no coordinates get
+#                          no map pin and no automatic service area.
 #   GIT_SHA              - commit SHA for /health version reporting
 #
 # All non-secret runtime config is read from SSM Parameter Store under /bitcrm/dev/.
@@ -139,6 +142,7 @@ EXTRA_ENV_JSON=$(jq -n \
   --arg stripe_secret_key "${STRIPE_SECRET_KEY:-}" \
   --arg stripe_webhook_secret "${STRIPE_WEBHOOK_SECRET:-}" \
   --arg stripe_publishable_key "${STRIPE_PUBLISHABLE_KEY:-}" \
+  --arg google_maps_api_key "${GOOGLE_MAPS_API_KEY:-}" \
   '
   [
     {name: "NODE_ENV",      value: "production"},
@@ -209,6 +213,8 @@ EXTRA_ENV_JSON=$(jq -n \
       + (if $stripe_webhook_secret  != "" then [{name: "STRIPE_WEBHOOK_SECRET",  value: $stripe_webhook_secret}]  else [] end)
       + (if $stripe_publishable_key != "" then [{name: "STRIPE_PUBLISHABLE_KEY", value: $stripe_publishable_key}] else [] end)
     else [] end)
+  # Deal geocodes job addresses and ZIP service areas (Google Geocoding API).
+  + (if ($service == "deal" and $google_maps_api_key != "") then [{name: "GOOGLE_MAPS_API_KEY", value: $google_maps_api_key}] else [] end)
   # SQS consumers only poll when explicitly enabled.
   + (if ($service == "deal" or $service == "inventory" or $service == "search" or $service == "messaging" or $service == "billing" or $service == "telephony") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)
   # search does NOT re-index on boot (ENABLE_SEARCH_BACKFILL is left unset):

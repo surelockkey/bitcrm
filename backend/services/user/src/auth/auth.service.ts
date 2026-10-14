@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { CognitoAdminService, CognitoAuthService } from '@bitcrm/shared';
 import type {
   LoginResponse,
@@ -78,10 +78,13 @@ export class AuthService {
     try {
       await this.cognitoAuth.forgotPassword(dto.email);
     } catch (error: unknown) {
-      if (!(error instanceof Error) || error.name !== 'NotAuthorizedException') {
-        throw error;
+      const name = error instanceof Error ? error.name : '';
+      if (name === 'LimitExceededException' || name === 'TooManyRequestsException') {
+        throw new HttpException('Too many reset attempts. Try again later.', HttpStatus.TOO_MANY_REQUESTS);
       }
-      await this.inviteAgainIfNeverSignedIn(dto.email);
+      // No account: the same answer as for a real one, so the form never tells.
+      if (name === 'NotAuthorizedException') await this.inviteAgainIfNeverSignedIn(dto.email);
+      else if (name !== 'UserNotFoundException') throw error;
     }
     // Always return the same response (no account enumeration).
     return { message: 'If the account exists, a reset code has been sent.' };
