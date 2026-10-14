@@ -10,8 +10,8 @@
 
 export const COMPANY_LEGAL_NAME = "Sure Lock & Key LLC";
 
-/** TODO(owner): the mailbox that answers privacy requests; confirm before App Review. */
-export const PRIVACY_CONTACT_EMAIL = "privacy@slk-s.com";
+/** The mailbox that answers privacy requests (owner, 2026-10-14). */
+export const PRIVACY_CONTACT_EMAIL = "system@surelockkey.com";
 
 export const EFFECTIVE_DATE = "October 14, 2026";
 
