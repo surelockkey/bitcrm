@@ -226,6 +226,7 @@ export const DEAL_STATS_PROJECTION: readonly string[] = [
   'serviceArea',
   'address',
   'totals',
+  'techCost',
 ];
 
 /** Times a BatchGet asks again for keys DynamoDB left unprocessed. */

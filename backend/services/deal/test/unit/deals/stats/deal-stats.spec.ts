@@ -57,6 +57,20 @@ describe('aggregateDealStats', () => {
     });
   });
 
+  it('takes the job’s Tech expenses off the profit too — the office reimburses them (Workiz: parts)', () => {
+    const priced = [
+      // Priced here: the snapshot's cost is the lines' company cost only; Tech expenses sit beside it.
+      createMockDeal({ id: 'x', createdAt: '2026-09-01T10:00:00.000Z', superStatus: JobSuperStatus.DONE, assignedTechIds: ['t1'],
+        totals: money(200, 0, 50), techCost: 25 }),
+      // Imported from Workiz: its snapshot's cost already holds company_parts + parts — not twice.
+      createMockDeal({ id: 'y', createdAt: '2026-09-01T11:00:00.000Z', superStatus: JobSuperStatus.DONE, assignedTechIds: ['t1'],
+        totals: { ...money(100, 0, 40), source: 'workiz' } as never, techCost: 15 }),
+    ];
+    const r = aggregateDealStats(priced, window, { money: true });
+    expect(r.money).toMatchObject({ revenue: 300, cost: 115, profit: 185 });
+    expect(r.byTech.find((t) => t.key === 't1')).toMatchObject({ profit: 185 });
+  });
+
   it('lays each day out: live jobs, canceled ones, and the day’s sales and profit', () => {
     expect(stats.series).toEqual([
       { date: '2026-09-01', jobs: 2, canceled: 0, revenue: 160, profit: 120 },

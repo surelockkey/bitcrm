@@ -84,10 +84,20 @@ function shares(total: number, n: number): number[] {
 /**
  * A window of jobs at a glance, the Workiz Job Statistics way: every job
  * counts toward all / done / open / canceled; only Done jobs are sales.
- * Profit is revenue − tax − company cost of the lines. A job shared by
+ * Profit is revenue − tax − the lines' company cost − the job's Tech
+ * expenses (what the technician paid out of pocket and the office reimburses,
+ * Workiz's `parts`). A job shared by
  * several techs counts as a job for each of them and splits its money
  * between them equally, so the tech column adds up to the total.
  */
+/**
+ * An imported snapshot (`source: 'workiz'`) already holds the job's Tech
+ * expenses in its cost (company_parts + parts); a snapshot priced here holds
+ * the lines' company cost only, and the Tech expenses sit on the job.
+ */
+const holdsTechExpenses = (totals: Deal['totals']): boolean =>
+  (totals as { source?: string } | undefined)?.source === 'workiz';
+
 export function aggregateDealStats(
   deals: Deal[],
   window: DealStatsWindow,
@@ -117,7 +127,7 @@ export function aggregateDealStats(
     const done = outcome === 'done';
     const sales = done ? cents(deal.totals?.total) : 0;
     const dealTax = done ? cents(deal.totals?.tax) : 0;
-    const dealCost = done ? cents(deal.totals?.cost) : 0;
+    const dealCost = done ? cents(deal.totals?.cost) + (holdsTechExpenses(deal.totals) ? 0 : cents(deal.techCost)) : 0;
     const profit = sales - dealTax - dealCost;
     if (done) {
       doneJobs++;
