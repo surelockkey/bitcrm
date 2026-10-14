@@ -1,18 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, MoreVertical, Plus, Receipt, ReceiptText, Undo2 } from "lucide-react";
+import { Loader2, Plus, Receipt, ReceiptText, Trash2, Undo2 } from "lucide-react";
 import { EMPTY_PAYMENT_SUMMARY, type InvoiceView, type Payment } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WzButton } from "@/components/workiz/button";
-import { WZ_MENU_POPUP, WZ_MENU_POPUP_ITEM } from "@/components/workiz/menu-popup";
 import { cn } from "@/lib/utils";
 import { PaymentsArt } from "@/features/deals/components/job-empty-art";
 import {
@@ -33,11 +26,14 @@ import {
   PAYMENT_METHOD_META,
   PAYMENT_STATUS_META,
   applyAmountPaid,
+  canDeletePayment,
   canRefund,
   isPartiallyPaid,
   paymentMethodLabel,
   paymentTakenAt,
 } from "../lib";
+import { DeletePaymentDialog } from "./delete-payment-dialog";
+import { PaymentRowMenu } from "./payment-row-menu";
 import { PartiallyPaidBadge, PaymentStatusBadge } from "./payment-status-badge";
 import { RecordPaymentDialog } from "./record-payment-dialog";
 import { RefundPaymentDialog } from "./refund-payment-dialog";
@@ -71,6 +67,7 @@ export function InvoicePaymentsSection({
   const resend = useResendReceipt();
   const [recording, setRecording] = useState(false);
   const [refunding, setRefunding] = useState<Payment | null>(null);
+  const [deleting, setDeleting] = useState<Payment | null>(null);
 
   if (!canView) return null;
 
@@ -99,6 +96,10 @@ export function InvoicePaymentsSection({
           onOpenChange={(o) => !o && setRefunding(null)}
         />
       ) : null}
+
+      {canGiveBack ? (
+        <DeletePaymentDialog payment={deleting} invoiceId={invoice.id} dealId={dealId} onOpenChange={(o) => !o && setDeleting(null)} />
+      ) : null}
     </>
   );
 
@@ -113,6 +114,7 @@ export function InvoicePaymentsSection({
         resend={resend}
         onRecord={() => setRecording(true)}
         onRefund={setRefunding}
+        onDelete={setDeleting}
       >
         {dialogs}
       </WorkizPayments>
@@ -179,6 +181,7 @@ export function InvoicePaymentsSection({
                   resending={resend.isPending && resend.variables === p.id}
                   onResend={() => resend.mutate(p.id)}
                   onRefund={() => setRefunding(p)}
+                  onDelete={() => setDeleting(p)}
                 />
               ))}
             </TableBody>
@@ -219,6 +222,7 @@ function WorkizPayments({
   resend,
   onRecord,
   onRefund,
+  onDelete,
   children,
 }: {
   rows: Payment[];
@@ -229,6 +233,7 @@ function WorkizPayments({
   resend: ReturnType<typeof useResendReceipt>;
   onRecord: () => void;
   onRefund: (p: Payment) => void;
+  onDelete: (p: Payment) => void;
   children: React.ReactNode;
 }) {
   return (
@@ -288,7 +293,6 @@ function WorkizPayments({
             </thead>
             <tbody>
               {rows.map((p) => {
-                const what = `the ${formatMoney(p.amount)} ${paymentMethodLabel(p.method).toLowerCase()} payment`;
                 const receiptable = p.status === "settled" || p.status === "refunded";
                 const canResend = canCollect && receiptable;
                 const canGiveBackThis = canGiveBack && canRefund(p);
@@ -317,35 +321,17 @@ function WorkizPayments({
                       {p.failureReason ? <span className="mt-1 block text-[11px] text-wz-text">{p.failureReason}</span> : null}
                     </td>
                     <td className={cn(WZ_TD, "text-center")}>
-                      {canResend || canGiveBackThis ? (
-                        <DropdownMenu modal={false}>
-                          <DropdownMenuTrigger asChild>
-                            <button
-                              type="button"
-                              aria-label={`Actions for ${what}`}
-                              className="-mt-2 inline-grid size-8 place-items-center rounded-[8px] text-foreground hover:bg-wz-secondary-hover"
-                            >
-                              <MoreVertical className="size-6" strokeWidth={1.5} />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" sideOffset={8} alignOffset={-4} className={WZ_MENU_POPUP}>
-                            {canResend ? (
-                              <DropdownMenuItem
-                                className={WZ_MENU_POPUP_ITEM}
-                                disabled={resending}
-                                onSelect={() => resend.mutate(p.id)}
-                              >
-                                {resending ? <Loader2 className="animate-spin" /> : <Receipt strokeWidth={1.25} />} Resend receipt
-                              </DropdownMenuItem>
-                            ) : null}
-                            {canGiveBackThis ? (
-                              <DropdownMenuItem className={WZ_MENU_POPUP_ITEM} onSelect={() => onRefund(p)}>
-                                <Undo2 strokeWidth={1.25} /> Refund
-                              </DropdownMenuItem>
-                            ) : null}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      ) : null}
+                      <PaymentRowMenu
+                        payment={p}
+                        className="-mt-2"
+                        canResend={canResend}
+                        canRefund={canGiveBackThis}
+                        canDelete={canGiveBack && canDeletePayment(p)}
+                        resending={resending}
+                        onResend={() => resend.mutate(p.id)}
+                        onRefund={() => onRefund(p)}
+                        onDelete={() => onDelete(p)}
+                      />
                     </td>
                   </tr>
                 );
@@ -367,6 +353,7 @@ function PaymentRow({
   resending,
   onResend,
   onRefund,
+  onDelete,
 }: {
   payment: Payment;
   canCollect: boolean;
@@ -374,6 +361,7 @@ function PaymentRow({
   resending: boolean;
   onResend: () => void;
   onRefund: () => void;
+  onDelete: () => void;
 }) {
   const Icon = PAYMENT_METHOD_META[payment.method]?.icon ?? Receipt;
   const what = `the ${formatMoney(payment.amount)} ${paymentMethodLabel(payment.method).toLowerCase()} payment`;
@@ -437,6 +425,18 @@ function PaymentRow({
             onClick={onRefund}
           >
             <Undo2 />
+          </Button>
+        ) : null}
+        {canGiveBack && canDeletePayment(payment) ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            title="Delete"
+            aria-label={`Delete ${what}`}
+            onClick={onDelete}
+          >
+            <Trash2 />
           </Button>
         ) : null}
       </TableCell>

@@ -111,11 +111,85 @@ describe("DealPaymentsTab — a job's payments, with or without an invoice", () 
     expect(screen.queryByRole("button", { name: "Add payments" })).toBeNull();
   });
 
-  it("keeps Resend receipt and Refund behind the row's ⋮", async () => {
+  it("keeps Resend receipt, Refund and Delete behind the row's ⋮, drawn outside the scrolling table", async () => {
+    serve(jobLedger());
+    renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
+    const trigger = await screen.findByRole("button", { name: /actions for the \$100\.00 cash payment/i });
+    await user().click(trigger);
+    expect(screen.getAllByRole("menuitem").map((m) => m.textContent?.trim())).toEqual(["Resend receipt", "Refund", "Delete"]);
+    // The table scrolls sideways (overflow-x: auto), which also clips anything hanging
+    // below it — a menu drawn inside the wrapper was invisible on a one-row ledger.
+    expect(trigger.closest(".overflow-x-auto")).not.toBeNull();
+    expect(screen.getByRole("menu").closest(".overflow-x-auto")).toBeNull();
+  });
+
+  it("deletes a mis-keyed cash payment after a confirmation and refreshes the ledger", async () => {
+    let deleted: string | null = null;
+    serve(jobLedger());
+    server.use(
+      http.delete("*/billing/payments/:id", ({ params }) => {
+        deleted = String(params.id);
+        return HttpResponse.json({ success: true, data: { deleted: true } });
+      }),
+    );
+    renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
+    const u = user();
+    await u.click(await screen.findByRole("button", { name: /actions for the \$100\.00 cash payment/i }));
+    await u.click(screen.getByRole("menuitem", { name: "Delete" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent(/delete this payment\?/i);
+    expect(dialog).toHaveTextContent("$100.00 cash payment");
+    expect(deleted).toBeNull();
+    await u.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(deleted).toBe("p1"));
+    expect(toast.success).toHaveBeenCalledWith("Deleted the $100.00 cash payment");
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  });
+
+  it("keeps the payment when the confirmation is cancelled", async () => {
+    let deleted = false;
+    serve(jobLedger());
+    server.use(http.delete("*/billing/payments/:id", () => { deleted = true; return HttpResponse.json({ success: true, data: { deleted: true } }); }));
+    renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
+    const u = user();
+    await u.click(await screen.findByRole("button", { name: /actions for the \$100\.00 cash payment/i }));
+    await u.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await u.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(deleted).toBe(false);
+  });
+
+  it("never offers Delete on a payment that went through Stripe — only Refund", async () => {
+    serve(jobLedger({ payments: [payment({ method: "card", stripePaymentIntentId: "pi_1", last4: "4242" })] }));
+    renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
+    await user().click(await screen.findByRole("button", { name: /actions for the \$100\.00 card payment/i }));
+    expect(screen.getAllByRole("menuitem").map((m) => m.textContent?.trim())).toEqual(["Resend receipt", "Refund"]);
+  });
+
+  it("says why when the server refuses the delete", async () => {
+    serve(jobLedger());
+    server.use(
+      http.delete("*/billing/payments/:id", () =>
+        HttpResponse.json(
+          { success: false, error: { code: "CONFLICT", message: "This payment went through Stripe — refund it instead of deleting it" } },
+          { status: 409 },
+        ),
+      ),
+    );
+    renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
+    const u = user();
+    await u.click(await screen.findByRole("button", { name: /actions for the \$100\.00 cash payment/i }));
+    await u.click(screen.getByRole("menuitem", { name: "Delete" }));
+    await u.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/refund it instead/i)));
+  });
+
+  it("leaves only Resend receipt to someone who may collect but not refund", async () => {
+    mocks.perms = new Set(["payments.view", "payments.collect"]);
     serve(jobLedger());
     renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
     await user().click(await screen.findByRole("button", { name: /actions for the \$100\.00 cash payment/i }));
-    expect(screen.getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Resend receipt", "Refund"]);
+    expect(screen.getAllByRole("menuitem").map((m) => m.textContent?.trim())).toEqual(["Resend receipt"]);
   });
 
   it("adds an offline payment on the JOB, not on an invoice", async () => {

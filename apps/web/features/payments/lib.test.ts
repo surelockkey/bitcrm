@@ -8,6 +8,7 @@ import {
   applyAmountPaid,
   availableOnlineMethods,
   buildPaymentListQuery,
+  canDeletePayment,
   canRefund,
   isPartiallyPaid,
   overRefundMessage,
@@ -221,5 +222,24 @@ describe("sameMethods", () => {
     expect(sameMethods(["card"], ["card", "bank"])).toBe(false);
     expect(sameMethods(undefined, undefined)).toBe(true);
     expect(sameMethods([], undefined)).toBe(false);
+  });
+});
+
+describe("canDeletePayment — Workiz deletes only offline money, and only while nothing came back", () => {
+  it("allows a cash, check or keyed card payment with no Stripe behind it", () => {
+    expect(canDeletePayment(payment({ method: "cash" }))).toBe(true);
+    expect(canDeletePayment(payment({ method: "check" }))).toBe(true);
+    expect(canDeletePayment(payment({ method: "card", source: "office" }))).toBe(true);
+  });
+
+  it("refuses anything Stripe knows about — that money is refunded, never deleted", () => {
+    expect(canDeletePayment(payment({ stripePaymentIntentId: "pi_1" }))).toBe(false);
+    expect(canDeletePayment(payment({ stripeChargeId: "ch_1" }))).toBe(false);
+    expect(canDeletePayment(payment({ stripeSessionId: "cs_1" }))).toBe(false);
+  });
+
+  it("refuses a payment that already has a refund on record", () => {
+    expect(canDeletePayment(payment({ refundedAmount: 20 }))).toBe(false);
+    expect(canDeletePayment(payment({ status: "refunded", refundedAmount: 100 }))).toBe(false);
   });
 });

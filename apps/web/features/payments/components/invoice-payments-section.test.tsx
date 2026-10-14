@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { PaymentTerms, type InvoiceView, type Payment, type PaymentSummary } from "@bitcrm/types";
@@ -219,5 +219,55 @@ describe("InvoicePaymentsSection — variant workiz", () => {
     renderWz();
     expect(await screen.findByText("No payments on this invoice yet.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /add payment/i })).toBeNull();
+  });
+});
+
+describe("InvoicePaymentsSection — deleting a mis-keyed offline payment", () => {
+  function serveDelete() {
+    const calls: string[] = [];
+    server.use(
+      http.delete("*/billing/payments/:id", ({ params }) => {
+        calls.push(String(params.id));
+        return HttpResponse.json({ success: true, data: { deleted: true } });
+      }),
+    );
+    return calls;
+  }
+
+  it("Workiz variant: Delete sits last in the row's ⋮ and deletes after a confirmation", async () => {
+    ledger([payment()], summary());
+    const calls = serveDelete();
+    renderWithClient(<InvoicePaymentsSection invoice={invoice} dealId="d1" variant="workiz" />);
+    const u = user();
+    await u.click(await screen.findByRole("button", { name: /^actions for the \$150\.00 check payment/i }));
+    expect(screen.getAllByRole("menuitem").map((m) => m.textContent?.trim())).toEqual(["Resend receipt", "Refund", "Delete"]);
+    await u.click(screen.getByRole("menuitem", { name: "Delete" }));
+    const dialog = await screen.findByRole("alertdialog");
+    await u.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(calls).toEqual(["p1"]));
+    expect(toast.success).toHaveBeenCalledWith("Deleted the $150.00 check payment");
+  });
+
+  it("Workiz variant: a Stripe card payment has no Delete", async () => {
+    ledger([payment({ method: "card", stripePaymentIntentId: "pi_1" })], summary());
+    renderWithClient(<InvoicePaymentsSection invoice={invoice} dealId="d1" variant="workiz" />);
+    await user().click(await screen.findByRole("button", { name: /^actions for the \$150\.00 card payment/i }));
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
+  });
+
+  it("card variant: a Delete button beside Refund, gone without payments.refund", async () => {
+    ledger([payment()], summary());
+    const calls = serveDelete();
+    const { unmount } = renderWithClient(<InvoicePaymentsSection invoice={invoice} dealId="d1" />);
+    const u = user();
+    await u.click(await screen.findByRole("button", { name: /^delete the \$150\.00 check payment/i }));
+    await u.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(calls).toEqual(["p1"]));
+    unmount();
+
+    mocks.perms = new Set(["payments.view", "payments.collect"]);
+    renderWithClient(<InvoicePaymentsSection invoice={invoice} dealId="d1" />);
+    await screen.findByText("Check");
+    expect(screen.queryByRole("button", { name: /^delete the/i })).toBeNull();
   });
 });

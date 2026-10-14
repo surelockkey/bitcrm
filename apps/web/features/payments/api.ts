@@ -76,6 +76,10 @@ export const recordDealPayment = (dealId: string, body: RecordPaymentBody): Prom
 export const refundPayment = (paymentId: string, body: RefundBody): Promise<PaymentRefund> =>
   http.post<PaymentRefund>(`${BASE}/payments/${paymentId}/refund`, body);
 
+/** Takes a mis-keyed offline payment off the ledger. 409 on a Stripe payment — refund that instead. */
+export const deletePayment = (paymentId: string): Promise<{ deleted: boolean }> =>
+  http.delete<{ deleted: boolean }>(`${BASE}/payments/${paymentId}`);
+
 /** Re-sends the client their receipt for one payment. */
 export const resendReceipt = (paymentId: string): Promise<{ sent: boolean; sentTo?: string }> =>
   http.post<{ sent: boolean; sentTo?: string }>(`${BASE}/payments/${paymentId}/receipt`);
