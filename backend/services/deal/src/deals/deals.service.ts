@@ -2497,7 +2497,9 @@ export class DealsService {
     const dto = this.withOwnVan(request, fulfillment, technician, caller.id);
 
     const product = await this.validateProductFulfillment(dto, fulfillment);
-    assertPriceInBand(dto.priceClient, product.priceClient);
+    // The ±15% band holds a technician to the price book; the office sets any
+    // price, below zero too (the owner's rule, 2026-10-14).
+    if (technician) assertPriceInBand(dto.priceClient, product.priceClient);
     // A technician's stock comes out of his own van, or not at all.
     if (technician) assertFromOwnContainer({ ...dto, fulfillment }, product, caller.id);
 
@@ -2614,8 +2616,9 @@ export class DealsService {
     const isSwap = dto.productId !== existing.productId;
 
     const product = await this.validateProductFulfillment(dto, fulfillment);
-    // An imported Workiz line edited in place keeps the price Workiz recorded.
-    if (priceBandApplies(dto, existing)) assertPriceInBand(dto.priceClient, product.priceClient);
+    // A technician is held to the band, except on an imported Workiz line
+    // edited in place at the price Workiz recorded; the office sets any price.
+    if (technician && priceBandApplies(dto, existing)) assertPriceInBand(dto.priceClient, product.priceClient);
     // The container rule judges what the edit takes from a van — a new product,
     // a new quantity or a new source; text, price or custom fields alone pass.
     if (technician && editChangesStock(existing, { ...dto, fulfillment })) {

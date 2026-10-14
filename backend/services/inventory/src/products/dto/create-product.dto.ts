@@ -56,9 +56,10 @@ export class CreateProductDto {
   @Min(0)
   costTech!: number;
 
-  @ApiProperty()
+  // Below zero is allowed: Workiz's price book holds 62 such items ("Approved
+  // Discount" −100, "Accepted dispute" −904.98…) — credits the office puts on a job.
+  @ApiProperty({ description: 'The client price; may be below zero (a credit item).' })
   @IsNumber()
-  @Min(0)
   priceClient!: number;
 
   @ApiPropertyOptional({

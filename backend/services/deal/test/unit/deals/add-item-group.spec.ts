@@ -343,16 +343,17 @@ describe('DealsService — adding an item group to a job', () => {
       expect(lines()[0]).toMatchObject({ priceClient: 185, priceSource: 'group', itemGroupId: 'group-1' });
     });
 
-    it('judges a new price typed on it, and the line then stops being a group price', async () => {
+    it('a new price typed on it ends the group price; the office sets any, a technician is held to the band', async () => {
       ctx.products.findProduct.mockResolvedValue(groupLine());
 
-      await expect(
-        ctx.service.replaceProduct('deal-1', 'line-1', { ...edit, priceClient: 184 } as any, dispatcher, OFFICE),
-      ).rejects.toThrow(BadRequestException);
-
-      await ctx.service.replaceProduct('deal-1', 'line-1', { ...edit, priceClient: 50 } as any, dispatcher, OFFICE);
+      await ctx.service.replaceProduct('deal-1', 'line-1', { ...edit, priceClient: 184 } as any, dispatcher, OFFICE);
       expect(lines()[0]).not.toHaveProperty('priceSource');
-      expect(lines()[0]).toMatchObject({ itemGroupId: 'group-1' });
+      expect(lines()[0]).toMatchObject({ priceClient: 184, itemGroupId: 'group-1' });
+
+      ctx.products.findProduct.mockResolvedValue(groupLine());
+      await expect(
+        ctx.service.replaceProduct('deal-1', 'line-1', { ...edit, priceClient: 184 } as any, tech, DataScope.ASSIGNED_ONLY),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

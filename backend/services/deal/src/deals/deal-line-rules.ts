@@ -109,12 +109,17 @@ export function keepsGroupPrice(
 
 /**
  * The client price must stay within ±15% of the price book's `priceClient`
- * (400 otherwise). An item the price book holds no price for is not judged.
+ * (400 otherwise) — for a TECHNICIAN; the office sets any price, below zero
+ * too (Workiz: "Approved Discount" lines), and the callers decide who is who
+ * (`isTechnicianScope`). An item the price book holds no price for is not
+ * judged. The band is 15 % of the price's SIZE either side, so a price book
+ * price below zero (62 Workiz items) brackets itself: −100 → −115 … −85.
  */
 export function assertPriceInBand(price: number, catalogPrice: unknown): void {
   if (typeof catalogPrice !== 'number' || !Number.isFinite(catalogPrice)) return;
-  const min = catalogPrice * (1 - PRICE_BAND);
-  const max = catalogPrice * (1 + PRICE_BAND);
+  const span = Math.abs(catalogPrice) * PRICE_BAND;
+  const min = catalogPrice - span;
+  const max = catalogPrice + span;
   if (price >= min - BAND_EPSILON && price <= max + BAND_EPSILON) return;
   throw new BadRequestException(
     `Price must be between ${usd(min)} and ${usd(max)} (±15% of the price book)`,

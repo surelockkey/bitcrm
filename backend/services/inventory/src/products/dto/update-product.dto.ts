@@ -75,10 +75,9 @@ export class UpdateProductDto extends PartialType(OmitType(CreateProductDto, RED
   @Min(0)
   costTech?: number;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'The client price; may be below zero (a credit item).' })
   @whenSent
   @IsNumber()
-  @Min(0)
   priceClient?: number;
 
   @ApiPropertyOptional()

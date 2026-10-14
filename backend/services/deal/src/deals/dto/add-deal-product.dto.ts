@@ -75,8 +75,10 @@ export class AddDealProductDto {
   @ApiProperty({
     example: 45.0,
     description:
-      "The client price. Must stay within ±15% of the price book's `priceClient` (400 " +
-      'otherwise) — except on an imported Workiz line edited in place at its recorded price.',
+      "The client price; below zero is a credit line (Workiz \"Approved Discount\"). A technician " +
+      "(deals scope `assigned_only`) must stay within ±15% of the price book's `priceClient` (400 " +
+      'otherwise) — except on an imported Workiz line edited in place at its recorded price; the office ' +
+      'sets any price.',
   })
   @IsNumber()
   priceClient!: number;
