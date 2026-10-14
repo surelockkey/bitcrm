@@ -10,9 +10,11 @@ const FLAG = "ml-1.5 rounded-chip bg-wz-secondary-hover px-1 text-[11px] leading
 /**
  * Workiz's Addresses tab (pg_contact_wz_269669_tab_addresses): one row per
  * distinct address — Name | Address | City | State | Zipcode | Jobs | Total |
- * Due | past_due — with the jobs done there and what they came to. The card
- * fetches every job of the client on opening, so the counts settle on their
- * own. Ours flags the client's service and billing address.
+ * Due | Past due — with the jobs done there and what they came to. (Workiz
+ * lets its raw `past_due` key through as that header; ours reads like the
+ * card's other Past due labels.) The card fetches every job of the client on
+ * opening, so the counts settle on their own. Ours flags the client's service
+ * and billing address.
  */
 export function ClientAddressesTab({ rows, money, complete }: { rows: ClientAddressRow[]; money: boolean; complete: boolean }) {
   const columns = useMemo<WzGridColumn<ClientAddressRow>[]>(() => {
@@ -39,7 +41,7 @@ export function ClientAddressesTab({ rows, money, complete }: { rows: ClientAddr
       { id: "jobs", label: "Jobs", sortValue: (r) => r.jobs, render: (r) => String(r.jobs) },
       { id: "total", label: "Total", sortValue: (r) => r.total, render: (r) => figure(r.total) },
       { id: "due", label: "Due", sortValue: (r) => r.due, render: (r) => figure(r.due) },
-      { id: "pastDue", label: "past_due", sortValue: (r) => r.pastDue, render: (r) => figure(r.pastDue) },
+      { id: "pastDue", label: "Past due", sortValue: (r) => r.pastDue, render: (r) => figure(r.pastDue) },
     ];
   }, [money]);
 

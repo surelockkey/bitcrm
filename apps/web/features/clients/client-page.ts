@@ -1,5 +1,4 @@
 import { COUNTED_PAYMENT_STATUSES, type Address, type Contact, type Deal, type Estimate, type Invoice, type Payment } from "@bitcrm/types";
-import { formatPhoneWithExtension } from "@/lib/phone";
 import { wallToCt } from "@/lib/timezone";
 import { workizDate, workizDateTime } from "@/features/reports/billing/lib";
 import { addressKey } from "./lib";
@@ -70,14 +69,6 @@ export function wzDayStart(ymd: string | undefined): string {
 export function wzWhen(iso: string | undefined): string {
   if (!iso || Number.isNaN(Date.parse(iso))) return "";
   return workizDateTime(iso);
-}
-
-/**
- * Workiz's phone on the client card: "(505) 228 - 5946", the dash spaced out;
- * a foreign number keeps its international grouping; an extension follows.
- */
-export function wzPhone(phone: string, extension?: string): string {
-  return formatPhoneWithExtension(phone, extension).replace(/^(\(\d{3}\) \d{3})-(\d{4})/, "$1 - $2");
 }
 
 /** One line of Workiz's Addresses tab. */

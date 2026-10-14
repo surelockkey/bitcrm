@@ -7,9 +7,8 @@ import { WzFold } from "@/components/workiz/record-parts";
 import { cn } from "@/lib/utils";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import { tagSolidClasses } from "@/features/client-tags/lib";
-import { wzPhone } from "../client-page";
 import { websiteHref } from "../companies-list";
-import { clientTypeLabel, extensionOf } from "../lib";
+import { clientTypeLabel, extensionOf, formatPhoneWithExtension } from "../lib";
 
 /** Workiz's 32px IconButton (medium/white): 8px corners, #f3f6f7 under the pointer. */
 const ICON_BUTTON = "grid size-8 shrink-0 place-items-center rounded-[8px] outline-none hover:bg-wz-secondary-hover focus-visible:ring-2 focus-visible:ring-ring/50";
@@ -96,7 +95,7 @@ export function CompanySummaryPanel({
           ) : null}
           {phones.map((phone, index) => (
             <div key={phone} className={cn("flex items-center gap-2", index === 0 ? "min-h-8" : "min-h-[21px]")}>
-              <p className="min-w-0 flex-1 truncate text-sm leading-[21px] tracking-[0.4px] text-foreground">{wzPhone(phone, extensionOf(company, phone))}</p>
+              <p className="min-w-0 flex-1 truncate text-sm leading-[21px] tracking-[0.4px] text-foreground">{formatPhoneWithExtension(phone, extensionOf(company, phone))}</p>
               {/* Workiz: a blue phone (32px) and a blue chat beside the primary number; ours rings the others too. */}
               <span className={cn("flex items-center gap-2", index > 0 && "-my-[5.5px]")}>
                 <CallClientButton

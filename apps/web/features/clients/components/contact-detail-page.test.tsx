@@ -245,9 +245,10 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     const panel = screen.getByRole("complementary", { name: "Client" });
 
     expect(await within(panel).findByRole("link", { name: "CBRE Facilities Management" })).toHaveAttribute("href", "/companies/co1");
-    // Workiz's phones: plain lines, the dash spaced out.
-    expect(within(panel).getByText("(855) 783 - 6342")).toBeInTheDocument();
-    expect(within(panel).getByText("(475) 329 - 6229")).toBeInTheDocument();
+    // The phones as plain lines, written as everywhere else in the app
+    // (QA 2026-10-14 #23: the card alone spaced the dash out).
+    expect(within(panel).getByText("(855) 783-6342")).toBeInTheDocument();
+    expect(within(panel).getByText("(475) 329-6229")).toBeInTheDocument();
     expect(within(panel).getByText("pendingvendorinvoice@cbre.com")).toBeInTheDocument();
     // Workiz's tags, as chips with a way off and a way to add.
     expect(await within(panel).findByText("PLATINUM")).toBeInTheDocument();
@@ -398,6 +399,16 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     await renderPage();
     await waitFor(() => expect(mocks.deals.fetchNextPage).toHaveBeenCalled());
     expect(screen.getByRole("tab", { name: /^Jobs/ })).toHaveTextContent("12+");
+  });
+
+  it("the Addresses tab labels its money columns in words — Total, Due, Past due — never a raw key", async () => {
+    await renderPage();
+    await userEvent.click(screen.getByRole("tab", { name: /^Addresses/ }));
+
+    const table = screen.getByRole("table", { name: "Addresses" });
+    const headers = within(table).getAllByRole("columnheader").map((h) => h.textContent?.trim());
+    expect(headers).toEqual(["Name", "Address", "City", "State", "Zipcode", "Jobs", "Total", "Due", "Past due"]);
+    expect(within(table).queryByText("past_due")).toBeNull();
   });
 
   it("the Addresses tab lists each distinct address once, with its job count and total", async () => {

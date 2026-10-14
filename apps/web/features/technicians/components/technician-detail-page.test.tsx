@@ -442,6 +442,28 @@ describe("TechnicianDetailPage — guards", () => {
     expect(screen.getByText("No access")).toBeInTheDocument();
   });
 
+  /**
+   * QA 2026-10-14 #10: an admin's card read "You can read this technician's
+   * details but not change them." — the explainer for greyed fields was in
+   * the DOM for everyone, so a screen reader (and the sweep) heard a lock
+   * that was not there.
+   */
+  it("says nothing about not being able to change the card to someone who can", () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(screen.getByLabelText("City")).toBeEnabled();
+    expect(screen.getByLabelText("Labor cost per hour")).toBeEnabled();
+    expect(screen.queryByText("You can read this technician's details but not change them.")).toBeNull();
+    expect(screen.queryByText("A manager sets this.")).toBeNull();
+    expect(reason(screen.getByLabelText("City"))).toBe("");
+  });
+
+  it("says one plain line under Schedule color, not a note to developers", () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.queryByText(/needs a decision/)).toBeNull();
+    expect(screen.getByText("Not saved yet.")).toBeInTheDocument();
+  });
+
   it("locks the whole card for a viewer who may not edit technicians", async () => {
     state.canEditTechs = false;
     render(<TechnicianDetailPage technicianId="t1" />);

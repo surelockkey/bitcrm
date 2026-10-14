@@ -9,7 +9,6 @@ import {
   clientJobDate,
   byJobDateDesc,
   wzMoney,
-  wzPhone,
   wzDayStart,
   wzWhen,
 } from "./client-page";
@@ -147,10 +146,9 @@ describe("Workiz's printing", () => {
     expect(wzDayStart("soon")).toBe("");
   });
 
-  it('wzPhone: a US number as "(505) 228 - 5946", foreign ones as they are, an extension after', () => {
-    expect(wzPhone("+15052285946")).toBe("(505) 228 - 5946");
-    expect(wzPhone("+15052285946", "102")).toBe("(505) 228 - 5946 ext. 102");
-    expect(wzPhone("+380958601427")).toBe("+380958601427");
+  it("keeps no phone formatter of its own: the card prints numbers as the rest of the app does", async () => {
+    const mod: Record<string, unknown> = await import("./client-page");
+    expect(mod.wzPhone).toBeUndefined();
   });
 });
 

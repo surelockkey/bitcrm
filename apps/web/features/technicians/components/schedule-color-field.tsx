@@ -26,8 +26,11 @@ export const SCHEDULE_COLORS = [
  *
  * Deliberately wired to nothing: the owner asked for the control now and the
  * meaning later ("поки ні до чого не прив'язуй"). So the choice lives in this
- * component and the line under it says plainly that it is not saved — a
- * swatch that looked stored and was not would be worse than no swatch.
+ * component and one plain line under it says it is not saved — a swatch that
+ * looked stored and was not would be worse than no swatch. (Workiz draws no
+ * text under its discs; the why — the schedule colours a job by its status,
+ * and which wins is still to be decided — belongs here, not on the card:
+ * QA 2026-10-14 #19 read it as developer prose.)
  */
 export function ScheduleColorField({ disabled = false, labelledBy }: { disabled?: boolean; labelledBy?: string }) {
   const noteId = useId();
@@ -64,8 +67,7 @@ export function ScheduleColorField({ disabled = false, labelledBy }: { disabled?
         })}
       </div>
       <p id={noteId} className="mt-2 text-xs leading-[18px] tracking-[0.4px] text-wz-outline-label">
-        Not saved yet — the schedule colours a job by its status, so this needs a decision about which wins before it
-        means anything.
+        Not saved yet.
       </p>
     </div>
   );
