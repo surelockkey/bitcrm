@@ -20,7 +20,8 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchAllProducts } from "@/features/inventory/warehouses/api";
-import { formatMoney, isPriceInBand, priceRange } from "@/features/deals/lib";
+import { usePermissions } from "@/features/auth/use-permissions";
+import { formatMoney, isPriceInBand, priceBandBinds, priceRange } from "@/features/deals/lib";
 import { estimateItemSchema, type EstimateItemBody } from "@/features/estimates/schemas";
 import { useItemGroups } from "@/features/price-book/item-groups/hooks";
 import { groupEstimateLines, pickableGroups } from "@/features/price-book/item-groups/lib";
@@ -42,8 +43,9 @@ export interface PickerLine {
 
 /**
  * Catalog picker for document lines (estimates). Same catalog cache and
- * price band as the job's Add item dialog, without the van-stock sourcing —
- * an estimate reserves nothing until it is synced to the job.
+ * price band (a technician's, see priceBandBinds) as the job's Add item
+ * dialog, without the van-stock sourcing — an estimate reserves nothing
+ * until it is synced to the job.
  */
 export function ProductPickerDialog({
   open,
@@ -70,6 +72,9 @@ export function ProductPickerDialog({
     queryFn: fetchAllProducts,
     enabled: open,
   });
+  // Only a technician is held to the ±15% band; the office sets any price.
+  const { isTechnician } = usePermissions();
+  const bandBinds = priceBandBinds({ isTechnician });
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<Product | null>(null);
   const [changing, setChanging] = useState(false);
@@ -128,6 +133,7 @@ export function ProductPickerDialog({
             key={picked?.id ?? editing?.productId}
             product={picked ?? editingProduct}
             line={picked ? undefined : editing}
+            bandBinds={bandBinds}
             pending={pending}
             submitLabel={editing ? "Save" : "Add item"}
             backLabel={editing && !picked ? "Change item" : "← Back"}
@@ -205,6 +211,7 @@ export function ProductPickerDialog({
 function Configure({
   product,
   line,
+  bandBinds,
   pending,
   submitLabel,
   backLabel,
@@ -214,6 +221,8 @@ function Configure({
   /** Catalog entry (null when an edited line's product left the catalog). */
   product: Product | null;
   line?: PickerLine;
+  /** Whether the viewer is held to the ±15% band at all (see priceBandBinds). */
+  bandBinds: boolean;
   pending?: boolean;
   submitLabel: string;
   backLabel: string;
@@ -227,8 +236,8 @@ function Configure({
 
   const catalogPrice = product?.priceClient;
   const priceNum = Number(price);
-  const inBand = catalogPrice === undefined || isPriceInBand(priceNum, catalogPrice);
-  const range = catalogPrice !== undefined ? priceRange(catalogPrice) : null;
+  const inBand = !bandBinds || catalogPrice === undefined || isPriceInBand(priceNum, catalogPrice);
+  const range = bandBinds && catalogPrice !== undefined ? priceRange(catalogPrice) : null;
 
   const parsed = estimateItemSchema.safeParse({
     productId: product?.id ?? line?.productId,

@@ -5,6 +5,11 @@ import { InventoryStatus, ProductType, type Product } from "@bitcrm/types";
 import { renderWithClient } from "@/test/render-with-client";
 
 const catalog = vi.hoisted(() => ({ products: [] as unknown[] }));
+// Whether the viewer is a technician — the only role the ±15% band binds.
+const viewer = vi.hoisted(() => ({ technician: false }));
+vi.mock("@/features/auth/use-permissions", () => ({
+  usePermissions: () => ({ isTechnician: viewer.technician, can: () => true }),
+}));
 vi.mock("@/features/inventory/warehouses/api", () => ({
   fetchAllProducts: () => Promise.resolve(catalog.products),
 }));
@@ -100,7 +105,8 @@ describe("ProductPickerDialog", () => {
     ]);
   });
 
-  it("blocks a price outside the ±15% band", async () => {
+  it("holds a technician to the ±15% band", async () => {
+    viewer.technician = true;
     const onSubmit = vi.fn();
     renderWithClient(<ProductPickerDialog open onOpenChange={() => {}} onSubmit={onSubmit} />);
     const u = user();
@@ -108,6 +114,24 @@ describe("ProductPickerDialog", () => {
     const price = screen.getByLabelText("Client price");
     await u.clear(price);
     await u.type(price, "200");
+    expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^add item$/i })).toBeDisabled();
+    viewer.technician = false;
+  });
+
+  // Story 5.05 sends a price beyond the band to a manager; the office is that
+  // manager, so an estimate it writes takes any price (owner, 2026-10-14).
+  it("lets the office set any price", async () => {
+    const onSubmit = vi.fn();
+    renderWithClient(<ProductPickerDialog open onOpenChange={() => {}} onSubmit={onSubmit} />);
+    const u = user();
+    await u.click(await screen.findByText("Deadbolt"));
+    const price = screen.getByLabelText("Client price");
+    await u.clear(price);
+    await u.type(price, "200");
+    expect(screen.queryByText(/allowed .*±15%/i)).toBeNull();
+    await u.click(screen.getByRole("button", { name: /^add item$/i }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ productId: "p1", priceClient: 200 });
   });
 });

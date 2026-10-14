@@ -26,7 +26,8 @@ import { useItemGroups } from "@/features/price-book/item-groups/hooks";
 import { pickableGroups } from "@/features/price-book/item-groups/lib";
 import { ItemGroupChoices, ItemGroupConfirm } from "@/features/price-book/item-groups/item-group-picker";
 import { fetchTechStock } from "../tech-stock";
-import { formatMoney, isPriceInBand, priceBandApplies, priceRange } from "../lib";
+import { usePermissions } from "@/features/auth/use-permissions";
+import { formatMoney, isPriceInBand, priceBandApplies, priceBandBinds, priceRange } from "../lib";
 import { personName } from "../person-name";
 
 export function AddProductDialog({
@@ -68,6 +69,9 @@ export function AddProductDialog({
     retry: false,
   });
   const { map: userMap } = useUserMap();
+  // Only a technician is held to the ±15% band; the office sets any price.
+  const { isTechnician } = usePermissions();
+  const bandBinds = priceBandBinds({ isTechnician });
   const add = useAddProduct(dealId);
   // Workiz: Add item offers the item groups too — a group adds all its items at once.
   const groups = useItemGroups(open && !editing);
@@ -154,6 +158,7 @@ export function AddProductDialog({
             // A line carried over from Workiz keeps whatever price Workiz
             // recorded — 82% of the historical lines differ from today's
             // catalog price, so the ±15% band must not block saving them.
+            bandBinds={bandBinds}
             bandExempt={!!editing && current.id === editing.productId && !priceBandApplies(editing)}
             initial={
               editing && current.id === editing.productId
@@ -284,6 +289,7 @@ function Configure({
   pending,
   backLabel,
   submitLabel,
+  bandBinds,
   bandExempt = false,
   initial,
   onBack,
@@ -300,6 +306,8 @@ function Configure({
   pending: boolean;
   backLabel?: string;
   submitLabel?: string;
+  /** Whether the viewer is held to the ±15% band at all (see priceBandBinds). */
+  bandBinds: boolean;
   /** Imported or item-group line: the ±15% band does not judge its price (see priceBandApplies). */
   bandExempt?: boolean;
   /** Prefill when reconfiguring an existing line (edit mode, same product). */
@@ -321,8 +329,8 @@ function Configure({
   // comes back unchanged). Without the `price === storedPrice` half, any of
   // the 156 612 imported lines would be a permanent hole in the ±15% rule,
   // which is the only client-price guard in the product.
-  const exempt = bandExempt && price === storedPrice;
-  const inBand = exempt || isPriceInBand(price, product.priceClient);
+  const exempt = bandBinds && bandExempt && price === storedPrice;
+  const inBand = !bandBinds || exempt || isPriceInBand(price, product.priceClient);
 
   // A stockable part the chosen tech is short on — or with no tech to source
   // from — is added as a to-order line instead of a van deduction.
@@ -369,13 +377,13 @@ function Configure({
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <Label>Quantity</Label>
-          <Input className="h-9" type="number" min={1} value={qty} onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))} />
+          <Label htmlFor="line-qty">Quantity</Label>
+          <Input id="line-qty" className="h-9" type="number" min={1} value={qty} onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))} />
         </div>
         <div className="space-y-1.5">
-          <Label>Client price</Label>
-          <Input className="h-9" type="number" step="0.01" value={price} onChange={(e) => setPrice(Number(e.target.value))} />
-          {exempt ? (
+          <Label htmlFor="line-price">Client price</Label>
+          <Input id="line-price" className="h-9" type="number" step="0.01" value={price} onChange={(e) => setPrice(Number(e.target.value))} />
+          {!bandBinds ? null : exempt ? (
             <p className="text-[11px] text-muted-foreground">
               Imported from Workiz — the ±15% band doesn&apos;t apply. Catalog{" "}
               {formatMoney(product.priceClient)}.
