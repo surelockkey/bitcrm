@@ -8,6 +8,7 @@ import {
   HttpException,
   UnprocessableEntityException,
   Optional,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   SnsPublisherService,
@@ -68,6 +69,7 @@ import {
   lineCustomAttributes,
   priceBandApplies,
 } from './deal-line-rules';
+import { techRateOverrideUpdate, touchesTechRate } from './tech-rate-override';
 import { assertDealInScope } from './deal-scope';
 import {
   clientSearchAttributes,
@@ -1280,11 +1282,26 @@ export class DealsService {
     return undefined;
   }
 
-  async update(id: string, dto: UpdateDealDto, caller: JwtUser): Promise<Deal> {
+  async update(
+    id: string,
+    dto: UpdateDealDto,
+    caller: JwtUser,
+    opts: { mayOverrideRate?: boolean } = {},
+  ): Promise<Deal> {
     const existing = await this.findById(id);
 
     // Convert class instances to plain objects for DynamoDB
     const updates = { ...dto } as any;
+    // Workiz "Custom Tech Rate": Override Rates is `commission.edit` here.
+    if (touchesTechRate(dto)) {
+      if (!opts.mayOverrideRate) {
+        throw new ForbiddenException('Overriding the technician rate needs commission.edit');
+      }
+      delete updates.useTechSpecialRate;
+      delete updates.techSpecialRate;
+      delete updates.techSpecialRateUnit;
+      Object.assign(updates, techRateOverrideUpdate(dto, existing));
+    }
     // A hand-picked area wins here exactly like on create — and it suppresses
     // the address-driven re-resolve below, or the geo answer would overwrite
     // the choice in the same write.

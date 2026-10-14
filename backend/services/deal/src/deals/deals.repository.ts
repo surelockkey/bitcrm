@@ -2340,6 +2340,10 @@ export class DealsRepository {
       actualTotal: item.actualTotal as number | undefined,
       // Tech Cost / Company Cost — ours, else the Workiz names the importer wrote.
       ...jobCostsOf(item),
+      // Workiz "Custom Tech Rate": the job's own technician rate (the importer's names).
+      ...(item.useTechSpecialRate !== undefined && { useTechSpecialRate: item.useTechSpecialRate === true }),
+      ...(typeof item.techSpecialRate === 'number' && { techSpecialRate: item.techSpecialRate }),
+      ...((item.techSpecialRateUnit === '%' || item.techSpecialRateUnit === '$') && { techSpecialRateUnit: item.techSpecialRateUnit }),
       paymentStatus: item.paymentStatus as string | undefined,
       amountPaid: item.amountPaid as number | undefined,
       status: item.status as Deal['status'],

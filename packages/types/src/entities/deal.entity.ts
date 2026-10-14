@@ -156,6 +156,17 @@ export interface Deal {
   techCost?: number;
   companyCost?: number;
   /**
+   * Workiz "Custom Tech Rate" (the job's "Commission rate" block, permission
+   * "Override Rates"): this job pays its technician a rate of its own — `%`
+   * of the commission split, or a fixed `$` — instead of his settings' and
+   * his job-type rules. Off, the rate is kept for next time; the commissions
+   * report takes it only while on. The importer writes Workiz's
+   * (`use_tech_special_rate`, `tech_special_rate` "45-precent" / "330-dollar").
+   */
+  useTechSpecialRate?: boolean;
+  techSpecialRate?: number;
+  techSpecialRateUnit?: '%' | '$';
+  /**
    * Billing's flag for the job board: `unpaid` | `partial` | `paid`, asserted
    * from the ledger on every payment change. An imported job carries Workiz's
    * own; a job no payment ever touched has none.

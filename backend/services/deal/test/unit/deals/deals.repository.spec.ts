@@ -75,6 +75,14 @@ describe('DealsRepository', () => {
       expect(result!.stage).toBe(DealStage.NEW_LEAD);
     });
 
+    it("reads the job's Custom Tech Rate as the importer and the update write it", async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { PK: 'DEAL#deal-1', SK: 'METADATA', ...createMockDeal(), useTechSpecialRate: true, techSpecialRate: 165, techSpecialRateUnit: '$' },
+      });
+      const result = await repository.findById('deal-1');
+      expect(result).toMatchObject({ useTechSpecialRate: true, techSpecialRate: 165, techSpecialRateUnit: '$' });
+    });
+
     it('should return null when not found', async () => {
       dynamoDb.client.send.mockResolvedValue({ Item: undefined });
       const result = await repository.findById('nonexistent');

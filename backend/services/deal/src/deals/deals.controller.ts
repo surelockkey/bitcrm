@@ -248,14 +248,19 @@ export class DealsController {
   @RequirePermission('deals', 'edit')
   @ApiOperation({
     summary: 'Update deal fields',
-    description: '**Guard:** `deals.edit` permission required.',
+    description:
+      '**Guard:** `deals.edit` permission required. The Custom Tech Rate fields (`useTechSpecialRate`, ' +
+      '`techSpecialRate`, `techSpecialRateUnit` — Workiz "Override Rates") additionally need `commission.edit`: 403 otherwise.',
   })
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateDealDto,
     @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    const data = await this.dealsService.update(id, dto, user);
+    const data = await this.dealsService.update(id, dto, user, {
+      mayOverrideRate: hasPermission(perms, 'commission', 'edit'),
+    });
     return { success: true, data };
   }
 

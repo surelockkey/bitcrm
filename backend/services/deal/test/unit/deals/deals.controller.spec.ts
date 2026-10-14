@@ -127,10 +127,20 @@ describe('DealsController', () => {
       const caller = createMockJwtUser();
       service.update.mockResolvedValue(deal);
 
-      const result = await controller.update('deal-1', { notes: 'x' } as any, caller);
+      const result = await controller.update('deal-1', { notes: 'x' } as any, caller, undefined as any);
 
       expect(result).toEqual({ success: true, data: deal });
-      expect(service.update).toHaveBeenCalledWith('deal-1', { notes: 'x' }, caller);
+      expect(service.update).toHaveBeenCalledWith('deal-1', { notes: 'x' }, caller, { mayOverrideRate: false });
+    });
+
+    it('hands the service whether the caller may override the technician rate (commission.edit)', async () => {
+      const caller = createMockJwtUser();
+      service.update.mockResolvedValue(createMockDeal());
+      const perms = { dataScope: { deals: 'all' }, permissions: { commission: { edit: true } } } as any;
+
+      await controller.update('deal-1', { useTechSpecialRate: true, techSpecialRate: 40 } as any, caller, perms);
+
+      expect(service.update).toHaveBeenCalledWith('deal-1', { useTechSpecialRate: true, techSpecialRate: 40 }, caller, { mayOverrideRate: true });
     });
   });
 

@@ -1,5 +1,5 @@
 import {
-  IsString, IsOptional, IsEnum, IsArray, IsBoolean,
+  IsString, IsOptional, IsEnum, IsArray, IsBoolean, IsIn,
   ValidateNested, Matches, IsDateString, IsObject, MaxLength, IsNumber, Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -159,6 +159,24 @@ export class UpdateDealDto {
   @IsNumber()
   @Min(0)
   companyCost?: number | null;
+
+  // Workiz "Custom Tech Rate" (the job's Commission rate block). Any of the
+  // three needs `commission.edit` (Workiz "Override Rates") — 403 otherwise.
+  @ApiPropertyOptional({ description: 'Custom Tech Rate on/off. On needs a rate (sent, or already on the job).' })
+  @IsOptional()
+  @IsBoolean()
+  useTechSpecialRate?: boolean;
+
+  @ApiPropertyOptional({ example: 40, nullable: true, description: 'The job’s own technician rate: % of the split (≤ 100) or $ fixed. null clears it and turns the override off.' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  techSpecialRate?: number | null;
+
+  @ApiPropertyOptional({ enum: ['%', '$'], description: 'The rate’s unit; a rate sent without one is a percentage.' })
+  @IsOptional()
+  @IsIn(['%', '$'])
+  techSpecialRateUnit?: '%' | '$';
 
   @ApiPropertyOptional({ example: 'Manager only notes' })
   @IsOptional()
