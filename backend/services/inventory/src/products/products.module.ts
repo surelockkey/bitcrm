@@ -5,6 +5,7 @@ import { ProductsService } from './products.service';
 import { ProductsRepository } from './products.repository';
 import { ProductsCacheService } from './products-cache.service';
 import { ProductsTypeBackfill } from './products-type.backfill';
+import { ProductListSearchClient } from './product-list-search.client';
 import { ItemCategoriesModule } from '../item-categories/item-categories.module';
 import { ItemAttributesModule } from '../item-attributes/item-attributes.module';
 
@@ -19,6 +20,7 @@ import { ItemAttributesModule } from '../item-attributes/item-attributes.module'
     ProductsCacheService,
     ProductsTypeBackfill,
     ProductThumbnailsService,
+    ProductListSearchClient,
   ],
   exports: [ProductsService, ProductsRepository],
 })

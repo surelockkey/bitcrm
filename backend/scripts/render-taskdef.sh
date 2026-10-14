@@ -29,6 +29,9 @@
 #                          simply report unavailable. An empty GitHub secret
 #                          emits nothing, so it can never overwrite a value
 #                          with "".
+#   GOOGLE_MAPS_API_KEY  - deal only: geocodes job addresses and ZIP service
+#                          areas. Without it jobs saved with no coordinates get
+#                          no map pin and no automatic service area.
 #   GIT_SHA              - commit SHA for /health version reporting
 #
 # All non-secret runtime config is read from SSM Parameter Store under /bitcrm/dev/.
@@ -139,6 +142,7 @@ EXTRA_ENV_JSON=$(jq -n \
   --arg stripe_secret_key "${STRIPE_SECRET_KEY:-}" \
   --arg stripe_webhook_secret "${STRIPE_WEBHOOK_SECRET:-}" \
   --arg stripe_publishable_key "${STRIPE_PUBLISHABLE_KEY:-}" \
+  --arg google_maps_api_key "${GOOGLE_MAPS_API_KEY:-}" \
   '
   [
     {name: "NODE_ENV",      value: "production"},
@@ -151,6 +155,7 @@ EXTRA_ENV_JSON=$(jq -n \
     {name: "CRM_SERVICE_URL",       value: "http://crm:4002"},
     {name: "DEAL_SERVICE_URL",      value: "http://deal:4003"},
     {name: "INVENTORY_SERVICE_URL", value: "http://inventory:4004"},
+    {name: "SEARCH_SERVICE_URL",    value: "http://search:4005"},
     {name: "TELEPHONY_SERVICE_URL", value: "http://telephony:4006"},
     {name: "MESSAGING_SERVICE_URL", value: "http://messaging:4007"},
     {name: "BILLING_SERVICE_URL",   value: "http://billing:4008"}
@@ -208,10 +213,15 @@ EXTRA_ENV_JSON=$(jq -n \
       + (if $stripe_webhook_secret  != "" then [{name: "STRIPE_WEBHOOK_SECRET",  value: $stripe_webhook_secret}]  else [] end)
       + (if $stripe_publishable_key != "" then [{name: "STRIPE_PUBLISHABLE_KEY", value: $stripe_publishable_key}] else [] end)
     else [] end)
+  # Deal geocodes job addresses and ZIP service areas (Google Geocoding API).
+  + (if ($service == "deal" and $google_maps_api_key != "") then [{name: "GOOGLE_MAPS_API_KEY", value: $google_maps_api_key}] else [] end)
   # SQS consumers only poll when explicitly enabled.
-  + (if ($service == "deal" or $service == "inventory" or $service == "search" or $service == "messaging" or $service == "billing") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)
-  # search runs an idempotent index backfill on boot.
-  + (if ($service == "search") then [{name: "ENABLE_SEARCH_BACKFILL", value: "true"}] else [] end)
+  + (if ($service == "deal" or $service == "inventory" or $service == "search" or $service == "messaging" or $service == "billing" or $service == "telephony") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)
+  # search does NOT re-index on boot (ENABLE_SEARCH_BACKFILL is left unset):
+  # a full backfill walks every other service internal list route, and running it
+  # on every task start (~every deploy) flooded them. The SQS indexer keeps the
+  # index fresh; run `npm run backfill -w backend/services/search` or
+  # POST /api/search/internal/reindex after imports and mapping changes.
   # messaging runs the automation minute poller: without it a rule with a
   # delay, a held quiet-hours firing and every "1 hour before the job"
   # reminder is armed and never fires. Safe on both messaging tasks — each
@@ -299,8 +309,8 @@ jq --argjson env "$ALL_ENV_JSON" --argjson side "$SIDECAR_JSON" \
   '.containerDefinitions[0].environment = $env | .containerDefinitions += $side')
 
 # Alloy wants ~128MB on top of the app, and the tasks are already at 1GB. 2048
-# is the next valid size at cpu 256 (Fargate 0.25 vCPU allows 0.5/1/2 GB), and
-# it is only spent when the sidecar is actually present.
+# is the next valid size at cpu 512 (Fargate 0.5 vCPU allows 1-4 GB in 1 GB
+# steps), and it is only spent when the sidecar is actually present.
 if [[ "$BUMP_MEMORY" == true ]]; then
   RENDERED=$(echo "$RENDERED" | jq '.memory = "2048"')
 fi

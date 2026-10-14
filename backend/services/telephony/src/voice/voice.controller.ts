@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Header,
+  Optional,
   Param,
   Post,
   Query,
@@ -17,10 +18,26 @@ import {
   type InboundBody,
   type OutboundBody,
 } from './voice.service';
-import { ConferenceService } from './conference.service';
+import { ConferenceService, primarySidOf } from './conference.service';
 import { FlowRunnerService } from './flow-runner.service';
 import { FlowAudioService } from '../call-flows/flow-audio.service';
 import { CallsService, type TwilioStatusParams } from '../calls/calls.service';
+import { WebhookQueue } from '../common/webhook-queue';
+
+/**
+ * The queue key for everything that happens to one call: `call:<primary sid>`.
+ * A conference is named after its primary leg, so its events, its legs'
+ * status callbacks and the primary leg's own status all share one key and
+ * are processed in arrival order (within a task — see WebhookQueue).
+ */
+export function callQueueKey(
+  conferenceName: string | undefined,
+  fallback: string | undefined,
+): string {
+  const primary = conferenceName ? primarySidOf(conferenceName) : null;
+  if (primary) return `call:${primary}`;
+  return `conf:${fallback || conferenceName || 'unknown'}`;
+}
 
 /**
  * Twilio voice webhooks. These are called by Twilio (not the SPA), so they are
@@ -39,7 +56,30 @@ export class VoiceController {
     private readonly callsService: CallsService,
     private readonly flowRunner: FlowRunnerService,
     private readonly flowAudio: FlowAudioService,
+    // Optional so a spec can build the controller without it; absent, the
+    // handlers run before the reply, as they used to.
+    @Optional() private readonly queue?: WebhookQueue,
   ) {}
+
+  /**
+   * Run a status-callback handler after replying. Twilio ignores the body of
+   * these callbacks, so nothing it needs waits on our Redis/DynamoDB/REST
+   * work. Signature validation (the guard) has already run by now. Over the
+   * queue's limit the work is awaited before replying (backpressure).
+   */
+  private async afterReply(
+    key: string,
+    label: string,
+    job: () => Promise<unknown>,
+  ): Promise<string> {
+    if (!this.queue) {
+      await job();
+      return '<Response/>';
+    }
+    const { done, overloaded } = this.queue.enqueue(key, label, job);
+    if (overloaded) await done;
+    return '<Response/>';
+  }
 
   @Post('outbound')
   @Header('Content-Type', 'text/xml')
@@ -149,11 +189,17 @@ export class VoiceController {
     return this.voiceService.buildAgentJoin(conf ?? '', body, whisper === '1');
   }
 
-  /** Conference lifecycle events (start/end/join/leave). */
+  /**
+   * Conference lifecycle events (start/end/join/leave).
+   *
+   * Replies first, then handles the event on the call's serial queue — see
+   * `afterReply`. The outbound customer dial (participant-join) is still
+   * placed by this handler, a moment after the reply instead of before it.
+   */
   @Post('conference-events')
   @Header('Content-Type', 'text/xml')
   @ApiExcludeEndpoint()
-  async conferenceEvents(
+  conferenceEvents(
     @Body()
     body: {
       StatusCallbackEvent?: string;
@@ -162,6 +208,19 @@ export class VoiceController {
       CallSid?: string;
     },
   ): Promise<string> {
+    return this.afterReply(
+      callQueueKey(body.FriendlyName, body.ConferenceSid),
+      `conference-events ${body.StatusCallbackEvent ?? '?'} ${body.FriendlyName ?? ''}`,
+      () => this.handleConferenceEvent(body),
+    );
+  }
+
+  private async handleConferenceEvent(body: {
+    StatusCallbackEvent?: string;
+    FriendlyName?: string;
+    ConferenceSid?: string;
+    CallSid?: string;
+  }): Promise<void> {
     const name = body.FriendlyName ?? '';
     if (body.StatusCallbackEvent === 'participant-join' && body.ConferenceSid) {
       // The outbound customer leg is spawned from the agent's join — a lone
@@ -186,7 +245,6 @@ export class VoiceController {
     } else if (body.StatusCallbackEvent === 'conference-end') {
       await this.conferenceService.onConferenceEnd(name);
     }
-    return '<Response/>';
   }
 
   /** Conference recording ready. */
@@ -210,16 +268,41 @@ export class VoiceController {
    * Call-status callbacks. Conference legs carry ?conf=<name>&role=… and route
    * through the orchestration; the bare form is the legacy path kept for any
    * in-flight pre-conference calls during a deploy.
+   *
+   * Replies first; the work runs on the call's serial queue (`afterReply`),
+   * keyed by the primary sid so a leg's status never overtakes an earlier
+   * event of its own conference on this task.
    */
   @Post('status')
   @Header('Content-Type', 'text/xml')
   @ApiExcludeEndpoint()
-  async status(
+  status(
     @Body() body: TwilioStatusParams,
     @Query('conf') conf?: string,
     @Query('role') role?: string,
     @Query('bridge') bridge?: string,
   ): Promise<string> {
+    // A bridge leg's own CallSid IS the primary sid (see handleStatus).
+    const key = bridge
+      ? body.CallSid
+        ? `call:${body.CallSid}`
+        : `bridge:${bridge}`
+      : conf
+        ? callQueueKey(conf, conf)
+        : `call:${body.CallSid ?? 'unknown'}`;
+    return this.afterReply(
+      key,
+      `status ${body.CallStatus ?? '?'} ${body.CallSid ?? ''}${conf ? ` ${conf}/${role}` : ''}`,
+      () => this.handleStatus(body, conf, role, bridge),
+    );
+  }
+
+  private async handleStatus(
+    body: TwilioStatusParams,
+    conf?: string,
+    role?: string,
+    bridge?: string,
+  ): Promise<void> {
     // The technician's leg on a cell bridge cannot carry ?conf=: the sid does
     // not exist when calls.create is issued. Its own CallSid IS the primary
     // sid, so the handler derives the conference name itself.
@@ -233,6 +316,5 @@ export class VoiceController {
       // nowhere else — without this the technician stays claimed until the TTL.
       await this.conferenceService.releaseFinishedBridge(body.CallSid);
     }
-    return '<Response/>';
   }
 }

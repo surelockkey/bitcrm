@@ -72,9 +72,18 @@ export function createMockDeal(overrides: Partial<DealForMessaging> = {}): DealF
 
 /** A `ConversationsRepository` with every read/write a jest.fn (defaults: nothing found). */
 export function mockConversationsRepo() {
-  return {
+  const repo = {
     get: jest.fn().mockResolvedValue(null),
     getByParty: jest.fn().mockResolvedValue(null),
+    /** Answers through `getByParty`, so a test that scripts one scripts both. */
+    getManyByParty: jest.fn(async (parties: Array<{ kind: string; id: string }>) => {
+      const out = new Map<string, unknown>();
+      for (const p of parties) {
+        const c = await repo.getByParty(p.kind, p.id);
+        if (c) out.set(`${p.kind}:${p.id}`, c);
+      }
+      return out;
+    }),
     getByAddress: jest.fn().mockResolvedValue(null),
     getReadMarker: jest.fn().mockResolvedValue(null),
     listInbox: jest.fn().mockResolvedValue({ items: [] }),
@@ -101,6 +110,7 @@ export function mockConversationsRepo() {
     countMessagesAfter: jest.fn().mockResolvedValue(0),
     putAddressPointer: jest.fn().mockResolvedValue(undefined),
   };
+  return repo;
 }
 
 export function mockMessagesRepo() {

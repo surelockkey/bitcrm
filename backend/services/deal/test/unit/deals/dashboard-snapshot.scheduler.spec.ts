@@ -64,4 +64,34 @@ describe('DashboardSnapshotScheduler', () => {
     // 08:00 EDT → 03:00 EDT tomorrow.
     expect(scheduler.delayFrom(now)).toBe(19 * 3_600_000);
   });
+
+  describe('the report windows ride on the same lock', () => {
+    it('after the dashboard, the same winner warms the reports’ settled windows', async () => {
+      const dashboard = { warm: jest.fn(async () => undefined) };
+      const reports = { warm: jest.fn(async () => ({ warmed: 7, failed: 0 })) };
+      const redis = { client: { set: jest.fn(async () => 'OK'), del: jest.fn() } };
+      const scheduler = new DashboardSnapshotScheduler(dashboard as never, redis as never, reports as never);
+
+      await scheduler.runOnce(now);
+
+      expect(reports.warm).toHaveBeenCalledWith(now);
+      expect(dashboard.warm.mock.invocationCallOrder[0]).toBeLessThan(reports.warm.mock.invocationCallOrder[0]);
+    });
+
+    it('a loser warms nothing at all', async () => {
+      const reports = { warm: jest.fn() };
+      const redis = { client: { set: jest.fn(async () => null), del: jest.fn() } };
+      await new DashboardSnapshotScheduler({ warm: jest.fn() } as never, redis as never, reports as never).runOnce(now);
+      expect(reports.warm).not.toHaveBeenCalled();
+    });
+
+    it('a failed report warm keeps the day — the dashboard is built, and the reports read on demand', async () => {
+      const reports = { warm: jest.fn().mockRejectedValue(new Error('throttled')) };
+      const redis = { client: { set: jest.fn(async () => 'OK'), del: jest.fn() } };
+      const scheduler = new DashboardSnapshotScheduler({ warm: jest.fn() } as never, redis as never, reports as never);
+
+      await expect(scheduler.runOnce(now)).resolves.toBe(true);
+      expect(redis.client.del).not.toHaveBeenCalled();
+    });
+  });
 });

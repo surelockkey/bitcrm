@@ -168,3 +168,125 @@ describe('PaymentReportRepository.readBuckets', () => {
     });
   });
 });
+
+describe('PaymentReportRepository.walkLines — months side by side', () => {
+  const item = (month: string, at: string, id: string) => ({
+    PK: `PAYLINE#${month}`,
+    SK: `${at}#${id}`,
+    entityType: 'payment_report_line',
+    lineId: id,
+    at,
+    amount: 1,
+    type: 'cash',
+  });
+  const months = ['2026-09', '2026-08', '2026-07', '2026-06', '2026-05', '2026-04'];
+  const base = {
+    fromIso: '0',
+    toIso: '9',
+    dir: 'desc' as const,
+    filter: { types: [], technicianIds: [], serviceAreaIds: [] },
+  };
+
+  /** One line per month; every Query is held until released, so what is in flight can be inspected. */
+  function heldTable(perMonth: Record<string, Array<ReturnType<typeof item>>>) {
+    const waiting: Array<() => void> = [];
+    const asked: string[] = [];
+    const send = jest.fn((cmd: any) => {
+      const pk = cmd.input.ExpressionAttributeValues[':pk'] as string;
+      asked.push(pk);
+      return new Promise((resolve) =>
+        waiting.push(() => resolve({ Items: perMonth[pk.slice('PAYLINE#'.length)] ?? [] })),
+      );
+    });
+    const releaseAll = async () => {
+      // Let the walk issue what it will, release, repeat until it settles.
+      for (let i = 0; i < 50; i++) {
+        await new Promise((r) => setImmediate(r));
+        while (waiting.length) waiting.shift()!();
+      }
+    };
+    return { send, asked, waiting, releaseAll };
+  }
+  const oneEach = Object.fromEntries(months.map((m, i) => [m, [item(m, `${m}-1${i}`, `l-${m}`)]]));
+
+  it('the bucket counts say the page needs three months: all three are asked before the first answers', async () => {
+    const t = heldTable(oneEach);
+    const walk = repoWith(t.send).walkLines({
+      ...base,
+      cursor: { ms: months },
+      want: 3,
+      expected: new Map(months.map((m) => [m, 1])),
+    });
+    await new Promise((r) => setImmediate(r));
+    expect(t.asked).toEqual(['PAYLINE#2026-09', 'PAYLINE#2026-08', 'PAYLINE#2026-07']);
+    await t.releaseAll();
+    const res = await walk;
+    expect(res.lines.map((l) => l.lineId)).toEqual(['l-2026-09', 'l-2026-08', 'l-2026-07']);
+    expect(res.next).toEqual({ ms: ['2026-06', '2026-05', '2026-04'] });
+  });
+
+  it('a month the counts say is enough is read alone', async () => {
+    const t = heldTable({ '2026-09': [item('2026-09', '3', 'a'), item('2026-09', '2', 'b')] });
+    const walk = repoWith(t.send).walkLines({
+      ...base,
+      cursor: { ms: months },
+      want: 2,
+      expected: new Map([['2026-09', 40], ['2026-08', 40]]),
+    });
+    await t.releaseAll();
+    expect((await walk).lines.map((l) => l.lineId)).toEqual(['a', 'b']);
+    expect(t.asked).toEqual(['PAYLINE#2026-09']);
+  });
+
+  it('without counts it reads one month, then — once a month ran dry — up to four at a time', async () => {
+    const t = heldTable(oneEach);
+    const walk = repoWith(t.send).walkLines({ ...base, cursor: { ms: months }, want: 10 });
+    await new Promise((r) => setImmediate(r));
+    expect(t.asked).toEqual(['PAYLINE#2026-09']);
+    t.waiting.shift()!();
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    // The month being read plus three ahead.
+    expect(t.asked).toEqual(['PAYLINE#2026-09', 'PAYLINE#2026-08', 'PAYLINE#2026-07', 'PAYLINE#2026-06', 'PAYLINE#2026-05']);
+    await t.releaseAll();
+    const res = await walk;
+    expect(res.lines.map((l) => l.lineId)).toEqual(months.map((m) => `l-${m}`));
+    expect(res.exhausted).toBe(true);
+    // Every month asked exactly once.
+    expect([...t.asked].sort()).toEqual(months.map((m) => `PAYLINE#${m}`).sort());
+  });
+
+  it('a month with more pages is finished, in order, before the next month’s lines are taken', async () => {
+    const send = jest.fn(async (cmd: any) => {
+      const pk = cmd.input.ExpressionAttributeValues[':pk'];
+      const start = cmd.input.ExclusiveStartKey;
+      if (pk === 'PAYLINE#2026-09' && !start) {
+        return { Items: [item('2026-09', '9', 'a')], LastEvaluatedKey: { PK: pk, SK: '9#a' } };
+      }
+      if (pk === 'PAYLINE#2026-09') return { Items: [item('2026-09', '8', 'b')] };
+      return { Items: [item(pk.slice(8), '1', `x-${pk.slice(8)}`)] };
+    });
+    const res = await repoWith(send).walkLines({
+      ...base,
+      cursor: { ms: months.slice(0, 3) },
+      want: 4,
+      expected: new Map([['2026-09', 2], ['2026-08', 1], ['2026-07', 1]]),
+    });
+    expect(res.lines.map((l) => l.lineId)).toEqual(['a', 'b', 'x-2026-08', 'x-2026-07']);
+  });
+
+  it('a read-ahead month that fails but is never needed does not fail the walk', async () => {
+    const send = jest.fn(async (cmd: any) => {
+      const pk = cmd.input.ExpressionAttributeValues[':pk'];
+      if (pk === 'PAYLINE#2026-07') throw new Error('throttled');
+      return { Items: [item(pk.slice(8), '1', `x-${pk.slice(8)}`)] };
+    });
+    const res = await repoWith(send).walkLines({
+      ...base,
+      cursor: { ms: months.slice(0, 3) },
+      want: 2,
+      expected: new Map([['2026-09', 1], ['2026-08', 0], ['2026-07', 5]]),
+    });
+    expect(res.lines.map((l) => l.lineId)).toEqual(['x-2026-09', 'x-2026-08']);
+  });
+});

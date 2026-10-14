@@ -118,6 +118,8 @@ describe('unpaid=true on the list query', () => {
     await serviceWith(repo, cache).counts({ unpaid: 'true' } as any, createMockJwtUser({ id: 'd' }));
 
     for (const call of repo.countBySchedule.mock.calls) expect(call[2]).toEqual(expect.objectContaining({ unpaid: true }));
+    expect(repo.countByScheduleBounded).toHaveBeenCalled();
+    for (const call of repo.countByScheduleBounded.mock.calls) expect(call[2]).toEqual(expect.objectContaining({ unpaid: true }));
   });
 
   it('holds on a Job ID search too', async () => {

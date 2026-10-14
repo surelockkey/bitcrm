@@ -8,6 +8,7 @@ import {
 import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
 import { type JobTag } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
+import { CatalogCache } from '../common/cache/catalog-cache';
 import { JobTagsRepository } from './job-tags.repository';
 import { type CreateJobTagDto } from './dto/create-job-tag.dto';
 import { type UpdateJobTagDto } from './dto/update-job-tag.dto';
@@ -15,6 +16,13 @@ import { type UpdateJobTagDto } from './dto/update-job-tag.dto';
 @Injectable()
 export class JobTagsService {
   private readonly logger = new Logger(JobTagsService.name);
+
+  /** The full list, sorted as `list()` answers it — see `CatalogCache` (60 s, local invalidation). */
+  private readonly catalog = new CatalogCache<JobTag>(async () =>
+    (await this.repository.listAll()).sort(
+      (a, b) => b.priority - a.priority || a.name.localeCompare(b.name),
+    ),
+  );
 
   constructor(
     private readonly repository: JobTagsRepository,
@@ -54,16 +62,14 @@ export class JobTagsService {
     };
 
     await this.repository.create(jobTag);
+    this.catalog.invalidate();
     this.businessMetrics?.entityCreated?.inc({ entity_type: 'job_tag' });
     this.publishEvent('job-tag.created', { jobTagId: jobTag.id, name: jobTag.name });
     return jobTag;
   }
 
   async list(): Promise<JobTag[]> {
-    const jobTags = await this.repository.listAll();
-    return jobTags.sort(
-      (a, b) => b.priority - a.priority || a.name.localeCompare(b.name),
-    );
+    return this.catalog.get();
   }
 
   async findById(id: string): Promise<JobTag> {
@@ -88,6 +94,7 @@ export class JobTagsService {
     };
 
     await this.repository.put(updated);
+    this.catalog.invalidate();
     this.publishEvent('job-tag.updated', { jobTagId: id, name: updated.name });
     return updated;
   }
@@ -109,6 +116,7 @@ export class JobTagsService {
           active: false,
           updatedAt: new Date().toISOString(),
         });
+        this.catalog.invalidate();
       }
       this.publishEvent('job-tag.archived', { jobTagId: id, archivedBy: caller.id });
       this.logger.log(`Archived job tag ${id} — still referenced by at least one deal`);
@@ -116,6 +124,7 @@ export class JobTagsService {
     }
 
     await this.repository.remove(id);
+    this.catalog.invalidate();
     this.publishEvent('job-tag.deleted', { jobTagId: id, deletedBy: caller.id });
     return { archived: false };
   }

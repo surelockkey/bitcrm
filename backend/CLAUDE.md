@@ -83,7 +83,9 @@ browser → nginx :4000 → service :400x
                      email, roleId, department} from custom: claims
           ↓
   PermissionGuard    reads @RequirePermission(resource, action); resolves the
-                     user's permissions from Redis (60s TTL) or, on a miss,
+                     user's permissions from Redis (`PERMISSION_CACHE_TTL_SECONDS`,
+                     default 600 s — every permission change deletes the key
+                     explicitly, so the TTL is only a safety net) or, on a miss,
                      from user-service's internal API; stores them on
                      req.resolvedPermissions; Super Admin bypasses
           ↓
@@ -194,9 +196,9 @@ display names per table.
 | Table | Env | GSI1 | GSI2 | GSI3 | GSI4 |
 | --- | --- | --- | --- | --- | --- |
 | `BitCRM_Users` (also roles + technician profiles) | `USERS_TABLE` | RoleIndex | DepartmentIndex | TechnicianIndex | SkillStatusIndex |
-| `BitCRM_Contacts` | `CONTACTS_TABLE` | CompanyIndex | | | |
+| `BitCRM_Contacts` | `CONTACTS_TABLE` | CompanyIndex | ContactListIndex (sparse) | | |
 | `BitCRM_Companies` (also work orders) | `COMPANIES_TABLE` | ClientTypeIndex | | | |
-| `BitCRM_Deals` (deals, line items, timeline, catalogs, eligibility) | `DEALS_TABLE` | StageIndex | TechIndex | ContactIndex | DispatcherIndex |
+| `BitCRM_Deals` (deals, line items, timeline, catalogs, eligibility) | `DEALS_TABLE` | StageIndex | TechIndex | ContactIndex | DispatcherIndex (… GSI11 NeedsInvoiceIndex, sparse) |
 | `BitCRM_Inventory` | `INVENTORY_TABLE` | CategoryIndex | TypeIndex | OwnerIndex | TransferEntityIndex |
 | `BitCRM_Calls` (also job dial-in codes) | `CALLS_TABLE` | AgentIndex | AllCallsIndex | PartyIndex | |
 | `BitCRM_CallGroups`, `BitCRM_CallFlows` | `CALL_GROUPS_TABLE`, `CALL_FLOWS_TABLE` | — | | | |
@@ -248,6 +250,25 @@ BLOCKED#ALL        / <E.164>         a blocked caller (Workiz Phone → Blocked 
                                      `GET /blocked-callers/internal/numbers` (cached 60 s, fail-open), which drops the text.
                                      `calls.block` gates the list / block / unblock routes. Unblock deletes the row
 EXT#<code> / EXTOF#<dealId>          job dial-in codes (both directions, for idempotent minting)
+DEAL#<id> / PRODUCT#<lineId> (lines) sparse GSI7 DONELINES#<YYYY-MM> / <day>#DEAL#<id>#<lineKey> while the job is live
+                                     and Done (day = scheduledDate, else createdAt) — the items report's lines without a
+                                     Query per job; repository-kept on line adds and on status/schedule changes;
+                                     DONELINESINDEX / STATE gates it (backfill:done-lines-index)
+CALDAY#<YYYY-MM> / <startDate>#TECH#<techId>#<eventId>   users table: a copy of a calendar event per month it
+                                     touches (no GSI keys), written in the event's TransactWrite; CALMONTHINDEX / STATE
+USER#<id> / METADATA (users)        … GSI3 USERS#ALL / USER#<id> (TechnicianIndex) — every user, for the directory
+                                     and roster without a Scan; USERSALLINDEX / STATE gates it
+CONTACT#<id> / METADATA (contacts)  sparse GSI2 CONTACTS#ACTIVE / <name lowercased>#<id> — the client list A→Z;
+                                     CONTACTLISTINDEX / STATE gates it (backfill:contact-list-index)
+TECHSCOPE / USER#<userId> (messaging) a technician's job-derived parties {deals, contactIds, computedAt} — the
+                                     assigned_only inbox without a by-tech call + per-contact reads; TECHSCOPEINDEX / STATE
+DEALCALLS#<dealId> / CALL#<sid>      a job's linked calls (no GSI keys) — how a deal event finds the calls whose
+                                     `dealTotal` to restamp; put/removed whenever a call's job link changes
+CALLCOUNT / MONTH#<YYYY-MM>          { count } calls per UTC month of startedAt, ADDed on a call's first log write;
+                                     CALLCOUNT / STATE { readyAt } (stamped by `recount:calls`) = trust them
+DEAL#<id> / METADATA (deals)        … sparse GSI11 NEEDS_INVOICE / <createdAt>#DEAL#<id> while status=active,
+                                     itemCount>0 and no invoiceId — set/cleared by the repository on every write;
+                                     NEEDSINVOICEINDEX / STATE { readyAt, count } (stamped by the backfill) gates it
 DEAL#<id> / TIMELINE#<ts>#<id>, <owner> / ACT#<ts>#<id>   job events / job-less imported Workiz events; sparse GSI8
                                      ActivityDayIndex ACTDAY#<New York day> and GSI9 ActorIndex ACTOR#<actorId>, both
                                      SK <ts>#<id>, + `activitySearch` — Reports → Activity (`GET /deals/activity`).
@@ -343,6 +364,11 @@ Rules:
 - The document client sets `removeUndefinedValues` and
   `convertClassInstanceToMap` — the latter because `ValidationPipe({transform})`
   hands services class instances that the marshaller would otherwise reject.
+  Its HTTP handler keeps sockets alive with `DYNAMODB_MAX_SOCKETS` (default 200,
+  the SDK's own default is 50) and a 3 s connect / 10 s request timeout.
+- Lookups that receive a list of ids use BatchGetItem (chunks of 100, retry
+  `UnprocessedKeys`), never one GetItem per id — per-item fan-out queued behind
+  the socket limit and was a top source of p95 latency (Phase A audit, Oct 2026).
 - Local table creation is `services/<svc>/src/scripts/setup-dynamodb.ts`
   (`npm run setup:db` / `setup:dynamodb` in that workspace); `npm run setup:aws`
   from `backend/` runs all of them plus SNS/SQS. Production tables are Terraform
@@ -370,8 +396,9 @@ locking the string values. Publishers and consumers both import them.
 Topics: `user-events`, `deal-events`, `contact-events`, `inventory-events`,
 `call-events`, `message-events`, `billing-events`. Consumers: deal-service
 (`contact.merged`, `tech.approved`, `tech.updated`), messaging-service
-(`contact.merged`, `contact.updated` — handlers land with the inbound webhook)
-and search-service (every topic, one `search-index` queue). DLQ
+(`contact.merged`, `contact.updated` — handlers land with the inbound webhook),
+telephony-service (deal + contact events on `deal-events-to-telephony`: `dealTotal`
+on linked calls, caller-name cache invalidation) and search-service (every topic, one `search-index` queue). DLQ
 `maxReceiveCount = 5`.
 
 **`EVENTS.md` is the catalog and is expected to stay accurate — update it in the
@@ -395,6 +422,13 @@ Live UI updates deliberately do **not** go through SNS. Telephony streams call
 events over SSE (`GET /api/telephony/calls/stream`) fed by Redis pub/sub, so
 every instance sees every webhook.
 
+Twilio status callbacks (`/voice/conference-events`, `/voice/status`) reply
+`<Response/>` first and do their work afterwards on `WebhookQueue`, a per-process
+serial queue keyed `call:<primary sid>`. It orders one call's events within a
+task only; across tasks, safety still rests on `applyLifecycle`'s monotonic
+status guard and the Redis `SET NX` claims. `/voice/outbound` still writes the
+call record before returning TwiML — later webhooks on other tasks depend on it.
+
 ### Search (CQRS read model)
 
 `EVENT_ROUTES` in `services/search/src/indexer/event-routes.ts` maps each event
@@ -402,7 +436,13 @@ type to `{ SearchType, upsert|delete, idField }`. An upsert re-fetches the
 authoritative entity over the internal HTTP API and reindexes it; a delete
 removes the doc. The **backfill** (`npm run backfill -w backend/services/search`,
 reading the services' internal list endpoints) is the authoritative populator —
-events only keep the index fresh. Index name is versioned (`bitcrm-search-v3`)
+events only keep the index fresh. It does **not** run on boot in deployed
+environments (`ENABLE_SEARCH_BACKFILL` is unset; it used to re-index everything
+on every deploy, 31 times in one week). Run it by hand — `npm run backfill` or
+`POST /api/search/internal/reindex` — after every Workiz import, after a mapping
+change, and on a new environment. Its deal pages walk StageIndex `STATUS#`
+partitions and its product pages Query GSI4 `PRODUCTS#ALL`, so both depend on
+those keys being present (`backfill:product-catalog-index` for products). Index name is versioned (`bitcrm-search-v3`)
 behind the alias `bitcrm-search`; changing the mapping means a new version plus
 `npm run create-index` and a reindex. The `conversation` document (messaging
 inbox threads, `message-events`) is assembled from three internal reads —
@@ -686,7 +726,112 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   once a minute while its tab is in view. `GET /users/presence` (`users.view`) answers every
   user's `lastSeenAt` and `online` (within `USER_ONLINE_WINDOW_SECONDS`, 5 min); stamps older
   than half a year are pruned on read. A Redis flush only forgets "Last seen".
+- **Caches fail open; Redis is never a reason to 500.** Wrap every cache read/write in
+  `failOpen` (`@bitcrm/shared`): a failed read is a miss, a failed write or invalidation is
+  dropped (the TTL bounds staleness). `PermissionCacheReader` does the same (a closed Redis
+  used to surface as "invalid token" 401). `installGracefulShutdown` keeps serving for
+  `SHUTDOWN_DRAIN_MS` (3 s in production) after SIGTERM, closes the HTTP listener, and only
+  then calls `app.close()` — Nest runs destroy hooks (Redis `quit()`) BEFORE closing HTTP, which
+  gave 1,095 × 500 on the outgoing task of deploys in the week of 7 Oct 2026.
+- **Geocoding needs `GOOGLE_MAPS_API_KEY` on deal** (GitHub secret → `render-taskdef.sh`, deal
+  only). Without it jobs saved with no coordinates get no map pin / automatic area, ZIP areas
+  never match, and the boot self-heal (`ServiceAreasBackfill`) is skipped. After adding it:
+  `backfill:service-areas` and `backfill-geo` in deal.
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
+- **Deal catalogs are cached in process for 60 s** (`common/cache/catalog-cache.ts`:
+  job types, sources, tags, client tags, custom fields, statuses, service areas,
+  external companies). A write clears the cache only in the task that took it, so
+  other tasks can serve the old list for up to 60 s; uniqueness and overlap checks
+  still read the repository. Catalog list Queries follow `LastEvaluatedKey`
+  (`common/utils/query-all-pages.ts`) — the Workiz import made job types 898 rows.
+- **Report windows are cached in Redis** (`common/cache/report-window-cache.ts`,
+  `deal:report-window:v1:<kind>:<from>:<to>:<by>…`, gzipped, not stored above 4 MB):
+  the Jobs report, Job Statistics, Tax and Commissions share one read across tasks.
+  TTL 5 min when the window reaches today, 30 min if it ended in the last 3 days,
+  24 h otherwise — there is no write-time invalidation, so those are the staleness
+  bounds. Profit/commission rows (billing's ledger) stay per task for 60 s. The
+  nightly `DashboardSnapshotScheduler` (Redis day-lock) also warms last week and
+  last month. The dashboard's snapshot miss reads one projected window
+  (`readStatsWindow`), not 100-row `list()` pages.
+- **"Needs invoice" is an index, gated until backfilled.** GSI11 NeedsInvoiceIndex
+  (sparse, repository-owned) answers `GET /deals/internal/needs-invoice[/count]`
+  and `?needsInvoice=true`. Until `npm run backfill:needs-invoice-index -w
+  backend/services/deal -- --apply` has stamped `NEEDSINVOICEINDEX / STATE` (after
+  the Terraform apply that creates the GSI), the internal routes answer 404 and the
+  list keeps the old Scan; billing falls back on that 404 (and for assigned_only
+  callers always uses the scoped public list). Re-run the backfill (it reconciles)
+  after every Workiz import.
+- **Telephony stores job totals on calls.** `dealTotal` is stamped when a call is
+  linked and restamped from deal events; call stats, Call Tracking and the export
+  read it and ask deal-totals only for rows without one. It is stripped from API
+  responses (money behind `financials.view`). After the deploy and every import:
+  `backfill:call-deal-totals -- --apply`, then `recount:calls -- --apply` (until
+  `CALLCOUNT / STATE` exists, counts walk the log as before). Reads never write:
+  parties/names are frozen by `CallFinalizer` 5 s after a call ends. Caller names
+  are cached in Redis (`telephony:names:*`, 10 min found / 5 min unknown, cleared by
+  contact events); the user directory is an SWR Redis entry. Recordings are copied
+  to S3 (`calls/recordings/<callSid>/<recordingSid>.mp3`) after the webhook and
+  served from there with Range support; not-yet-copied ones still stream from Twilio.
+- **Messaging caches** (Redis, generation-keyed so a racing load never restores a
+  pre-edit value): automations list (5 min, key carries `TRANSLATOR_VERSION`),
+  templates list (5 min), party names (10 min / 5 min unknown, cleared by
+  `contact.updated`); telephony's owned numbers 5 min with background refresh. Run
+  `backfill:automation-specs -- --apply` after a deploy that raises
+  `TRANSLATOR_VERSION` and after imports with automation rules.
+- **User-service caches:** roles in Redis (`role:entity:<id>`, 5 min, generation-
+  keyed; ≤10 s in-process copy per task), the approved-assignments set
+  (`technicians:assignments:approved`, 5 min, cleared by every assignment write).
+  Login reads security settings fresh on purpose — never cache them.
+- **Batch routes for hot fan-outs:** inventory `POST /products/internal/by-ids`
+  (≤500 ids; deal's items report falls back to per-id on 404/405), user
+  `POST /users/internal/names-by-ids`, crm `contacts/internal/by-ids` — use them
+  instead of one request per id.
+- **Phase C indexes are gated; a deploy is not done until their backfills ran.** Each
+  new read path stays on the old one until its backfill stamps a STATE row
+  (checked ~once a minute per task). After the deploy, and again after every Workiz
+  import (imports write rows without the new keys): deal
+  `backfill:done-lines-index` (items report), user `backfill:users-all-index` and
+  `backfill:calendar-month-index` (directory/roster, schedule calendar), crm
+  `backfill:contact-list-index` (client list; Terraform GSI2 first), messaging
+  `backfill:tech-scope` (technician inbox; needs the internal service URLs + secret
+  like the search backfill). All dry-run by default, `-- --apply` to write; all
+  reconcile. Calendar writes are now optimistic-locked (409 on a concurrent edit).
+- **Price Book filters/search read OpenSearch.** Inventory sends filtered/search
+  `GET /products[/count]` (no category) to search's `POST
+  /search/internal/products/query` and loads the rows by id (re-checked against the
+  filters); unfiltered/category browsing stays on DynamoDB. It needs index
+  `bitcrm-search-v4` (`productList` fields) populated: `npm run create-index` then
+  `npm run backfill` in search — the product walk stamps the `meta#product-list`
+  readiness doc; until then, or on any search error/timeout (1 s), inventory reads
+  DynamoDB. Stock writes publish `product.updated {fields:['onHand']}` so stock-level
+  filters stay fresh. Needs `SEARCH_SERVICE_URL` (set by render-taskdef).
+- **Dispatch map is windowed.** `GET /deals/map?from&to` bounds every status (open
+  ones on GSI5), returns `pagination.totalAnyDate` for the "of N open" label, and is
+  cached 10 s in Redis (key includes `deal:map:gen`, bumped by every deal write).
+- **Internal batch reads:** `POST /deals/internal/by-ids` (≤500, includes deleted
+  jobs — filter on status), used by billing's payments report with a public fallback.
+- **Small inventory routes are CPU-bound, not I/O-bound.** At 0.5 vCPU Fargate
+  throttles in 100 ms slices, so any burst (big walks, boot jobs, URL signing) delays
+  every request in flight — latencies cluster at 100/200/300 ms. Keep per-request CPU
+  low; `ProductsTypeBackfill` runs once (`PRODUCTTYPEHEAL / STATE`), thumbnail URLs
+  are signed once per hour per key.
+- **Telephony caches:** the Twilio owned-number list and Messaging Service
+  membership live in Redis (fresh 5 min, served stale up to 1 h while one reload
+  runs; buy/release invalidate), so Twilio-console changes take up to 5 min to
+  show. Call flows and number settings are cached in process for 30 s.
+- **Closed-status counts are bounded.** `/deals/counts` stops a Done/Canceled
+  count at 1,000 matches or 3,000 rows read and reports `atLeast` (the tabs show
+  "1,000+"); jobs-now counts only the four open statuses.
+- **crm caps its batch lookups in the service** (no ValidationPipe): 500 distinct
+  refs on `contacts/internal/by-ids`, 500 numbers on `contacts/internal/by-phones`.
+- **Task sizing comes from `services/<svc>/taskdef.json`** (cpu 512 for every
+  service since Phase A) plus the 2048 MB bump `render-taskdef.sh` adds with the
+  Alloy sidecar — not from Terraform, whose task definition is a placeholder.
+  Capacity provider and task count are per service in `service_sizing`
+  (`infra/dev/compute.tf`); dev runs every service as one Spot task. Raising
+  deal/user/crm to two tasks for real users is a one-line override there — keep
+  new boot jobs and timers idempotent or behind a Redis lock (see
+  `DashboardSnapshotScheduler`) so that stays safe.
 - **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
   (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is
   the area id (`GET /api/deals/tax-rates`). Job resolution is exempt client → the

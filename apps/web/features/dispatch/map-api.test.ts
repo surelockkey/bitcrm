@@ -66,6 +66,33 @@ describe("readDispatchJobs", () => {
     expect(url.searchParams.get("to")).toBe("2026-10-17");
   });
 
+  it("the open jobs of some days: sends the days, and hands back how many open jobs there are whatever the date", async () => {
+    const server = installFakeServer([
+      {
+        match: /\/deals\/map$/,
+        raw: true,
+        reply: () => ({
+          success: true,
+          data: [deal("d1")],
+          pagination: { count: 1, totalAnyDate: 12 },
+          included: { technicians: [], clients: [] },
+        }),
+      },
+    ]);
+
+    const jobs = await readDispatchJobs({ from: "2026-10-11", to: "2026-10-17" });
+
+    expect(server.requests).toEqual(["/deals/map?from=2026-10-11&to=2026-10-17"]);
+    expect(jobs.totalAnyDate).toBe(12);
+  });
+
+  it("no such count from a deal-service that does not send one", async () => {
+    installFakeServer([
+      { match: /\/deals\/map$/, raw: true, reply: () => ({ success: true, data: [], pagination: { count: 0 }, included: { technicians: [], clients: [] } }) },
+    ]);
+    expect((await readDispatchJobs({ from: "2026-10-11" })).totalAnyDate).toBeUndefined();
+  });
+
   it("on a deal-service without /deals/map (404) reads the old way: the list drained, then the clients by id", async () => {
     const server = installFakeServer([
       NOT_FOUND,

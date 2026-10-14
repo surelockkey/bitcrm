@@ -66,7 +66,7 @@ describe('DispatchMapService.read', () => {
     );
   });
 
-  it('reads Done / Canceled only for the window asked, beside open statuses read whole', async () => {
+  it('a window bounds every status asked by visit day — Done / Canceled and the open ones alike', async () => {
     await service.read({ statuses: 'pending,done,canceled', from: '2026-10-11', to: '2026-10-17' }, caller, 'all', allowed);
 
     const window = { from: '2026-10-11', to: '2026-10-17' };
@@ -74,11 +74,41 @@ describe('DispatchMapService.read', () => {
     expect(repository.readMapJobs).toHaveBeenCalledWith(
       [
         { status: JobSuperStatus.DONE, window },
-        { status: JobSuperStatus.PENDING },
+        { status: JobSuperStatus.PENDING, window },
         { status: JobSuperStatus.CANCELED, window },
       ],
       { techId: undefined },
     );
+  });
+
+  it('the open statuses for the days the board shows (`from`/`to` with no statuses)', async () => {
+    await service.read({ from: '2026-10-13', to: '2026-10-13' }, caller, 'all', allowed);
+    const window = { from: '2026-10-13', to: '2026-10-13' };
+    expect(repository.readMapJobs).toHaveBeenCalledWith(
+      OPEN.map((status) => ({ status, window })),
+      { techId: undefined },
+    );
+  });
+
+  it('a windowed read of open statuses still says how many there are whatever the date ("out of N open jobs")', async () => {
+    (repository as any).countMapJobs = jest.fn().mockResolvedValue(57);
+    const answer = await service.read({ from: '2026-10-13' }, caller, 'assigned_only', allowed);
+    expect(answer.totalAnyDate).toBe(57);
+    expect((repository as any).countMapJobs).toHaveBeenCalledWith(OPEN, { techId: 'tech-me' });
+  });
+
+  it('no such count for a whole read (it IS the whole set), nor for Done / Canceled', async () => {
+    (repository as any).countMapJobs = jest.fn().mockResolvedValue(57);
+    expect((await service.read({}, caller, 'all', allowed)).totalAnyDate).toBeUndefined();
+    expect((await service.read({ statuses: 'done', from: '2026-10-13' }, caller, 'all', allowed)).totalAnyDate).toBeUndefined();
+    expect((repository as any).countMapJobs).not.toHaveBeenCalled();
+  });
+
+  it('a count that fails costs the count, never the map', async () => {
+    (repository as any).countMapJobs = jest.fn().mockRejectedValue(new Error('throttled'));
+    const answer = await service.read({ from: '2026-10-13' }, caller, 'all', allowed);
+    expect(answer.totalAnyDate).toBeUndefined();
+    expect(answer.deals).toEqual([]);
   });
 
   it('refuses Done without a window before reading anything', async () => {
@@ -199,5 +229,78 @@ describe('DispatchMapService.read', () => {
     expect(result).toEqual({ deals: [], included: { technicians: [], clients: [] } });
     expect(internalHttp.getContactsAsCaller).not.toHaveBeenCalled();
     expect(eligibility.getMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('DispatchMapService — the answer shared through Redis for 10 s', () => {
+  const caller = createMockJwtUser({ id: 'disp-1' });
+  const opts = { numbers: true, authorization: 'Bearer t', contacts: { view: true, scope: 'all' } };
+
+  function setup() {
+    const store = new Map<string, string>();
+    const redis = {
+      client: {
+        get: jest.fn(async (k: string) => store.get(k) ?? null),
+        set: jest.fn(async (k: string, v: string, ..._rest: unknown[]) => {
+          store.set(k, v);
+          return 'OK';
+        }),
+      },
+    };
+    const repository = {
+      readMapJobs: jest.fn().mockResolvedValue([createMockDeal({ id: 'd1', contactId: 'c1' })]),
+      countMapJobs: jest.fn().mockResolvedValue(3),
+    };
+    const internalHttp = createMockInternalHttpService();
+    (internalHttp as any).getContactsAsCaller = jest.fn().mockResolvedValue([contact('c1')]);
+    const eligibility = createMockTechnicianEligibilityRepository();
+    const service = new DispatchMapService(repository as any, internalHttp as any, eligibility as any, redis as any);
+    return { service, repository, redis, store };
+  }
+
+  it('a second identical read within the TTL is served from Redis, identical', async () => {
+    const { service, repository, redis } = setup();
+    const first = await service.read({ from: '2026-10-13' }, caller, 'all', opts);
+    const second = await service.read({ from: '2026-10-13' }, caller, 'all', opts);
+    expect(second).toEqual(first);
+    expect(repository.readMapJobs).toHaveBeenCalledTimes(1);
+    const answerSet = redis.client.set.mock.calls.find((c) => String(c[0]).startsWith('deal:map:v1:')) as unknown[];
+    expect(answerSet.slice(2)).toEqual(['EX', 10]);
+    // The any-date count beside it (a windowed read) is kept 30 s, apart from the answer.
+    const totalSet = redis.client.set.mock.calls.find((c) => String(c[0]).startsWith('deal:map:total:v1:')) as unknown[];
+    expect(totalSet.slice(1)).toEqual(['3', 'EX', 30]);
+    expect(second.totalAnyDate).toBe(3);
+  });
+
+  it('keyed by window, statuses and everything about the caller that changes the answer', async () => {
+    const { service, repository } = setup();
+    await service.read({ from: '2026-10-13' }, caller, 'all', opts);
+    await service.read({ from: '2026-10-14' }, caller, 'all', opts);
+    await service.read({}, caller, 'all', opts);
+    await service.read({ from: '2026-10-13' }, caller, 'assigned_only', opts);
+    await service.read({ from: '2026-10-13' }, caller, 'all', { ...opts, numbers: false });
+    await service.read({ from: '2026-10-13' }, caller, 'all', { ...opts, contacts: { view: false, scope: 'all' } });
+    expect(repository.readMapJobs).toHaveBeenCalledTimes(6);
+    // A narrower contacts scope is personal: crm answers by who is asking.
+    await service.read({ from: '2026-10-13' }, caller, 'all', { ...opts, contacts: { view: true, scope: 'assigned_only' } });
+    await service.read({ from: '2026-10-13' }, createMockJwtUser({ id: 'disp-2' }), 'all', { ...opts, contacts: { view: true, scope: 'assigned_only' } });
+    expect(repository.readMapJobs).toHaveBeenCalledTimes(8);
+  });
+
+  it('any job written since (the generation the cache bumps) is a miss', async () => {
+    const { service, repository, store } = setup();
+    await service.read({}, caller, 'all', opts);
+    store.set('deal:map:gen', '7');
+    await service.read({}, caller, 'all', opts);
+    expect(repository.readMapJobs).toHaveBeenCalledTimes(2);
+  });
+
+  it('Redis down costs the cache, never the map', async () => {
+    const { service, repository, redis } = setup();
+    redis.client.get.mockRejectedValue(new Error('ECONNREFUSED'));
+    redis.client.set.mockRejectedValue(new Error('ECONNREFUSED'));
+    jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+    await expect(service.read({}, caller, 'all', opts)).resolves.toMatchObject({ deals: [expect.objectContaining({ id: 'd1' })] });
+    expect(repository.readMapJobs).toHaveBeenCalledTimes(1);
   });
 });

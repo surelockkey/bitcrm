@@ -2,7 +2,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { BillingEventType, DataScope, type Estimate } from '@bitcrm/types';
 import { InvoicesService } from 'src/invoices/invoices.service';
-import { PaymentsService } from 'src/payments/payments.service';
+import { LEDGER_READ_CONCURRENCY, PaymentsService } from 'src/payments/payments.service';
 import { PaymentSettingsService } from 'src/payments/payment-settings.service';
 import { summarizePayments } from 'src/payments/payment-rules';
 import { depositLedger } from 'src/payments/portal-payments.service';
@@ -355,6 +355,49 @@ describe('InvoicesService.create — picks up a ledger that already exists', () 
   });
 });
 
+describe('PaymentsService.accessibleJob / ledgerForJob — the access check without the ledger', () => {
+  it("decides access from the job alone: no invoice, no ledger read", async () => {
+    const { service, ledger, invoices } = build({ seed: [imported()] });
+    const view = await service.accessibleJob('deal-1', caller());
+    expect(view.deal.id).toBe('deal-1');
+    expect(ledger.listByInvoice).not.toHaveBeenCalled();
+    expect(invoices.getStored).not.toHaveBeenCalled();
+  });
+
+  it('keeps assigned_only and the 404, exactly as listForDeal does', async () => {
+    const { service } = build();
+    await expect(service.accessibleJob('deal-1', caller(DataScope.ASSIGNED_ONLY, { id: 'tech-9' }))).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(service.accessibleJob('nope', caller())).rejects.toThrow(NotFoundException);
+    const tech = caller(DataScope.ASSIGNED_ONLY, { id: 'tech-1' });
+    await expect(service.accessibleJob('deal-1', tech)).resolves.toBeTruthy();
+  });
+
+  it('ledgerForJob reads the invoice and the ledger side by side', async () => {
+    const { service, ledger, invoices } = build({ seed: [imported()], withInvoice: true });
+    const view = await service.accessibleJob('deal-1', caller());
+    let releaseInvoice!: () => void;
+    const original = invoices.getStored.getMockImplementation()!;
+    invoices.getStored.mockImplementation(async (id: string) => {
+      await new Promise<void>((r) => (releaseInvoice = r));
+      return original(id);
+    });
+
+    const answer = service.ledgerForJob(view);
+    await new Promise((r) => setImmediate(r));
+    expect(ledger.listByInvoice).toHaveBeenCalledWith('deal-1');
+    releaseInvoice();
+    await expect(answer).resolves.toMatchObject({ dealId: 'deal-1', invoiceId: 'deal-1' });
+  });
+
+  it('ledgerForJob(accessibleJob(...)) is listForDeal', async () => {
+    const { service } = build({ seed: [imported()], withInvoice: true });
+    const composed = await service.ledgerForJob(await service.accessibleJob('deal-1', caller()));
+    expect(composed).toEqual(await service.listForDeal('deal-1', caller()));
+  });
+});
+
 describe('PaymentsService.ledgersByDeals — the commissions report (internal)', () => {
   it('reads each job once, with or without an invoice, and maps a job with no payments to []', async () => {
     const { service, ledger } = build({
@@ -374,5 +417,88 @@ describe('PaymentsService.ledgersByDeals — the commissions report (internal)',
     expect(Object.keys(await service.ledgersByDeals(many))).toHaveLength(100);
     expect(ledger.listByInvoice).toHaveBeenCalledTimes(100);
     expect(await service.ledgersByDeals('deal-1' as any)).toEqual({});
+  });
+
+  it('a slow ledger does not hold back the rest (a pool, not waves)', async () => {
+    const { service, ledger } = build();
+    let releaseSlow!: () => void;
+    const started = new Set<string>();
+    ledger.listByInvoice.mockImplementation(async (id: string) => {
+      started.add(id);
+      if (id === 'deal-0') await new Promise<void>((r) => (releaseSlow = r));
+      else await new Promise((r) => setImmediate(r));
+      return [];
+    });
+    const done = service.ledgersByDeals(Array.from({ length: 100 }, (_, i) => `deal-${i}`));
+    for (let i = 0; i < 50 && started.size < 100; i++) await new Promise((r) => setImmediate(r));
+    // With waves, deal-50…99 would wait for deal-0; with a pool they all start.
+    expect(started.size).toBe(100);
+    releaseSlow();
+    expect(Object.keys(await done)).toHaveLength(100);
+  });
+
+  it(`keeps ${LEDGER_READ_CONCURRENCY} ledger reads in flight at once, never more`, async () => {
+    expect(LEDGER_READ_CONCURRENCY).toBe(50);
+    const { service, ledger } = build();
+    let inFlight = 0;
+    let peak = 0;
+    ledger.listByInvoice.mockImplementation(async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setImmediate(r));
+      inFlight--;
+      return [];
+    });
+    const out = await service.ledgersByDeals(Array.from({ length: 100 }, (_, i) => `deal-${i}`));
+    expect(Object.keys(out)).toHaveLength(100);
+    expect(peak).toBe(LEDGER_READ_CONCURRENCY);
+  });
+});
+
+/**
+ * Phase C — the Payments tab used to wait for the job's billing view (an
+ * HTTP hop to deal-service) BEFORE reading the invoice and the ledger. The
+ * two reads are side-effect free and keyed by the job id the caller asked
+ * for, so they now run beside the view; nothing they found is answered
+ * until the view has let the caller through.
+ */
+describe('PaymentsService.listForDeal — the reads beside the access check', () => {
+  it('asks the invoice and the ledger while the job view is still in flight', async () => {
+    const { service, ledger, invoices, deal } = build({ seed: [imported()], withInvoice: true });
+    let releaseView!: () => void;
+    const original = deal.getBillingView.getMockImplementation()!;
+    deal.getBillingView.mockImplementation(async (id: string) => {
+      await new Promise<void>((r) => (releaseView = r));
+      return original(id);
+    });
+
+    const answer = service.listForDeal('deal-1', caller());
+    await new Promise((r) => setImmediate(r));
+    expect(ledger.listByInvoice).toHaveBeenCalledWith('deal-1');
+    expect(invoices.getStored).toHaveBeenCalledWith('deal-1');
+    releaseView();
+    await expect(answer).resolves.toMatchObject({ dealId: 'deal-1', invoiceId: 'deal-1', amountPaid: 100 });
+  });
+
+  it('the answer is exactly the one the sequential path gave', async () => {
+    const { service } = build({ seed: [imported()], withInvoice: true });
+    const sequential = await service.ledgerForJob(await service.accessibleJob('deal-1', caller()));
+    expect(await service.listForDeal('deal-1', caller())).toEqual(sequential);
+  });
+
+  it('a technician not on the job still gets 403 — and a missing job 404 — whatever the reads found', async () => {
+    const { service } = build({ seed: [imported()], withInvoice: true });
+    await expect(service.listForDeal('deal-1', caller(DataScope.ASSIGNED_ONLY, { id: 'tech-9' }))).rejects.toThrow(
+      ForbiddenException,
+    );
+    await expect(service.listForDeal('nope', caller())).rejects.toThrow(NotFoundException);
+  });
+
+  it('a ledger read that fails for a caller who may not see the job still answers 403, not the read error', async () => {
+    const { service, ledger } = build({ seed: [imported()] });
+    ledger.listByInvoice.mockRejectedValue(new Error('throttled'));
+    await expect(service.listForDeal('deal-1', caller(DataScope.ASSIGNED_ONLY, { id: 'tech-9' }))).rejects.toThrow(
+      ForbiddenException,
+    );
   });
 });

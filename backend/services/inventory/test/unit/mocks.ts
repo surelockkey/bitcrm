@@ -174,6 +174,8 @@ export function createMockProductsRepository() {
     findCatalog: jest.fn(), countCatalog: jest.fn(),
     findByIds: jest.fn().mockResolvedValue([]),
     nextNumber: jest.fn().mockResolvedValue(1), raiseCounterTo: jest.fn(),
+    // The boot-time type heal's "done" row (ProductsTypeBackfill).
+    typeHealDone: jest.fn().mockResolvedValue(false), markTypeHealDone: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -196,7 +198,13 @@ export function createMockProductsService() {
 }
 
 export function createMockProductsCacheService() {
-  return { get: jest.fn(), set: jest.fn(), invalidate: jest.fn() };
+  return {
+    get: jest.fn(),
+    set: jest.fn(),
+    invalidate: jest.fn(),
+    getMany: jest.fn().mockResolvedValue(new Map()),
+    setMany: jest.fn().mockResolvedValue(undefined),
+  };
 }
 
 export function createMockS3Service() {

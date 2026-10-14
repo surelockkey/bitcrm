@@ -13,6 +13,15 @@ const CONCURRENCY = 4;
  */
 @Injectable()
 export class DealTotalsClient {
+  /**
+   * One job's total, through the same batch route. A job deal-service does
+   * not know (deleted) is 0 — what every report already counted it as.
+   * Throws when deal-service cannot answer.
+   */
+  async totalOf(id: string): Promise<number> {
+    return (await this.totals([id])).get(id) ?? 0;
+  }
+
   async totals(ids: string[]): Promise<Map<string, number>> {
     const unique = [...new Set(ids)];
     const chunks: string[][] = [];

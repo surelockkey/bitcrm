@@ -1,3 +1,4 @@
+import { CLOSED_SUPER_STATUSES, SUPER_STATUS_ORDER } from "@bitcrm/types";
 import type {
   Contact,
   Deal,
@@ -14,8 +15,9 @@ import { windowRequests } from "@/features/deals/window";
 import { getContactsByIds } from "@/features/clients/api";
 
 /**
- * What the map asks deal-service: the statuses (none = the four open ones,
- * each whole whatever its date) and, for Done / Canceled, the visit days.
+ * What the map asks deal-service: the statuses (none = the four open ones)
+ * and the visit days — without days the open ones are read whole, whatever
+ * their date; Done / Canceled always need days.
  */
 export interface DispatchMapQuery {
   statuses?: JobSuperStatus[];
@@ -26,6 +28,10 @@ export interface DispatchMapQuery {
 
 /** `GET /deals/map`: every job asked for at once, and who they name. */
 export interface DispatchMapPage extends PaginatedResponse<Deal> {
+  pagination: PaginatedResponse<Deal>["pagination"] & {
+    /** Beside a read of some days of open statuses: how many there are whatever the date. */
+    totalAnyDate?: number;
+  };
   included?: DispatchMapIncluded;
 }
 
@@ -41,7 +47,16 @@ export interface DispatchJobs {
    * own directory.
    */
   technicians: TechnicianName[] | null;
+  /**
+   * How many jobs the statuses hold whatever the date, when only some days
+   * were read — the board's "out of N open jobs". Undefined for a whole read
+   * (`deals` is that set) or from a deal-service that does not send it.
+   */
+  totalAnyDate?: number;
 }
+
+/** The statuses a job is still alive in — what the map reads by default. */
+const OPEN_STATUSES: JobSuperStatus[] = SUPER_STATUS_ORDER.filter((s) => !CLOSED_SUPER_STATUSES.has(s));
 
 function mapPath(q: DispatchMapQuery): string {
   const params = new URLSearchParams();
@@ -80,10 +95,12 @@ function asMapClient(c: Contact): DispatchMapClient {
 export async function readDispatchJobs(q: DispatchMapQuery): Promise<DispatchJobs> {
   try {
     const page = await apiFetchPaginated<Deal, DispatchMapPage>(mapPath(q));
+    const totalAnyDate = page.pagination?.totalAnyDate;
     return {
       deals: page.data,
       clients: page.included?.clients ?? [],
       technicians: page.included?.technicians ?? [],
+      ...(typeof totalAnyDate === "number" && { totalAnyDate }),
     };
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return drainDispatchJobs(q);
@@ -97,7 +114,9 @@ export async function readDispatchJobs(q: DispatchMapQuery): Promise<DispatchJob
  * failed clients request costs their names, never the jobs.
  */
 async function drainDispatchJobs(q: DispatchMapQuery): Promise<DispatchJobs> {
-  const window = q.from ? { from: q.from, to: q.to ?? q.from, statuses: q.statuses } : { statuses: q.statuses };
+  // A window with no statuses is the open ones' days — never every status of those days.
+  const statuses = q.from && !q.statuses?.length ? OPEN_STATUSES : q.statuses;
+  const window = q.from ? { from: q.from, to: q.to ?? q.from, statuses } : { statuses: q.statuses };
   const pages = await Promise.all(windowRequests(window).map((req) => fetchAllDeals(req)));
   const seen = new Set<string>();
   const deals: Deal[] = [];

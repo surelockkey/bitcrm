@@ -64,5 +64,17 @@ describe('DealsCacheService', () => {
 
       expect(events.dealChanged).toHaveBeenCalledWith('deal-1');
     });
+
+    it('bumps the dispatch map generation, so a cached map never hides the write', async () => {
+      (redis.client as any).incr = jest.fn().mockResolvedValue(8);
+      await cache.invalidate('deal-1');
+      expect((redis.client as any).incr).toHaveBeenCalledWith('deal:map:gen');
+    });
+
+    it('a failed bump never fails the write', async () => {
+      (redis.client as any).incr = jest.fn().mockRejectedValue(new Error('down'));
+      await expect(cache.invalidate('deal-1')).resolves.toBeUndefined();
+      expect(events.dealChanged).toHaveBeenCalledWith('deal-1');
+    });
   });
 });

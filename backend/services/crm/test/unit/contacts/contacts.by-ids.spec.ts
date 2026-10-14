@@ -72,6 +72,86 @@ describe('ContactsService.findByIds', () => {
   });
 });
 
+describe('ContactsService.findByIds — read-through the contact cache', () => {
+  const cacheWith = (hits: Record<string, any>) => ({
+    get: jest.fn(),
+    set: jest.fn(),
+    invalidate: jest.fn(),
+    getMany: jest.fn(async (ids: string[]) => new Map(ids.filter((id) => hits[id]).map((id) => [id, hits[id]]))),
+    setMany: jest.fn().mockResolvedValue(undefined),
+  });
+
+  it('answers the cached contacts from one MGET and batch-reads only the misses, then caches them', async () => {
+    const repo = createMockContactsRepository();
+    repo.findByIds = jest.fn().mockResolvedValue([createMockContact({ id: 'b' })]);
+    const cache = cacheWith({ a: createMockContact({ id: 'a' }), c: createMockContact({ id: 'c' }) });
+    const service = new ContactsService(repo as any, cache as any);
+
+    const out = await service.findByIds(['c', 'b', 'a']);
+
+    expect(cache.getMany).toHaveBeenCalledWith(['c', 'b', 'a']);
+    expect(repo.findByIds).toHaveBeenCalledWith(['b']);
+    expect(cache.setMany).toHaveBeenCalledWith([expect.objectContaining({ id: 'b' })]);
+    expect(out.map((c) => c.id)).toEqual(['c', 'b', 'a']);
+  });
+
+  it('reads nothing from DynamoDB when every contact is cached', async () => {
+    const repo = createMockContactsRepository();
+    const cache = cacheWith({ a: createMockContact({ id: 'a' }) });
+    const service = new ContactsService(repo as any, cache as any);
+    expect((await service.findByIds(['a'])).map((c) => c.id)).toEqual(['a']);
+    expect(repo.findByIds).not.toHaveBeenCalled();
+  });
+
+  it('a cache that fails only costs the cache', async () => {
+    const repo = createMockContactsRepository();
+    repo.findByIds = jest.fn().mockResolvedValue([createMockContact({ id: 'a' })]);
+    const cache = { ...cacheWith({}), getMany: jest.fn().mockRejectedValue(new Error('redis down')), setMany: jest.fn().mockRejectedValue(new Error('redis down')) };
+    const service = new ContactsService(repo as any, cache as any);
+    expect((await service.findByIds(['a'])).map((c) => c.id)).toEqual(['a']);
+  });
+
+  it('drops what is not an id (crm runs no ValidationPipe): an empty or non-string id would fail the whole BatchGet', async () => {
+    const repo = createMockContactsRepository();
+    repo.findByIds = jest.fn().mockResolvedValue([]);
+    const service = new ContactsService(repo as any, cacheWith({}) as any);
+    await service.findByIds(['a', '', 7 as any, null as any, 'a']);
+    expect(repo.findByIds).toHaveBeenCalledWith(['a']);
+    expect(await service.findByIds(undefined as any)).toEqual([]);
+  });
+});
+
+describe('ContactsRepository.findByIds — parallel chunks', () => {
+  it('runs the 100-key BatchGets a few at a time instead of one after another', async () => {
+    const dynamoDb = createMockDynamoDbService();
+    const repository = new ContactsRepository(dynamoDb as any);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    dynamoDb.client.send.mockImplementation(async (cmd: any) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      const table = Object.keys(cmd.input.RequestItems)[0];
+      return {
+        Responses: {
+          [table]: cmd.input.RequestItems[table].Keys.map((k: any) => ({
+            ...createMockContact({ id: k.PK.replace('CONTACT#', '') }),
+            PK: k.PK,
+            SK: 'METADATA',
+          })),
+        },
+      };
+    });
+
+    const found = await repository.findByIds(Array.from({ length: 350 }, (_, i) => `c-${i}`));
+
+    expect(found).toHaveLength(350);
+    expect(dynamoDb.client.send).toHaveBeenCalledTimes(4);
+    expect(maxInFlight).toBeGreaterThan(1);
+  });
+});
+
 describe('ContactsController.findByIds', () => {
   it('masks the numbers unless the caller holds contacts.view_numbers', async () => {
     const service = { findByIds: jest.fn().mockResolvedValue([createMockContact({ id: 'a', phones: ['+14045551234'] })]) };

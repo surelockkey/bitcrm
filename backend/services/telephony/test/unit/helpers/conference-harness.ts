@@ -68,6 +68,23 @@ export class FakeRedis {
   async expire(_key: string, _ttl: number) {
     return 1;
   }
+  /** Round trips the service made, MULTI/EXEC counting as one. */
+  roundTrips = 0;
+  /** MULTI … EXEC over the hash commands, applied in order on exec. */
+  multi() {
+    const ops: Array<() => Promise<unknown>> = [];
+    const chain = {
+      hset: (k: string, v: Record<string, string>) => (ops.push(() => this.hset(k, v)), chain),
+      expire: (k: string, ttl: number) => (ops.push(() => this.expire(k, ttl)), chain),
+      exec: async () => {
+        this.roundTrips += 1;
+        const out: Array<[Error | null, unknown]> = [];
+        for (const op of ops) out.push([null, await op()]);
+        return out;
+      },
+    };
+    return chain;
+  }
 }
 
 /** Mock of the Twilio REST surface ConferenceService touches. */
@@ -115,7 +132,7 @@ export function makeFakeTwilio() {
   };
 }
 
-export function makeHarness() {
+export function makeHarness(opts: { queue?: unknown } = {}) {
   const redis = new FakeRedis();
   /** The per-user bridge claim is what stops a technician placing their next
    *  call, so tests need to see it dropped. */
@@ -160,6 +177,7 @@ export function makeHarness() {
     callsService,
     undefined,
     bridge as never,
+    opts.queue as never,
   );
   (service as any).rest = {
     client: twilio.client,

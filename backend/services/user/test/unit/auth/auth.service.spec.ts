@@ -258,6 +258,25 @@ describe('AuthService', () => {
       ).resolves.toEqual({ message: expect.stringMatching(/if the account exists/i) });
     });
 
+    it('answers the same for an email with no account (no 500, no enumeration)', async () => {
+      cognitoAuth.forgotPassword.mockRejectedValue(
+        Object.assign(new Error('User does not exist.'), { name: 'UserNotFoundException' }),
+      );
+      await expect(service.requestPasswordReset({ email: 'nobody@test.com' })).resolves.toEqual({
+        message: expect.stringMatching(/if the account exists/i),
+      });
+      expect(cognitoAdmin.resendInvite).not.toHaveBeenCalled();
+    });
+
+    it('answers 429 when Cognito says too many attempts', async () => {
+      cognitoAuth.forgotPassword.mockRejectedValue(
+        Object.assign(new Error('Attempt limit exceeded'), { name: 'LimitExceededException' }),
+      );
+      await expect(service.requestPasswordReset({ email: 'user@test.com' })).rejects.toMatchObject({
+        status: 429,
+      });
+    });
+
     it('lets any other failure through', async () => {
       cognitoAuth.forgotPassword.mockRejectedValue(new Error('Rate exceeded'));
       await expect(service.requestPasswordReset({ email: 'user@test.com' })).rejects.toThrow(

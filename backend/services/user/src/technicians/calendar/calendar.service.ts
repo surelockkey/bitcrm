@@ -9,6 +9,7 @@ import { type CalendarEvent, type JwtUser } from '@bitcrm/types';
 import { CalendarRepository } from './calendar.repository';
 import { validateEventShape, type CalendarEventDraft } from './calendar.util';
 import { RolesService } from '../../roles/roles.service';
+import { MAX_INDEXED_WINDOW_MONTHS, monthsSpanned } from './calendar-month-index';
 
 const TECHNICIAN_ROLE_ID = 'role-technician';
 
@@ -40,7 +41,7 @@ export class CalendarService {
     return this.repository.listByTechInRange(technicianId, from, to);
   }
 
-  /** Bulk fetch for the day/week grid — manager only, fanned out per technician. */
+  /** Bulk fetch for the day/week grid — manager only. */
   async listForTechs(
     technicianIds: string[],
     from: string,
@@ -48,6 +49,34 @@ export class CalendarService {
     caller: JwtUser,
   ): Promise<CalendarEvent[]> {
     await this.assertManager(caller);
+    return this.readMany(technicianIds, from, to);
+  }
+
+  /** The same bulk read for deal-service (availability); auth is the network guard. */
+  async listForTechsInternal(
+    technicianIds: string[],
+    from: string,
+    to: string,
+  ): Promise<CalendarEvent[]> {
+    return this.readMany(technicianIds, from, to);
+  }
+
+  /**
+   * Many technicians' events: the window's months off the month index once
+   * the backfill has stamped it ready (one Query per month, whatever the
+   * number of technicians), else — and for a window wider than the index
+   * serves — one per-technician Query each, as before. Same answer either way.
+   */
+  private async readMany(technicianIds: string[], from: string, to: string): Promise<CalendarEvent[]> {
+    const months = monthsSpanned(from, to).length;
+    if (
+      technicianIds.length > 0 &&
+      months > 0 &&
+      months <= MAX_INDEXED_WINDOW_MONTHS &&
+      (await this.repository.monthIndexReady())
+    ) {
+      return this.repository.listByTechsInRange(technicianIds, from, to);
+    }
     const perTech = await Promise.all(
       technicianIds.map((id) => this.repository.listByTechInRange(id, from, to)),
     );
@@ -112,8 +141,7 @@ export class CalendarService {
 
     // The SK embeds startDate, so a date change is a move, not an in-place edit.
     if (next.startDate !== current.startDate) {
-      await this.repository.delete(current);
-      await this.repository.create(next);
+      await this.repository.move(current, next);
       return next;
     }
     return this.repository.update(current, {
@@ -154,9 +182,14 @@ export class CalendarService {
 
   private async isPrivileged(caller: JwtUser): Promise<boolean> {
     if (!caller.roleId) throw new ForbiddenException('User has no roleId assigned');
+    // The reference role is asked for alongside the caller's, but only awaited
+    // where the old sequential code read it: a Super Admin never depends on it
+    // (a missing reference role must not 404 them), anyone else gets its error.
+    const techRoleRead = this.rolesService.findById(TECHNICIAN_ROLE_ID);
+    techRoleRead.catch(() => undefined);
     const callerRole = await this.rolesService.findById(caller.roleId);
     if (callerRole.isSystem && callerRole.name === 'Super Admin') return true;
-    const techRole = await this.rolesService.findById(TECHNICIAN_ROLE_ID);
+    const techRole = await techRoleRead;
     return callerRole.priority > techRole.priority;
   }
 }

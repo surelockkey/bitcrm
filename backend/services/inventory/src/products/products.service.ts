@@ -27,6 +27,7 @@ import {
   RedisService,
   cachedCount,
   countCacheKey,
+  type CountRowsResult,
 } from '@bitcrm/shared';
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import { ItemCategoriesService } from '../item-categories/item-categories.service';
@@ -35,6 +36,15 @@ import { ItemAttributesRepository } from '../item-attributes/item-attributes.rep
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
+import {
+  ProductListSearchClient,
+  type ProductListPartition,
+  type SearchableProductFilters,
+} from './product-list-search.client';
+import { matchesProductListFilters } from './product-list-filter';
+import { PRODUCT_CATALOG_INDEX_PK, decodeCatalogCursor } from './product-catalog-index';
+import { PRODUCT_STOCK_INDEX_PK } from './product-stock-index';
+import { decodeIndexCursor, encodeIndexCursor } from '../common/utils/index-cursor';
 
 /**
  * Canonical spelling for the no-category sentinel: `uncategorized` in any case
@@ -52,6 +62,9 @@ const KNOWN_PRODUCT_TYPES: readonly string[] = Object.values(ProductType);
 
 /** How long a list count stays good enough. Matches the deals tab counts. */
 const COUNT_TTL_SECONDS = 30;
+
+/** Contract C2: distinct ids one `POST /products/internal/by-ids` may ask for. */
+export const PRODUCTS_BY_IDS_MAX = 500;
 
 /**
  * Workiz item types BitCRM has no equivalent for. Both are non-stockable, so
@@ -177,6 +190,8 @@ export class ProductsService {
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly inventoryLog?: InventoryLogService,
     @Optional() private readonly itemAttributes?: ItemAttributesRepository,
+    // The filtered Price Book off search's read model; absent → DynamoDB only.
+    @Optional() private readonly listSearch?: ProductListSearchClient,
   ) {}
 
   /**
@@ -299,6 +314,41 @@ export class ProductsService {
 
     await this.cache.set(id, product);
     return product;
+  }
+
+  /**
+   * Many products at once for a peer service (contract C2,
+   * `POST /products/internal/by-ids`): the same item as `findById`, in the
+   * order asked, duplicates dropped, unknown ids left out. Read-through the
+   * per-product cache — one MGET for the hits, one BatchGet (chunks of 100,
+   * unprocessed keys retried) for the misses, which are then cached. A cache
+   * failure only costs the cache.
+   */
+  async findByIdsInternal(ids: string[]): Promise<Product[]> {
+    const unique = [...new Set(ids.filter((id) => typeof id === 'string' && id !== ''))];
+    if (unique.length > PRODUCTS_BY_IDS_MAX) {
+      throw new BadRequestException(`At most ${PRODUCTS_BY_IDS_MAX} distinct product ids per request`);
+    }
+    if (unique.length === 0) return [];
+
+    const found = await this.cache.getMany(unique).catch((err: Error) => {
+      this.logger.warn(`Product cache read failed (by-ids): ${err?.message}`);
+      return new Map<string, Product>();
+    });
+    const misses = unique.filter((id) => !found.has(id));
+    if (misses.length > 0) {
+      const loaded = await this.repository.findByIds(misses);
+      for (const p of loaded) found.set(p.id, p);
+      if (loaded.length > 0) {
+        await this.cache.setMany(loaded).catch((err: Error) =>
+          this.logger.warn(`Product cache write failed (by-ids): ${err?.message}`),
+        );
+      }
+    }
+    return unique.flatMap((id) => {
+      const p = found.get(id);
+      return p ? [p] : [];
+    });
   }
 
   /**
@@ -427,10 +477,50 @@ export class ProductsService {
     if (category) {
       return this.repository.findByCategory(category, limit, cursor, filters);
     }
+    const searched = searchableList(query);
+    if (searched) {
+      const page = await this.listFromSearch(searched.partition, searched.filters, limit, cursor);
+      if (page) return page;
+    }
     if (manageStock === true) {
       return this.repository.findStockManaged(limit, cursor, { type, status, search, brandId, stockLevel });
     }
     return this.repository.findCatalog(limit, cursor, filters);
+  }
+
+  /**
+   * A filtered page of the Price Book (or of the stock-managed partition)
+   * from search's read model: the ids in partition order, the rows from here
+   * (product cache, then one BatchGet) and re-checked against the filters,
+   * so an edit search has not caught up with never shows a stale match. The
+   * cursor is the one the DynamoDB path hands out — table keys plus the
+   * partition's index keys — so either path continues the other. `null`
+   * when search gives no answer; the caller reads DynamoDB.
+   */
+  private async listFromSearch(
+    partition: ProductListPartition,
+    filters: SearchableProductFilters,
+    limit: number,
+    cursor: string | undefined,
+  ): Promise<{ items: Product[]; nextCursor?: string } | null> {
+    if (!this.listSearch) return null;
+    // Decoded first, as the DynamoDB path does: a foreign cursor is a 400 on both.
+    const after = partition === 'stock' ? decodeStockCursor(cursor)?.GSI3SK : decodeCatalogCursor(cursor)?.GSI4SK;
+    const page = await this.listSearch.page(partition, filters, limit, after as string | undefined);
+    if (!page) return null;
+
+    const rows = await this.findByIdsInternal(page.ids);
+    const items = rows.filter((p) => matchesProductListFilters(p, filters, partition));
+    const lastId = page.ids[page.ids.length - 1];
+    const nextCursor =
+      page.next && lastId
+        ? encodeIndexCursor(
+            partition === 'stock'
+              ? { PK: `PRODUCT#${lastId}`, SK: 'METADATA', GSI3PK: PRODUCT_STOCK_INDEX_PK, GSI3SK: page.next }
+              : { PK: `PRODUCT#${lastId}`, SK: 'METADATA', GSI4PK: PRODUCT_CATALOG_INDEX_PK, GSI4SK: page.next },
+          )
+        : undefined;
+    return { items, nextCursor };
   }
 
   /**
@@ -446,8 +536,13 @@ export class ProductsService {
     const { category, type, search, status, brandId, manageStock, stockLevel } = query;
     const filters: ProductListFilters = { type, status, search, brandId, manageStock, stockLevel };
 
-    const take = () => {
+    const searched = category ? null : searchableList(query);
+    const take = async (): Promise<CountRowsResult> => {
       if (category) return this.repository.countByCategory(category, filters);
+      if (searched && this.listSearch) {
+        const total = await this.listSearch.count(searched.partition, searched.filters);
+        if (total !== null) return { total, atLeast: false };
+      }
       if (manageStock === true) {
         return this.repository.countStockManaged({ type, status, search, brandId, stockLevel });
       }
@@ -756,4 +851,32 @@ export class ProductsService {
     if (v === 'false' || v === 'no' || v === '0') return false;
     return undefined;
   }
+}
+
+/** A stock-partition cursor (GSI3 keys of `PRODUCTS#STOCK`); anything else is a 400, as on DynamoDB. */
+function decodeStockCursor(cursor: string | undefined): Record<string, unknown> | undefined {
+  const key = decodeIndexCursor(cursor, ['PK', 'SK', 'GSI3PK', 'GSI3SK']);
+  if (key && key.GSI3PK !== PRODUCT_STOCK_INDEX_PK) throw new BadRequestException('Invalid cursor');
+  return key;
+}
+
+/**
+ * The partition and the filters search would answer for this list, or null
+ * when DynamoDB reads it as cheaply: a category (its own small index), or no
+ * filter on top of the partition (one Query per page). `manageStock=true`
+ * picks the stock-managed partition and is not a filter there.
+ */
+function searchableList(
+  query: Pick<ListProductsQueryDto, 'type' | 'status' | 'search' | 'brandId' | 'manageStock' | 'stockLevel'>,
+): { partition: ProductListPartition; filters: SearchableProductFilters } | null {
+  const partition: ProductListPartition = query.manageStock === true ? 'stock' : 'catalog';
+  const filters: SearchableProductFilters = {
+    ...(query.type && { type: query.type }),
+    ...(query.status && { status: query.status }),
+    ...(query.search?.trim() && { search: query.search }),
+    ...(query.brandId && { brandId: query.brandId }),
+    ...(partition === 'catalog' && query.manageStock === false && { manageStock: false }),
+    ...(query.stockLevel && { stockLevel: query.stockLevel }),
+  };
+  return Object.keys(filters).length > 0 ? { partition, filters } : null;
 }

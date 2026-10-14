@@ -6,15 +6,13 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { SnsPublisherService } from '@bitcrm/shared';
+import { RedisService, SnsPublisherService } from '@bitcrm/shared';
 import {
   isAssignable,
   TechChangedField,
   TECHNICIAN_ROLE_ID,
   UserEventType,
   type JwtUser,
-  type TechnicianJobType,
-  type TechnicianServiceArea,
 } from '@bitcrm/types';
 import {
   TechnicianAssignmentsRepository,
@@ -23,13 +21,17 @@ import {
 } from './technician-assignments.repository';
 import { RolesService } from '../../roles/roles.service';
 import { ReviewAssignmentDto } from './dto/assignment.dto';
+import {
+  APPROVED_ASSIGNMENTS_CACHE_KEY,
+  readApprovedAssignments,
+  toJobType,
+  toServiceArea,
+  type TechnicianAssignments,
+} from './approved-assignments.cache';
 
 const USER_EVENTS_TOPIC = 'user-events';
 
-export interface TechnicianAssignments {
-  jobTypes: TechnicianJobType[];
-  serviceAreas: TechnicianServiceArea[];
-}
+export { APPROVED_ASSIGNMENTS_CACHE_KEY, type TechnicianAssignments };
 
 @Injectable()
 export class TechnicianAssignmentsService {
@@ -39,6 +41,7 @@ export class TechnicianAssignmentsService {
     private readonly repository: TechnicianAssignmentsRepository,
     private readonly rolesService: RolesService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   // --- reads ---
@@ -58,11 +61,14 @@ export class TechnicianAssignmentsService {
     if (!(await this.isPrivileged(caller))) {
       throw new ForbiddenException("Only managers can view every technician's assignments");
     }
-    const [jobTypes, serviceAreas] = await Promise.all([
-      this.repository.listAllApproved('job_type'),
-      this.repository.listAllApproved('service_area'),
-    ]);
-    return { jobTypes: jobTypes.map(toJobType), serviceAreas: serviceAreas.map(toServiceArea) };
+    return readApprovedAssignments(this.repository, this.redis, this.logger);
+  }
+
+  /** Called after every assignment write — the approved set may have changed. */
+  private async invalidateApproved(): Promise<void> {
+    await this.redis?.client
+      .del(APPROVED_ASSIGNMENTS_CACHE_KEY)
+      .catch((err: Error) => this.logger.warn(`approved-assignments cache delete failed: ${err?.message}`));
   }
 
   async listPending(caller: JwtUser) {
@@ -153,6 +159,7 @@ export class TechnicianAssignmentsService {
     }
 
     if (created.length > 0) {
+      await this.invalidateApproved();
       this.logger.log(
         `${created.length} ${kind} assignment(s) ${status === 'approved' ? 'granted to' : 'proposed by'} ${userId}`,
       );
@@ -178,6 +185,7 @@ export class TechnicianAssignmentsService {
       reviewedAt: new Date().toISOString(),
       comments: dto.comments,
     });
+    await this.invalidateApproved();
     this.logger.log(`${kind} ${catalogId} approved for ${userId} by ${caller.id}`);
 
     await this.publishIfNewlyAssignable(userId, before);
@@ -203,6 +211,7 @@ export class TechnicianAssignmentsService {
       reviewedAt: new Date().toISOString(),
       comments: dto.comments,
     });
+    await this.invalidateApproved();
     this.logger.log(`${kind} ${catalogId} rejected for ${userId} by ${caller.id}`);
     this.publishUpdated(userId);
     return updated;
@@ -217,6 +226,7 @@ export class TechnicianAssignmentsService {
     await this.assertManager(caller);
     await this.requireAll(userId, kind, catalogId);
     await this.repository.delete(userId, kind, catalogId);
+    await this.invalidateApproved();
     this.logger.log(`${kind} ${catalogId} revoked for ${userId} by ${caller.id}`);
     this.publishUpdated(userId);
   }
@@ -304,9 +314,14 @@ export class TechnicianAssignmentsService {
 
   private async isPrivileged(caller: JwtUser): Promise<boolean> {
     if (!caller.roleId) throw new ForbiddenException('User has no roleId assigned');
+    // The reference role is asked for alongside the caller's, but only awaited
+    // where the old sequential code read it: a Super Admin never depends on it
+    // (a missing reference role must not 404 them), anyone else gets its error.
+    const techRoleRead = this.rolesService.findById(TECHNICIAN_ROLE_ID);
+    techRoleRead.catch(() => undefined);
     const callerRole = await this.rolesService.findById(caller.roleId);
     if (callerRole.isSystem && callerRole.name === 'Super Admin') return true;
-    const techRole = await this.rolesService.findById(TECHNICIAN_ROLE_ID);
+    const techRole = await techRoleRead;
     return callerRole.priority > techRole.priority;
   }
 
@@ -316,16 +331,4 @@ export class TechnicianAssignmentsService {
       .publish(USER_EVENTS_TOPIC, eventType, payload)
       .catch((err) => this.logger.warn(`Failed to publish ${eventType}: ${err.message}`));
   }
-}
-
-// --- storage → public entity mappers ---
-
-function toJobType(a: TechnicianAssignment): TechnicianJobType {
-  const { kind, catalogId, ...rest } = a;
-  return { ...rest, jobTypeId: catalogId };
-}
-
-function toServiceArea(a: TechnicianAssignment): TechnicianServiceArea {
-  const { kind, catalogId, ...rest } = a;
-  return { ...rest, serviceAreaId: catalogId };
 }

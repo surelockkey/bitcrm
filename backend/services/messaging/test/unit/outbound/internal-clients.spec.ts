@@ -1,6 +1,10 @@
 import { CrmContactsClient } from '../../../src/outbound/internal/crm-contacts.client';
 import { DealContextClient } from '../../../src/outbound/internal/deal-context.client';
-import { OWNED_NUMBERS_TTL_MS, TelephonyNumbersClient } from '../../../src/outbound/internal/telephony-numbers.client';
+import {
+  OWNED_NUMBERS_STALE_MS,
+  OWNED_NUMBERS_TTL_MS,
+  TelephonyNumbersClient,
+} from '../../../src/outbound/internal/telephony-numbers.client';
 
 /** A `fetch` that answers from a script of `{ status, body }` (or throws). */
 function fakeFetch(script: Array<{ status: number; body?: unknown } | Error>) {
@@ -18,7 +22,7 @@ function fakeFetch(script: Array<{ status: number; body?: unknown } | Error>) {
 const NUMBER = { phoneNumber: '+14045550001', sid: 'PN1', capabilities: { sms: true, mms: true, voice: true }, messagingServiceSid: 'MG1' };
 
 describe('TelephonyNumbersClient', () => {
-  it('reads the internal owned listing with the service secret and caches it for 60 s', async () => {
+  it('reads the internal owned listing with the service secret and caches it for 5 minutes', async () => {
     const { fetchImpl, calls } = fakeFetch([{ status: 200, body: { data: [NUMBER] } }]);
     const client = new TelephonyNumbersClient(fetchImpl);
 
@@ -46,6 +50,69 @@ describe('TelephonyNumbersClient', () => {
     client.forget();
     expect(await client.listOwned(0)).toEqual([]); // forgotten and still failing → unknown
     expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
+  it('trusts the list for 5 minutes', () => {
+    expect(OWNED_NUMBERS_TTL_MS).toBe(5 * 60_000);
+    expect(OWNED_NUMBERS_STALE_MS).toBeGreaterThan(OWNED_NUMBERS_TTL_MS);
+  });
+
+  it('past 5 minutes serves the cached list at once and refreshes it in the background', async () => {
+    const OTHER = { ...NUMBER, phoneNumber: '+14045550002', sid: 'PN2' };
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let n = 0;
+    const fetchImpl = jest.fn(async () => {
+      n += 1;
+      if (n === 2) await gate; // the background refresh is slow
+      const data = n === 1 ? [NUMBER] : [OTHER];
+      return { ok: true, status: 200, json: async () => ({ data }) } as unknown as Response;
+    });
+    const client = new TelephonyNumbersClient(fetchImpl);
+    await client.listOwned(0);
+
+    const t = OWNED_NUMBERS_TTL_MS + 1;
+    expect(await client.listOwned(t)).toEqual([NUMBER]); // not waiting for the slow refresh
+    expect(await client.listOwned(t)).toEqual([NUMBER]); // one refresh at a time
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    release();
+    await new Promise((r) => setImmediate(r));
+    expect(await client.listOwned(t + 1)).toEqual([OTHER]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('a failed background refresh is not cached: the next read tries again and still has the old list', async () => {
+    const { fetchImpl } = fakeFetch([
+      { status: 200, body: { data: [NUMBER] } },
+      { status: 503 },
+      { status: 200, body: { data: [] } },
+    ]);
+    const client = new TelephonyNumbersClient(fetchImpl);
+    await client.listOwned(0);
+    const t = OWNED_NUMBERS_TTL_MS + 1;
+    expect(await client.listOwned(t)).toEqual([NUMBER]);
+    await new Promise((r) => setImmediate(r));
+    expect(await client.listOwned(t)).toEqual([NUMBER]); // the 503 left it stale, so it refreshes again
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it('a list older than the stale window is waited for, not served', async () => {
+    const OTHER = { ...NUMBER, phoneNumber: '+14045550002', sid: 'PN2' };
+    const { fetchImpl } = fakeFetch([
+      { status: 200, body: { data: [NUMBER] } },
+      { status: 200, body: { data: [OTHER] } },
+    ]);
+    const client = new TelephonyNumbersClient(fetchImpl);
+    await client.listOwned(0);
+    expect(await client.listOwned(OWNED_NUMBERS_STALE_MS + 1)).toEqual([OTHER]);
+  });
+
+  it('single-flights a cold start', async () => {
+    const { fetchImpl } = fakeFetch([{ status: 200, body: { data: [NUMBER] } }]);
+    const client = new TelephonyNumbersClient(fetchImpl);
+    const all = await Promise.all([client.listOwned(0), client.listOwned(0), client.listOwned(0)]);
+    expect(all).toEqual([[NUMBER], [NUMBER], [NUMBER]]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -13,7 +13,9 @@ import {
 type Item = Record<string, unknown>;
 
 /** Rows per internal page while a search filter is thinning them out. */
-const FILTER_PAGE = 200;
+const FILTER_PAGE = 1000;
+/** Day partitions asked at once, ahead of the one being read. */
+export const DAY_READ_AHEAD = 6;
 /** Queries one page / one count may spend before it hands back what it has. */
 export const ACTIVITY_PAGE_BUDGET = 40;
 export const ACTIVITY_COUNT_BUDGET = 200;
@@ -138,35 +140,61 @@ export class ActivityRepository {
 
   /* --------------------------------------------------------------- by day */
 
+  /**
+   * The day partitions in order, each paged to its end, until the page is
+   * full. The next days' first pages are asked AHEAD, `DAY_READ_AHEAD` at a
+   * time, while the current one is read — a search over a quiet month is a
+   * few rounds of parallel reads instead of thirty sequential ones. Without a
+   * search the first day goes alone (it usually fills the page by itself) and
+   * the read-ahead starts once it did not. Every query, read-ahead included,
+   * counts against the budget; a read-ahead page the page did not need is
+   * dropped, so the answer and its cursor are the one-by-one walk's.
+   */
   private async pageByDays(q: ActivityPageQuery): Promise<ActivityPage> {
     const budget = q.budget ?? ACTIVITY_PAGE_BUDGET;
     const days = accountDaysBetween(q.from, q.to);
     if (q.sort === 'desc') days.reverse();
-    let i = q.cursor?.d ? days.indexOf(q.cursor.d) : 0;
-    if (i < 0) return { items: [] };
-    let startKey = q.cursor?.k;
+    const first = q.cursor?.d ? days.indexOf(q.cursor.d) : 0;
+    if (first < 0) return { items: [] };
     const filter = this.filterOf(q);
     const items: Item[] = [];
     let queries = 0;
 
-    for (; i < days.length; i += 1) {
-      const day = days[i];
-      for (;;) {
-        if (queries >= budget) return { items, next: { d: day, ...(startKey && { k: startKey }) } };
+    const ask = (day: string, startKey?: Item) =>
+      this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: ACTIVITY_DAY_INDEX,
+          KeyConditionExpression: 'GSI8PK = :pk',
+          ...(filter && { FilterExpression: filter.expression, ExpressionAttributeNames: filter.names }),
+          ExpressionAttributeValues: { ':pk': activityDayPk(day), ...(filter?.values ?? {}) },
+          ScanIndexForward: q.sort === 'asc',
+          // A whole page's worth: a read-ahead page cannot know how much room is left.
+          Limit: filter ? FILTER_PAGE : q.limit,
+          ...(startKey && { ExclusiveStartKey: startKey }),
+        }),
+      );
+    const ahead = new Map<number, ReturnType<typeof ask>>();
+    const readAhead = (from: number, width: number) => {
+      for (let j = from; j < days.length && j < from + width && queries < budget; j += 1) {
+        if (ahead.has(j)) continue;
         queries += 1;
+        const res = ask(days[j], j === first ? q.cursor?.k : undefined);
+        // A read-ahead page nobody waits for must not surface as an unhandled rejection.
+        res.catch(() => undefined);
+        ahead.set(j, res);
+      }
+    };
+
+    for (let i = first; i < days.length; i += 1) {
+      const day = days[i];
+      readAhead(i, filter || i > first ? DAY_READ_AHEAD : 1);
+      let pending = ahead.get(i);
+      if (!pending) return { items, next: { d: day, ...(i === first && q.cursor?.k && { k: q.cursor.k }) } };
+      ahead.delete(i);
+      for (;;) {
+        const res = await pending;
         const room = q.limit - items.length;
-        const res = await this.dynamoDb.client.send(
-          new QueryCommand({
-            TableName: this.tableName,
-            IndexName: ACTIVITY_DAY_INDEX,
-            KeyConditionExpression: 'GSI8PK = :pk',
-            ...(filter && { FilterExpression: filter.expression, ExpressionAttributeNames: filter.names }),
-            ExpressionAttributeValues: { ':pk': activityDayPk(day), ...(filter?.values ?? {}) },
-            ScanIndexForward: q.sort === 'asc',
-            Limit: filter ? FILTER_PAGE : room,
-            ...(startKey && { ExclusiveStartKey: startKey }),
-          }),
-        );
         const page = res.Items ?? [];
         items.push(...page.slice(0, room));
         if (items.length >= q.limit) {
@@ -175,9 +203,10 @@ export class ActivityRepository {
           return { items, next: days[i + 1] ? { d: days[i + 1] } : undefined };
         }
         if (!res.LastEvaluatedKey) break;
-        startKey = res.LastEvaluatedKey;
+        if (queries >= budget) return { items, next: { d: day, k: res.LastEvaluatedKey } };
+        queries += 1;
+        pending = ask(day, res.LastEvaluatedKey);
       }
-      startKey = undefined;
     }
     return { items };
   }

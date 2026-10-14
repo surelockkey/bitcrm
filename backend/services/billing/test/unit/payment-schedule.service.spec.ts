@@ -33,7 +33,12 @@ function setup(opts: { ledger?: JobPaymentLedger; schedule?: PaymentSchedule | n
     put: jest.fn().mockImplementation(async (s: PaymentSchedule) => s),
     delete: jest.fn().mockResolvedValue(undefined),
   };
-  const payments = { listForDeal: jest.fn().mockResolvedValue(opts.ledger ?? ledger()) };
+  const job = { deal: { id: 'd1', assignedTechIds: ['tech-1'] } };
+  const payments = {
+    listForDeal: jest.fn().mockResolvedValue(opts.ledger ?? ledger()),
+    accessibleJob: jest.fn().mockResolvedValue(job),
+    ledgerForJob: jest.fn().mockResolvedValue(opts.ledger ?? ledger()),
+  };
   const invoices = { pdf: jest.fn().mockResolvedValue({ url: 'https://s3/doc.pdf' }) };
   const service = new PaymentScheduleService(repo as never, payments as never, invoices as never, () => '2026-10-06');
   return { service, repo, payments, invoices };
@@ -46,10 +51,12 @@ function setup(opts: { ledger?: JobPaymentLedger; schedule?: PaymentSchedule | n
  */
 describe('PaymentScheduleService', () => {
   it("reads the job's schedule against its ledger", async () => {
-    const { service, payments } = setup();
+    const { service, payments, repo } = setup();
     const view = await service.get('d1', caller());
 
-    expect(payments.listForDeal).toHaveBeenCalledWith('d1', expect.anything());
+    expect(payments.accessibleJob).toHaveBeenCalledWith('d1', expect.anything());
+    expect(repo.get).toHaveBeenCalledWith('d1');
+    expect(payments.ledgerForJob).toHaveBeenCalledWith({ deal: { id: 'd1', assignedTechIds: ['tech-1'] } });
     expect(view).toMatchObject({ dealId: 'd1', method: 'percent', total: 584.93, balanceDue: 584.93 });
     expect(view!.lines.map((l) => [l.amount, l.status])).toEqual([
       [292.47, 'due'],
@@ -58,15 +65,54 @@ describe('PaymentScheduleService', () => {
     expect(view!.lines[1].note).toBe('Balance');
   });
 
-  it('answers nothing for a job without a schedule', async () => {
-    const { service } = setup({ schedule: null });
+  it('answers nothing for a job without a schedule — after the access check, without building the ledger', async () => {
+    const { service, payments } = setup({ schedule: null });
     expect(await service.get('d1', caller())).toBeNull();
+    expect(payments.accessibleJob).toHaveBeenCalledWith('d1', expect.anything());
+    expect(payments.ledgerForJob).not.toHaveBeenCalled();
+    expect(payments.listForDeal).not.toHaveBeenCalled();
   });
 
-  it("refuses a job the caller may not see — the ledger's own check", async () => {
-    const { service, payments } = setup();
-    payments.listForDeal.mockRejectedValue(new ForbiddenException('You are not assigned to this job'));
+  it("refuses a job the caller may not see — the ledger's own check — even when it has no schedule", async () => {
+    const answers: unknown[] = [];
+    for (const schedule of [stored(), null]) {
+      const { service, payments } = setup({ schedule });
+      payments.accessibleJob.mockRejectedValue(new ForbiddenException('You are not assigned to this job'));
+      const err = await service.get('d1', caller()).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ForbiddenException);
+      // The schedule row is read beside the access check, but a caller who may
+      // not see the job learns nothing from it: the same refusal either way,
+      // and the ledger is never built.
+      expect(payments.ledgerForJob).not.toHaveBeenCalled();
+      answers.push((err as ForbiddenException).getResponse());
+    }
+    expect(answers[0]).toEqual(answers[1]);
+  });
+
+  it('a schedule read that fails for a caller who may not see the job still answers 403', async () => {
+    const { service, payments, repo } = setup();
+    payments.accessibleJob.mockRejectedValue(new ForbiddenException('You are not assigned to this job'));
+    repo.get.mockRejectedValue(new Error('throttled'));
     await expect(service.get('d1', caller())).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('reads the schedule row while the access check is still in flight (one round trip, not two)', async () => {
+    const { service, payments, repo } = setup({ schedule: null });
+    let release!: () => void;
+    payments.accessibleJob.mockImplementation(
+      () => new Promise((resolve) => (release = () => resolve({ deal: { id: 'd1', assignedTechIds: [] } }))),
+    );
+    const answer = service.get('d1', caller());
+    await new Promise((r) => setImmediate(r));
+    expect(repo.get).toHaveBeenCalledWith('d1');
+    release();
+    await expect(answer).resolves.toBeNull();
+  });
+
+  it('404s for a job that does not exist', async () => {
+    const { service, payments } = setup({ schedule: null });
+    payments.accessibleJob.mockRejectedValue(new NotFoundException('Job not found'));
+    await expect(service.get('nope', caller())).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('saves a schedule that adds up to the job, numbering new payments', async () => {

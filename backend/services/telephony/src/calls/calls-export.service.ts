@@ -7,6 +7,7 @@ import { callCsvHeader, callCsvRow } from './call-export';
 import { CallTagsService } from '../call-tags/call-tags.service';
 import { DealNumbersClient, JobSourceNamesClient } from '../common/deal-labels.client';
 import { DealTotalsClient } from '../common/deal-totals.client';
+import { StoredDealTotals } from './stored-deal-totals';
 
 /** Rows the walk asks for at a time — the list's own ceiling. */
 const PAGE = 100;
@@ -73,10 +74,18 @@ export class CallsExportService {
       if (items.length) {
         const fresh = [...new Set(items.map((c) => c.dealId).filter((id): id is string => !!id && !asked.has(id)))];
         fresh.forEach((id) => asked.add(id));
+        // A row carries its job's total; deal-service is asked only for the
+        // jobs whose rows have none yet.
+        const stored = new StoredDealTotals();
+        items.forEach((c) => stored.add(c));
+        stored.totals.forEach((v, k) => totals.set(k, v));
+        const unpriced = stored.missing(fresh);
         if (fresh.length) {
           const [n, t] = await Promise.all([
             this.dealNumbers?.numbers(fresh, opts.authorization).catch((e: Error) => this.skip('job numbers', e)),
-            opts.money ? this.dealTotals?.totals(fresh).catch((e: Error) => this.skip('job totals', e)) : undefined,
+            opts.money && unpriced.length
+              ? this.dealTotals?.totals(unpriced).catch((e: Error) => this.skip('job totals', e))
+              : undefined,
           ]);
           n?.forEach((v, k) => numbers.set(k, v));
           t?.forEach((v, k) => totals.set(k, v));

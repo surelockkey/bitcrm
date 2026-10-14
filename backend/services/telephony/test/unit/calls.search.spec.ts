@@ -139,7 +139,7 @@ describe('CallsRepository — search', () => {
   });
 });
 
-describe('CallsController — names written back for the search', () => {
+describe('CallsController — the search names on the read path', () => {
   const ended = (over: Partial<CallRecord> = {}): CallRecord => ({
     callSid: 'CA1',
     direction: 'inbound',
@@ -158,7 +158,7 @@ describe('CallsController — names written back for the search', () => {
       list: jest.fn().mockResolvedValue({ items: rows }),
       freezeParties: jest.fn().mockResolvedValue(undefined),
       stampPartyNames: jest.fn().mockResolvedValue(undefined),
-    } as unknown as CallsService;
+    } as unknown as CallsService & { freezeParties: jest.Mock; stampPartyNames: jest.Mock };
     const userNames = {
       resolve: jest.fn().mockResolvedValue(opts.users ?? { u9: { name: 'Tamir Levi', roleId: 'r-disp' } }),
     };
@@ -187,58 +187,16 @@ describe('CallsController — names written back for the search', () => {
 
   const flush = () => new Promise((r) => setImmediate(r));
 
-  it('stamps both sides’ names on an ended call that has none', async () => {
-    const { controller, calls } = make([ended()]);
-
-    await controller.list({}, { id: 'x' } as JwtUser);
-    await flush();
-
-    expect(calls.stampPartyNames).toHaveBeenCalledWith('CA1', 'jane roe\ntamir levi');
-  });
-
-  it('leaves a row whose names are already right alone', async () => {
-    const { controller, calls } = make([ended({ partyNames: 'jane roe\ntamir levi' })]);
+  // Stamping the names is the write path's job now (CallFinalizer, see
+  // call-finalizer.spec): a read of the log never writes.
+  it('listing ended, unstamped calls writes nothing', async () => {
+    const { controller, calls } = make([ended(), ended({ partyNames: 'jane smith\ntamir levi' })]);
 
     await controller.list({}, { id: 'x' } as JwtUser);
     await flush();
 
     expect(calls.stampPartyNames).not.toHaveBeenCalled();
-  });
-
-  it('restamps a renamed client', async () => {
-    const { controller, calls } = make([ended({ partyNames: 'jane smith\ntamir levi' })]);
-
-    await controller.list({}, { id: 'x' } as JwtUser);
-    await flush();
-
-    expect(calls.stampPartyNames).toHaveBeenCalledWith('CA1', 'jane roe\ntamir levi');
-  });
-
-  it('never stamps from a half-answered lookup — a user-service blip is not a rename', async () => {
-    const { controller, calls } = make([ended({ partyNames: 'jane roe\ntamir levi' })], { users: {} });
-
-    await controller.list({}, { id: 'x' } as JwtUser);
-    await flush();
-
-    expect(calls.stampPartyNames).not.toHaveBeenCalled();
-  });
-
-  it('never stamps a call that is still going', async () => {
-    const { controller, calls } = make([ended({ status: 'in-progress', partyNames: undefined })]);
-
-    await controller.list({}, { id: 'x' } as JwtUser);
-    await flush();
-
-    expect(calls.stampPartyNames).not.toHaveBeenCalled();
-  });
-
-  it('a stranger’s number names nobody — nothing to stamp', async () => {
-    const { controller, calls } = make([ended({ participants: undefined })], { contacts: {} });
-
-    await controller.list({}, { id: 'x' } as JwtUser);
-    await flush();
-
-    expect(calls.stampPartyNames).not.toHaveBeenCalled();
+    expect(calls.freezeParties).not.toHaveBeenCalled();
   });
 
   it('the stored names never reach the response', async () => {

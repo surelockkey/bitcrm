@@ -1,6 +1,7 @@
 import { Inject, Logger, Module, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { SqsConsumerService } from '@bitcrm/shared';
 import { DealEventType } from '@bitcrm/types';
+import { TechScopeModule } from '../tech-scope/tech-scope.module';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { OutboundModule } from '../outbound/outbound.module';
 import { MessagingSettingsModule } from '../settings/messaging-settings.module';
@@ -13,9 +14,11 @@ import { AutoSentRepository } from './auto-sent.repository';
 import {
   CALL_COMPLETED_EVENT,
   DEAL_CREATED_EVENT,
+  DEAL_DELETED_EVENT,
   DEAL_SCHEDULED_CHANGED_EVENT,
   DEAL_STATUS_CHANGED_EVENT,
   DEAL_TECH_ASSIGNED_EVENT,
+  DEAL_TECH_UNASSIGNED_EVENT,
   DEAL_UPDATED_EVENT,
 } from './deal-events';
 import { AutomationActionExecutor } from './engine/action-executor';
@@ -54,7 +57,8 @@ export const CALL_EVENTS_SQS_CONSUMER = Symbol('CALL_EVENTS_SQS_CONSUMER');
  * does not also fire timers unless it is meant to.
  */
 @Module({
-  imports: [ConversationsModule, MessagingSettingsModule, MessageTemplatesModule, OutboundModule],
+  // TechScopeModule: the technician inbox scope (C4) every job event keeps current.
+  imports: [ConversationsModule, MessagingSettingsModule, MessageTemplatesModule, OutboundModule, TechScopeModule],
   controllers: [AutomationsController, TechNoticesController],
   providers: [
     { provide: AUTOMATIONS_CONFIG, useFactory: loadAutomationsConfig },
@@ -136,6 +140,9 @@ export class AutomationsModule implements OnModuleInit, OnModuleDestroy {
       this.consumer.registerHandler(DEAL_TECH_ASSIGNED_EVENT, (p) => this.events.onTechAssigned(p));
       this.consumer.registerHandler(DEAL_UPDATED_EVENT, (p) => this.events.onDealUpdated(p));
       this.consumer.registerHandler(DEAL_SCHEDULED_CHANGED_EVENT, (p) => this.events.onScheduledChanged(p));
+      // Not rule triggers: the technician inbox scope (C4) follows roster removals and deletes.
+      this.consumer.registerHandler(DEAL_TECH_UNASSIGNED_EVENT, (p) => this.events.onTechUnassigned(p));
+      this.consumer.registerHandler(DEAL_DELETED_EVENT, (p) => this.events.onDealDeleted(p));
       // The client confirmed the visit through {{confirm_link}} (B12): rules only.
       this.consumer.registerHandler(DealEventType.DEAL_CLIENT_CONFIRMED, (p) => this.events.onClientConfirmed(p));
       // "Send to tech" is a delivery, not a rule: it goes straight to its

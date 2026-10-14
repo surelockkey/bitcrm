@@ -98,7 +98,7 @@ export function todayOf(closedToday: DealStats, createdToday: DealStats): Dashbo
 }
 
 /** "Jobs": the four states work waits in. A count that could not be had reads as zero. */
-export function jobsNowOf(byStatus: Record<JobSuperStatus, number | null>): DashboardJobsNow {
+export function jobsNowOf(byStatus: Partial<Record<JobSuperStatus, number | null>>): DashboardJobsNow {
   return {
     byStatus: {
       [JobSuperStatus.SUBMITTED]: byStatus[JobSuperStatus.SUBMITTED] ?? 0,

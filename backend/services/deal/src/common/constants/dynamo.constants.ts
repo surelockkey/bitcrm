@@ -36,6 +36,15 @@ export const DEALS_GSI7_NAME = 'EndIndex';
  */
 export const DEALS_GSI10_NAME = 'ContactActivityIndex';
 
+/**
+ * GSI11PK = NEEDS_INVOICE, GSI11SK = <createdAt>#DEAL#<id> — sparse, the jobs
+ * that still need an invoice (live, at least one line, no `invoiceId`):
+ * billing's "needs invoice" count and list without a Scan. Keys and rules in
+ * `deals/needs-invoice-index.ts`; rows written before the index need
+ * `backfill:needs-invoice-index -- --apply`.
+ */
+export const DEALS_GSI11_NAME = 'NeedsInvoiceIndex';
+
 // Job attachments (photos/files): PK=DEAL#<id>, SK=ATTACH#<attachmentId>.
 export const DEAL_ATTACHMENT_SK_PREFIX = 'ATTACH#';
 export const dealAttachmentS3Key = (dealId: string, attachmentId: string) =>

@@ -1,7 +1,8 @@
-import { Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown, Optional } from '@nestjs/common';
 import { RedisService } from '@bitcrm/shared';
 import { dashboardDay, msUntilDailyAt } from '@bitcrm/types';
 import { DealDashboardService } from './deal-dashboard.service';
+import { ReportWindowWarmer } from '../report/report-window-warmer';
 
 const LOCK_PREFIX = 'deal:lock:dashboard-snapshot:';
 /** Held for the day it names, so a second instance or a restart does not redo it. */
@@ -18,6 +19,11 @@ const FIRST_RUN_DELAY_MS = 60_000;
  * of them run it. The same lock runs it once shortly after boot when today has
  * no snapshots yet — the first deploy, or a night the service was down.
  * `DASHBOARD_SNAPSHOT_HOUR` moves the hour; `off` turns it off.
+ *
+ * The same winner then warms the reports' shared window cache for the settled
+ * periods (`ReportWindowWarmer`) — the same lock, so two tasks never both
+ * read them. A failed report warm keeps the day: the dashboard is built, and
+ * the reports simply read on demand.
  */
 @Injectable()
 export class DashboardSnapshotScheduler implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -28,6 +34,7 @@ export class DashboardSnapshotScheduler implements OnApplicationBootstrap, OnApp
   constructor(
     private readonly dashboard: DealDashboardService,
     private readonly redis: RedisService,
+    @Optional() private readonly reportWindows?: ReportWindowWarmer,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -54,12 +61,24 @@ export class DashboardSnapshotScheduler implements OnApplicationBootstrap, OnApp
       const started = Date.now();
       await this.dashboard.warm(now);
       this.logger.log(`dashboard snapshots built in ${Date.now() - started}ms`);
-      return true;
     } catch (err) {
       // Hand the day back: a failure at 3 AM must not leave the dashboard on
       // yesterday's numbers until tomorrow night.
       await this.redis.client.del(key);
       throw err;
+    }
+    await this.warmReportWindows(now);
+    return true;
+  }
+
+  private async warmReportWindows(now: Date): Promise<void> {
+    if (!this.reportWindows) return;
+    const started = Date.now();
+    try {
+      const { warmed, failed } = await this.reportWindows.warm(now);
+      this.logger.log(`report windows warmed in ${Date.now() - started}ms: ${warmed} ok, ${failed} failed`);
+    } catch (err) {
+      this.logger.warn(`report windows not warmed: ${(err as Error).message}`);
     }
   }
 

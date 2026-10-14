@@ -33,10 +33,8 @@ export class CalendarController {
   @ApiOperation({ summary: 'Internal: calendar events for techs in a range (deal-service)' })
   async listInternal(@Query() query: ListCalendarEventsQueryDto) {
     const techIds = (query.techIds ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-    const events = await Promise.all(
-      techIds.map((id) => this.service.listForTechInternal(id, query.from, query.to)),
-    );
-    return { success: true, data: events.flat() };
+    const data = await this.service.listForTechsInternal(techIds, query.from, query.to);
+    return { success: true, data };
   }
 
   @Get(':id/calendar-events')

@@ -198,3 +198,58 @@ describe('callOutcome', () => {
     expect(callOutcome(undefined)).toBe('missed');
   });
 });
+
+/**
+ * C4: every job event also keeps the stored technician inbox scope current
+ * (`TechScopeService.onDealEvent`) — before the automations, and never in
+ * their way (it does not throw; a failure there must not re-run a send).
+ */
+describe('AutomationDealEventsHandler — the technician inbox scope', () => {
+  function withScope() {
+    const h = harness();
+    const techScope = { onDealEvent: jest.fn(async () => undefined) };
+    const handler = new AutomationDealEventsHandler(
+      h.newJobSms as any,
+      h.engine as any,
+      h.peers as any,
+      h.snapshots as any,
+      techScope as any,
+    );
+    return { ...h, handler, techScope };
+  }
+
+  it('created / updated / status changed / assigned: the job’s technicians are recomputed, first', async () => {
+    const { handler, techScope, newJobSms } = withScope();
+    await handler.onDealCreated({ dealId: 'd1' });
+    await handler.onDealUpdated({ dealId: 'd2' });
+    await handler.onDealStatusChanged({ dealId: 'd3', oldStatus: 'submitted', newStatus: 'done' });
+    await handler.onTechAssigned({ dealId: 'd4', techId: 't9', assignedBy: 'u1' });
+    expect(techScope.onDealEvent.mock.calls).toEqual([['d1', []], ['d2', []], ['d3', []], ['d4', ['t9']]]);
+    expect(techScope.onDealEvent.mock.invocationCallOrder[3]).toBeLessThan(
+      newJobSms.onTechAssigned.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('unassigned names a technician no longer on the job; deleted needs only the job', async () => {
+    const { handler, techScope, engine } = withScope();
+    await handler.onTechUnassigned({ dealId: 'd1', techId: 't2', unassignedBy: 'u1' });
+    await handler.onDealDeleted({ dealId: 'd1', deletedBy: 'u1' });
+    expect(techScope.onDealEvent.mock.calls).toEqual([['d1', ['t2']], ['d1', []]]);
+    // Not automation triggers.
+    expect(engine.handle).not.toHaveBeenCalled();
+  });
+
+  it('a malformed payload is dropped without touching the scope', async () => {
+    const { handler, techScope } = withScope();
+    await handler.onTechUnassigned({ techId: 't2' });
+    await handler.onDealDeleted(null);
+    expect(techScope.onDealEvent).not.toHaveBeenCalled();
+  });
+
+  it('without the scope service (unit wiring) the automations run as before', async () => {
+    const { handler, engine } = harness();
+    await handler.onDealUpdated({ dealId: 'd1' });
+    await expect(handler.onDealDeleted({ dealId: 'd1' })).resolves.toBeUndefined();
+    expect(engine.handle).toHaveBeenCalled();
+  });
+});

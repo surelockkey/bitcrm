@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import {
   GetCommand,
   PutCommand,
@@ -13,6 +13,7 @@ import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import {
   AccountClock,
   accountWindowUtc,
+  CLOSED_SUPER_STATUSES,
   DealStatus,
   DISPATCH_MAP_JOB_FIELDS,
   JobSuperStatus,
@@ -31,7 +32,17 @@ import {
   DEALS_GSI5_NAME,
   DEALS_GSI6_NAME,
   DEALS_GSI7_NAME,
+  DEALS_GSI11_NAME,
 } from '../common/constants/dynamo.constants';
+import {
+  NEEDS_INVOICE_INPUTS,
+  NEEDS_INVOICE_PK,
+  NEEDS_INVOICE_STATE_KEY,
+  needsInvoiceKeys,
+  needsInvoiceWrite,
+  planNeedsInvoice,
+} from './needs-invoice-index';
+import { DONE_LINES_INPUTS, doneLinesDay, restampDoneLines } from './done-lines-index';
 import { generateDealNumberCode } from './deal-number.util';
 import { BALANCE_DUE_FILTER, hasBalanceDue } from './deal-balance';
 import { dayStartUtc, jobEndAt, shiftDay, type ReportDateSource } from './report/report-dates';
@@ -194,6 +205,34 @@ const INDEX_KEY_FIELDS: ReadonlySet<string> = new Set([
   'jobTimezone',
 ]);
 
+/**
+ * What `aggregateDealStats` reads of a deal (plus `stage`, which `toDeal`
+ * falls back on for a row without `superStatus`) — the dashboard's window read
+ * projects to these, not the ~4 KB METADATA row.
+ */
+export const DEAL_STATS_PROJECTION: readonly string[] = [
+  'id',
+  'status',
+  'superStatus',
+  'stage',
+  'createdAt',
+  'closedAt',
+  'scheduledDate',
+  'assignedTechIds',
+  'createdBy',
+  'jobTypeId',
+  'sourceId',
+  'serviceArea',
+  'address',
+  'totals',
+];
+
+/** Times a BatchGet asks again for keys DynamoDB left unprocessed. */
+const BATCH_GET_RETRIES = 5;
+
+/** How often a not-yet-ready NeedsInvoiceIndex is asked about again. */
+const NEEDS_INVOICE_READY_RECHECK_MS = 60_000;
+
 /** Which Jobs-report date a window read is on. */
 export type ReportWindowBy = 'created' | 'scheduled' | 'end';
 
@@ -346,6 +385,10 @@ export interface DealAssignment {
 export class DealsRepository {
   private readonly logger = new Logger(DealsRepository.name);
   private tableName = DEALS_TABLE;
+  /** `needsInvoiceIndexReady`'s answer and when it was read; `true` is kept for good. */
+  private needsInvoiceReady?: { ready: boolean; at: number };
+  /** Every attribute `toDeal` reads — derived from it, so the two never drift apart. */
+  private readonly dealFields: readonly string[] = Object.keys(this.toDeal({}));
 
   constructor(private readonly dynamoDb: DynamoDbService) {}
 
@@ -515,6 +558,7 @@ export class DealsRepository {
           ...statusScheduleKeys(deal),
           ...closedIndexKeys(deal),
           ...endIndexKeys(deal),
+          ...needsInvoiceKeys(deal as unknown as Record<string, unknown>),
           ...deal,
           ...dealSearchAttributes(deal as unknown as Record<string, unknown>),
         },
@@ -720,15 +764,58 @@ export class DealsRepository {
    * range. It reads every row of the range, so the caller keeps the range
    * bounded (a closed status without a window is never counted).
    */
-  /** `cap` — стеля: набравши стільки, лічильник спиняється, і число означає «не менше». */
   countBySchedule(
     superStatus: JobSuperStatus,
     window: ScheduleWindow,
     filters?: DealFilters,
-    cap?: number,
   ): Promise<number> {
     const key = this.scheduleKeyCondition(window);
-    return this.countOn(DEALS_GSI5_NAME, 'GSI5PK', 'GSI5SK', [`STATUS#${superStatus}`], key.expression, key.values, filters, cap);
+    return this.countOn(DEALS_GSI5_NAME, 'GSI5PK', 'GSI5SK', [`STATUS#${superStatus}`], key.expression, key.values, filters);
+  }
+
+  /**
+   * The same COUNT, bounded twice — for a closed status without a window,
+   * whose partition is the whole history (Canceled ≈ 246 k rows). It stops
+   * at `maxMatches` matches, and never reads more than `maxScanned` rows: a
+   * selective filter (a technician's own jobs, a rare tag) would otherwise
+   * walk the whole partition to find its few matches. `atLeast` says the
+   * number is a floor — either bound was hit with rows still unread.
+   */
+  async countByScheduleBounded(
+    superStatus: JobSuperStatus,
+    window: ScheduleWindow,
+    filters: DealFilters | undefined,
+    limits: { maxMatches: number; maxScanned: number },
+  ): Promise<{ count: number; atLeast: boolean }> {
+    const key = this.scheduleKeyCondition(window);
+    const f = this.dealFilterExpression(filters);
+    let count = 0;
+    let scanned = 0;
+    let lastKey: Record<string, unknown> | undefined;
+    do {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: DEALS_GSI5_NAME,
+          KeyConditionExpression: key.expression,
+          FilterExpression: f.expression,
+          ExpressionAttributeNames: this.expressionNames(key.expression, f.names, 'GSI5PK', 'GSI5SK'),
+          ExpressionAttributeValues: { ':pk': `STATUS#${superStatus}`, ...key.values, ...f.values },
+          Select: 'COUNT',
+          // The first read asks no more rows than the ceiling (an unfiltered
+          // count is done in it); later ones what is left of the budget.
+          Limit: scanned === 0 ? Math.min(limits.maxMatches, limits.maxScanned) : limits.maxScanned - scanned,
+          ExclusiveStartKey: lastKey,
+        }),
+      );
+      count += result.Count ?? 0;
+      scanned += result.ScannedCount ?? result.Count ?? 0;
+      lastKey = result.LastEvaluatedKey;
+      if (lastKey && (count >= limits.maxMatches || scanned >= limits.maxScanned)) {
+        return { count, atLeast: true };
+      }
+    } while (lastKey);
+    return { count, atLeast: false };
   }
 
   /** How many deals of one status were created in a span of days, under the list's filters. */
@@ -843,13 +930,53 @@ export class DealsRepository {
   }
 
   /**
+   * Every live deal of a dashboard window, read to its end and projected to
+   * `DEAL_STATS_PROJECTION` — the snapshot miss path of `/deals/stats/dashboard`
+   * (`DealsService.windowStats`), which used to page the jobs list a hundred
+   * full rows at a time. The very same rows that list returned:
+   *
+   * - `created` — the status index, six statuses, the window's Eastern days as
+   *   instants (`readReportWindow('created')`, exact).
+   * - `closed` — the sparse ClosedIndex, one partition a month, on the closing
+   *   instant (the list's `findByClosed` key range, walked to the end).
+   *
+   * Deleted rows never come back; a row read twice (a status move during the
+   * read) is kept once. Throws `ReportWindowTooLargeError` past the guard.
+   */
+  async readStatsWindow(by: 'created' | 'closed', from: string, to: string): Promise<Deal[]> {
+    let items: Record<string, unknown>[];
+    if (by === 'created') {
+      items = await this.readReportWindow('created', from, to, DEAL_STATS_PROJECTION);
+    } else {
+      const instants = accountDayInstants({ from, to });
+      const read = new WindowRead(this.dynamoDb, this.tableName, DEAL_STATS_PROJECTION);
+      await read.partitions(
+        DEALS_GSI6_NAME,
+        'GSI6PK',
+        'GSI6SK',
+        monthsOf(instants).map((m) => `CLOSED#${m}`),
+        '#pk = :pk AND #sk BETWEEN :from AND :to',
+        this.dayRangeValues(instants),
+      );
+      items = read.items;
+    }
+    const byId = new Map<string, Deal>();
+    for (const item of items) {
+      const deal = this.toDeal(item);
+      byId.set(deal.id, deal);
+    }
+    return [...byId.values()];
+  }
+
+  /**
    * The dispatch map's jobs, in one go: each status's partition of the
    * StatusScheduleIndex (`STATUS#<s>`, sorted by visit day) walked to its end,
    * every partition at once — no page cap, no cursor handed back. A read with
    * a `window` (Done / Canceled: hundreds of thousands of rows, only ever
    * wanted for the date box's days) is one query per visit day, all at once,
    * so a month of Canceled is thirty-odd small reads side by side rather than
-   * a dozen 1 MB pages one after another.
+   * a dozen 1 MB pages one after another; an open status with a window is one
+   * range read over its days.
    *
    * Projected to `DISPATCH_MAP_FIELDS`; deleted rows never come back; `techId`
    * (an `assigned_only` caller) narrows every partition to that technician's
@@ -870,7 +997,7 @@ export class DealsRepository {
       values[':techId'] = opts.techId;
     }
 
-    const walk = async (pk: string, day?: string): Promise<Record<string, unknown>[]> => {
+    const walk = async (pk: string, day?: string, lastDay: string | undefined = day): Promise<Record<string, unknown>[]> => {
       const items: Record<string, unknown>[] = [];
       let startKey: Record<string, unknown> | undefined;
       do {
@@ -886,7 +1013,7 @@ export class DealsRepository {
               ...values,
               ':pk': pk,
               // '#~~' sits above both a timed ('#09:00#…') and an all-day ('#~#…') row of the day.
-              ...(day && { ':from': `${day}#`, ':to': `${day}#~~` }),
+              ...(day && { ':from': `${day}#`, ':to': `${lastDay}#~~` }),
             },
             ScanIndexForward: true,
             ...(startKey && { ExclusiveStartKey: startKey }),
@@ -902,6 +1029,8 @@ export class DealsRepository {
       reads.map(async (read) => {
         const pk = `STATUS#${read.status}`;
         if (!read.window) return walk(pk);
+        // An open status is a few thousand rows at most: its window is one range read.
+        if (!CLOSED_SUPER_STATUSES.has(read.status)) return walk(pk, read.window.from, read.window.to);
         const days: string[] = [];
         for (let d = read.window.from; d <= read.window.to && days.length < 366; d = shiftDay(d, 1)) days.push(d);
         return (await Promise.all(days.map((d) => walk(pk, d)))).flat();
@@ -917,6 +1046,47 @@ export class DealsRepository {
       deals.push(deal);
     }
     return deals;
+  }
+
+  /**
+   * How many live jobs the statuses hold whatever their date — the dispatch
+   * map's "out of N open jobs" beside a read of only some days. `Select:
+   * COUNT` over each status partition of the StatusScheduleIndex, all at
+   * once, paged to the end; `techId` narrows it as `readMapJobs` does.
+   */
+  async countMapJobs(statuses: readonly JobSuperStatus[], opts: { techId?: string } = {}): Promise<number> {
+    const names: Record<string, string> = { '#pk': 'GSI5PK', '#status': 'status' };
+    const values: Record<string, unknown> = { ':active': DealStatus.ACTIVE };
+    let filter = '#status = :active';
+    if (opts.techId) {
+      filter += ' AND contains(#assignedTechIds, :techId)';
+      names['#assignedTechIds'] = 'assignedTechIds';
+      values[':techId'] = opts.techId;
+    }
+    const counts = await Promise.all(
+      statuses.map(async (status) => {
+        let count = 0;
+        let startKey: Record<string, unknown> | undefined;
+        do {
+          const res = await this.dynamoDb.client.send(
+            new QueryCommand({
+              TableName: this.tableName,
+              IndexName: DEALS_GSI5_NAME,
+              KeyConditionExpression: '#pk = :pk',
+              FilterExpression: filter,
+              ExpressionAttributeNames: names,
+              ExpressionAttributeValues: { ...values, ':pk': `STATUS#${status}` },
+              Select: 'COUNT',
+              ...(startKey && { ExclusiveStartKey: startKey }),
+            }),
+          );
+          count += res.Count ?? 0;
+          startKey = res.LastEvaluatedKey;
+        } while (startKey);
+        return count;
+      }),
+    );
+    return counts.reduce((a, b) => a + b, 0);
   }
 
   /** The key condition of a schedule window: a day span, the undated ones, or the whole partition. */
@@ -1114,7 +1284,6 @@ export class DealsRepository {
     keyCondition: string,
     keyValues: Record<string, unknown>,
     filters?: DealFilters,
-    cap?: number,
   ): Promise<number> {
     const f = this.dealFilterExpression(filters);
     const counts = await Promise.all(
@@ -1136,8 +1305,6 @@ export class DealsRepository {
           );
           count += result.Count ?? 0;
           lastKey = result.LastEvaluatedKey;
-          // Стеля перетнута — далі гортати нема сенсу: відповідь уже «не менше».
-          if (cap !== undefined && count >= cap) break;
         } while (lastKey);
         return count;
       }),
@@ -1265,6 +1432,101 @@ export class DealsRepository {
       items: page.items.map((i) => this.toDeal(i)),
       nextCursor: this.encodeCursor(page.lastKey),
     };
+  }
+
+  /**
+   * Every live deal, a page at a time — `GET /deals/internal/all`, read by the
+   * search backfill and billing's `rebuild:payment-report`.
+   *
+   * Walks the StageIndex (GSI1) partitions `STATUS#<superStatus>` in
+   * `SUPER_STATUS_ORDER`, one after the other, instead of Scanning a table
+   * that is mostly line items, assignments, timeline rows and catalogs. Every
+   * METADATA row carries GSI1PK (`create`, `update` on a status move, and the
+   * importer); a deal row WITHOUT GSI1PK is not on the index and is skipped
+   * here. Deleted deals are filtered out, as the Scan did (`status = active`).
+   *
+   * The cursor is opaque to callers: base64url JSON `{ s, k? }` — the index
+   * into `SUPER_STATUS_ORDER` and, mid-partition, the DynamoDB key to resume
+   * from. A cursor of any other shape (the old Scan's key) is refused rather
+   * than silently restarting the walk.
+   */
+  async listAllForIndex(limit: number, cursor?: string): Promise<PaginatedResult> {
+    const start = this.decodeIndexWalkCursor(cursor);
+    const f = this.dealFilterExpression();
+    const items: Record<string, unknown>[] = [];
+    let status = start.s;
+    let key = start.k;
+
+    while (status < SUPER_STATUS_ORDER.length && items.length < limit) {
+      const want = limit - items.length;
+      const page = await this.fillPartition(
+        {
+          TableName: this.tableName,
+          IndexName: DEALS_GSI1_NAME,
+          KeyConditionExpression: 'GSI1PK = :pk',
+          FilterExpression: f.expression,
+          ExpressionAttributeNames: f.names,
+          ExpressionAttributeValues: { ':pk': `STATUS#${SUPER_STATUS_ORDER[status]}`, ...f.values },
+        },
+        want,
+        key,
+      );
+
+      if (page.items.length > want) {
+        // Overshot: keep the page, resume right after its last row.
+        const kept = page.items.slice(0, want);
+        items.push(...kept);
+        const last = kept[kept.length - 1];
+        return {
+          items: items.map((i) => this.toDeal(i)),
+          nextCursor: this.encodeIndexWalkCursor(status, {
+            PK: last.PK, SK: last.SK, GSI1PK: last.GSI1PK, GSI1SK: last.GSI1SK,
+          }),
+        };
+      }
+
+      items.push(...page.items);
+      if (page.lastEvaluatedKey) {
+        // The partition goes on (the page is full, or the read budget ran out).
+        return {
+          items: items.map((i) => this.toDeal(i)),
+          nextCursor: this.encodeIndexWalkCursor(status, page.lastEvaluatedKey),
+        };
+      }
+      status += 1;
+      key = undefined;
+    }
+
+    return {
+      items: items.map((i) => this.toDeal(i)),
+      nextCursor: status < SUPER_STATUS_ORDER.length ? this.encodeIndexWalkCursor(status) : undefined,
+    };
+  }
+
+  private encodeIndexWalkCursor(status: number, key?: Record<string, unknown>): string {
+    return Buffer.from(JSON.stringify(key ? { s: status, k: key } : { s: status })).toString('base64url');
+  }
+
+  private decodeIndexWalkCursor(cursor?: string): { s: number; k?: Record<string, unknown> } {
+    if (!cursor) return { s: 0 };
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
+    } catch {
+      decoded = undefined;
+    }
+    const c = decoded as { s?: unknown; k?: unknown } | undefined;
+    if (
+      !c ||
+      typeof c !== 'object' ||
+      !Number.isInteger(c.s) ||
+      (c.s as number) < 0 ||
+      (c.s as number) > SUPER_STATUS_ORDER.length ||
+      (c.k !== undefined && (typeof c.k !== 'object' || c.k === null))
+    ) {
+      throw new BadRequestException('Invalid cursor');
+    }
+    return { s: c.s as number, k: c.k as Record<string, unknown> | undefined };
   }
 
   // ------------------------------------------------------------- assignments
@@ -1595,27 +1857,55 @@ export class DealsRepository {
    */
   async findByIds(ids: string[], filters?: DealFilters): Promise<Deal[]> {
     if (filters) return this.filterRows(await this.batchGetRows(ids), filters);
-    return (await this.batchGetRows(ids)).map((row) => this.toDeal(row));
+    // Without filters only `toDeal` reads the rows: fetch just its attributes,
+    // not the whole METADATA row (search halves, imported money, index keys).
+    return (await this.batchGetRows(ids, this.dealFields)).map((row) => this.toDeal(row));
   }
 
-  private async batchGetRows(ids: string[]): Promise<Record<string, unknown>[]> {
+  /**
+   * The METADATA rows of a set of ids, in the order asked, missing ones
+   * absent: BatchGet chunks of 100, side by side, each asking again for what
+   * DynamoDB left unprocessed (throttling, the 16 MB cap) — with a short
+   * backoff, a bounded number of times.
+   */
+  private async batchGetRows(ids: string[], projection?: readonly string[]): Promise<Record<string, unknown>[]> {
     if (!ids.length) return [];
-    const rows: Record<string, unknown>[] = [];
-    for (let i = 0; i < ids.length; i += 100) {
-      const chunk = ids.slice(i, i + 100);
-      const res = await this.dynamoDb.client.send(
-        new BatchGetCommand({
-          RequestItems: {
-            [this.tableName]: {
-              Keys: chunk.map((id) => ({ PK: `DEAL#${id}`, SK: 'METADATA' })),
-            },
-          },
-        }),
-      );
-      rows.push(...(res.Responses?.[this.tableName] ?? []));
-    }
+    const names: Record<string, string> = {};
+    const projected = projection
+      ?.map((attr, i) => {
+        names[`#f${i}`] = attr;
+        return `#f${i}`;
+      })
+      .join(', ');
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+    const parts = await Promise.all(
+      chunks.map(async (chunk) => {
+        const rows: Record<string, unknown>[] = [];
+        let keys: Record<string, unknown>[] = chunk.map((id) => ({ PK: `DEAL#${id}`, SK: 'METADATA' }));
+        for (let attempt = 0; keys.length; attempt++) {
+          if (attempt > 0) {
+            if (attempt > BATCH_GET_RETRIES) throw new Error(`BatchGet left ${keys.length} deal(s) unprocessed after ${BATCH_GET_RETRIES} retries`);
+            await new Promise((r) => setTimeout(r, 25 * 2 ** (attempt - 1)));
+          }
+          const res = await this.dynamoDb.client.send(
+            new BatchGetCommand({
+              RequestItems: {
+                [this.tableName]: {
+                  Keys: keys,
+                  ...(projected && { ProjectionExpression: projected, ExpressionAttributeNames: names }),
+                },
+              },
+            }),
+          );
+          rows.push(...(res.Responses?.[this.tableName] ?? []));
+          keys = (res.UnprocessedKeys?.[this.tableName]?.Keys as Record<string, unknown>[] | undefined) ?? [];
+        }
+        return rows;
+      }),
+    );
     // Preserve the tech-index order the caller asked for.
-    const byId = new Map(rows.map((r) => [r.id as string, r]));
+    const byId = new Map(parts.flat().map((r) => [r.id as string, r]));
     return ids.map((id) => byId.get(id)).filter((r): r is Record<string, unknown> => Boolean(r));
   }
 
@@ -1684,7 +1974,127 @@ export class DealsRepository {
     if (Object.keys(attrs).some((k) => DEAL_SEARCH_INPUTS.has(k))) {
       row = await this.restampSearch(id, row);
     }
+    // "Needs invoice" (GSI11) follows lines, the invoice link and deletion.
+    if (Object.keys(attrs).some((k) => NEEDS_INVOICE_INPUTS.has(k))) {
+      row = await this.restampNeedsInvoice(id, row);
+    }
+    // The Items report's Done-lines keys ride on the job's lines (GSI7).
+    if (Object.keys(attrs).some((k) => DONE_LINES_INPUTS.has(k))) {
+      await this.restampDoneLines(id, row);
+    }
     return this.toDeal(row);
+  }
+
+  /**
+   * Every line of the job filed under its Done day, or taken off the index —
+   * after a write that may have moved the job into or out of Done, or to
+   * another visit day (`deals/done-lines-index.ts`). The lines are read
+   * strongly consistent AFTER the job's write, so a line added in a race is
+   * either seen here or reads the new job itself. A job known to have no
+   * lines costs nothing. Best effort: the job is written already, and a
+   * failure costs the report until `backfill:done-lines-index` reconciles.
+   */
+  private async restampDoneLines(id: string, row: Record<string, unknown>): Promise<void> {
+    if (row.itemCount === 0) return;
+    try {
+      await restampDoneLines((c) => this.dynamoDb.client.send(c as never), this.tableName, id, doneLinesDay(row));
+    } catch (error) {
+      this.logger.warn(`done-lines keys of deal ${id} not restamped: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * The NeedsInvoiceIndex keys, recomputed from the whole row after a write
+   * that touched one of their inputs — and written only when they differ.
+   * The write is guarded on the inputs it was computed from: two writes in a
+   * race (a line added, the invoice linked) would otherwise each restamp from
+   * their own snapshot, and the slower one could leave a stale key behind.
+   * A lost race re-reads the row (consistent) and decides again.
+   */
+  private async restampNeedsInvoice(id: string, row: Record<string, unknown>): Promise<Record<string, unknown>> {
+    let current = row;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const plan = planNeedsInvoice(current);
+      if (plan.action === 'same') return current;
+      try {
+        const result = await this.dynamoDb.client.send(
+          new UpdateCommand({
+            TableName: this.tableName,
+            Key: { PK: `DEAL#${id}`, SK: 'METADATA' },
+            ...needsInvoiceWrite(current, plan),
+            ReturnValues: 'ALL_NEW',
+          }),
+        );
+        return result.Attributes ?? current;
+      } catch (error) {
+        if ((error as Error).name !== 'ConditionalCheckFailedException') throw error;
+        const fresh = await this.dynamoDb.client.send(
+          new GetCommand({ TableName: this.tableName, Key: { PK: `DEAL#${id}`, SK: 'METADATA' }, ConsistentRead: true }),
+        );
+        if (!fresh.Item) return current;
+        current = fresh.Item;
+      }
+    }
+    // Three races in a row: the backfill's reconcile puts it right.
+    this.logger.warn(`needs-invoice index of deal ${id} not restamped after 3 attempts`);
+    return current;
+  }
+
+  /**
+   * Whether the NeedsInvoiceIndex may be read: its readiness row
+   * (`NEEDSINVOICEINDEX / STATE`, stamped by the backfill's `--apply`) exists.
+   * Asked again at most once a minute while it does not; once it does, the
+   * answer is kept for the life of the process — it only ever flips to ready.
+   * A failed read counts as not ready.
+   */
+  async needsInvoiceIndexReady(now: number = Date.now()): Promise<boolean> {
+    const known = this.needsInvoiceReady;
+    if (known?.ready) return true;
+    if (known && now - known.at < NEEDS_INVOICE_READY_RECHECK_MS) return false;
+    let ready = false;
+    try {
+      const res = await this.dynamoDb.client.send(new GetCommand({ TableName: this.tableName, Key: { ...NEEDS_INVOICE_STATE_KEY } }));
+      ready = typeof res.Item?.readyAt === 'string';
+    } catch (error) {
+      this.logger.warn(`needs-invoice readiness unreadable — treated as not ready: ${(error as Error).message}`);
+    }
+    this.needsInvoiceReady = { ready, at: now };
+    return ready;
+  }
+
+  /**
+   * How many jobs need an invoice: the NeedsInvoiceIndex walked with
+   * `Select: COUNT` (a page is a megabyte of keys — tens of thousands of
+   * rows), no Scan.
+   */
+  async countNeedsInvoice(): Promise<number> {
+    let count = 0;
+    let startKey: Record<string, unknown> | undefined;
+    do {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: DEALS_GSI11_NAME,
+          KeyConditionExpression: 'GSI11PK = :pk',
+          ExpressionAttributeValues: { ':pk': NEEDS_INVOICE_PK },
+          Select: 'COUNT',
+          ...(startKey && { ExclusiveStartKey: startKey }),
+        }),
+      );
+      count += result.Count ?? 0;
+      startKey = result.LastEvaluatedKey;
+    } while (startKey);
+    return count;
+  }
+
+  /**
+   * A page of the jobs that need an invoice, newest first, off the
+   * NeedsInvoiceIndex. `filters` still apply on top (the list's other
+   * filters, and `status = active` — the index only ever holds live rows, so
+   * that one is a safety net, not a cost).
+   */
+  findNeedsInvoice(limit: number, cursor?: string, filters?: DealFilters): Promise<PaginatedResult> {
+    return this.onePartitionPage(DEALS_GSI11_NAME, 'GSI11PK', 'GSI11SK', NEEDS_INVOICE_PK, limit, cursor, filters);
   }
 
   /**

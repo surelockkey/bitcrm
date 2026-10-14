@@ -231,6 +231,12 @@ export function createMockDealsRepository() {
     findByCreated: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     findByClosed: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     findAll: jest.fn(),
+    // "Needs invoice" off the sparse NeedsInvoiceIndex (GSI11).
+    findNeedsInvoice: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
+    countNeedsInvoice: jest.fn().mockResolvedValue(0),
+    // Ready unless a test says otherwise (the NEEDSINVOICEINDEX / STATE row exists).
+    needsInvoiceIndexReady: jest.fn().mockResolvedValue(true),
+    listAllForIndex: jest.fn(),
     update: jest.fn(),
     reassignContact: jest.fn(),
     // The client's half of the jobs-list search (deal-search.ts).
@@ -258,6 +264,7 @@ export function createMockDealsRepository() {
     findByIds: jest.fn(),
     findBySchedule: jest.fn(),
     countBySchedule: jest.fn(),
+    countByScheduleBounded: jest.fn().mockResolvedValue({ count: 0, atLeast: false }),
   };
 }
 
@@ -288,6 +295,8 @@ export function createMockDealsCacheService() {
     get: jest.fn(),
     set: jest.fn(),
     invalidate: jest.fn(),
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
   };
 }
 

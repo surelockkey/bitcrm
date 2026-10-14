@@ -155,7 +155,7 @@ function compare(label: string, workiz: Partial<ItemsReportTotals> & { items: nu
 async function throughTheService(pkg: Package, from: string, to: string, expected: ItemsReportTotals): Promise<void> {
   const indexes = new InMemoryReportIndexes(pkg.near);
   const repository = new DealsRepository(indexes.dynamoDb as never);
-  const lines = { linesOf: async (ids: string[]) => new Map(ids.filter((id) => pkg.lines.has(id)).map((id) => [id, pkg.lines.get(id)!])) };
+  const lines = { linesOfWindow: async () => null, linesOf: async (ids: string[]) => new Map(ids.filter((id) => pkg.lines.has(id)).map((id) => [id, pkg.lines.get(id)!])) };
   const http = {
     getProductsForReport: async (ids: string[]) => new Map(ids.filter((id) => pkg.products.has(id)).map((id) => [id, pkg.products.get(id)!])),
     getUserNamesBatch: async () => [],

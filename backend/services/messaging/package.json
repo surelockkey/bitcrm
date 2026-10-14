@@ -12,7 +12,9 @@
     "test:integration": "NODE_OPTIONS='--experimental-vm-modules' jest --config test/integration/jest-integration.json",
     "test:e2e": "NODE_OPTIONS='--experimental-vm-modules' jest --config test/e2e/jest-e2e.json --forceExit",
     "test:all": "npm test && npm run test:integration && npm run test:e2e",
-    "setup:dynamodb": "ts-node src/scripts/setup-dynamodb.ts"
+    "setup:dynamodb": "ts-node src/scripts/setup-dynamodb.ts",
+    "backfill:automation-specs": "ts-node src/scripts/backfill-automation-specs.ts",
+    "backfill:tech-scope": "ts-node src/scripts/backfill-tech-scope.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",

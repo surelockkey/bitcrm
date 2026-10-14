@@ -20,6 +20,7 @@ import {
   type JwtUser,
 } from '@bitcrm/types';
 import { DealsRepository, type DealUpdate } from '../deals.repository';
+import { isMissingIndexError } from '../needs-invoice-index';
 import { DealsCacheService } from '../deals-cache.service';
 import { DealsService } from '../deals.service';
 import { assertDealInScope } from '../deal-scope';
@@ -90,9 +91,17 @@ interface StockMove {
  * the billing service builds invoices/estimates from. All money math goes
  * through `calculateDocumentTotals` so the API, web and PDFs agree.
  */
+
+/** Billing's "needs invoice" count, shared by every task for this long. */
+const NEEDS_INVOICE_COUNT_KEY = 'deal:needs-invoice:count';
+const NEEDS_INVOICE_COUNT_TTL_SECONDS = 30;
+const NEEDS_INVOICE_PAGE_DEFAULT = 100;
+const NEEDS_INVOICE_PAGE_MAX = 500;
+
 @Injectable()
 export class DealBillingService {
   private readonly logger = new Logger(DealBillingService.name);
+  private needsInvoiceMissingLogged = false;
 
   constructor(
     private readonly repository: DealsRepository,
@@ -213,17 +222,25 @@ export class DealBillingService {
 
   async getBillingView(id: string): Promise<DealBillingView> {
     const deal = await this.deals.findById(id);
-    const items = await this.productsRepo.findByDeal(id);
+    // Everything else hangs off the deal alone, so it is read side by side:
+    // the lines, the job type's name and — from the local eligibility
+    // projection, no user-service hop — every technician in one BatchGet.
+    const [items, jobTypeName, techs] = await Promise.all([
+      this.productsRepo.findByDeal(id),
+      this.jobTypes
+        .findById(deal.jobTypeId)
+        .then((t) => t.name)
+        .catch(() => undefined),
+      deal.assignedTechIds.length
+        ? this.eligibility.getMany(deal.assignedTechIds).catch(() => [])
+        : Promise.resolve([]),
+    ]);
 
-    const jobTypeName = await this.jobTypes
-      .findById(deal.jobTypeId)
-      .then((t) => t.name)
-      .catch(() => undefined);
-
-    // Names come from the local eligibility projection — no user-service hop.
+    // BatchGet answers in no particular order; the names keep the job's.
+    const byId = new Map(techs.map((t) => [t.technicianId, t]));
     const technicianNames: string[] = [];
     for (const techId of deal.assignedTechIds) {
-      const tech = await this.eligibility.get(techId).catch(() => null);
+      const tech = byId.get(techId);
       const name = [tech?.firstName, tech?.lastName].filter(Boolean).join(' ').trim();
       if (name) technicianNames.push(name);
     }
@@ -368,6 +385,57 @@ export class DealBillingService {
     });
 
     return { items: await this.productsRepo.findByDeal(id), deal: updated };
+  }
+
+  /**
+   * How many jobs need an invoice — billing's invoice summary card. One
+   * COUNT walk of the NeedsInvoiceIndex, kept thirty seconds in Redis (shared
+   * by every task): the card is minutes-fresh at worst, never a Scan. A Redis
+   * that cannot answer costs the cache, not the count.
+   *
+   * 404 until the index is ready (`assertNeedsInvoiceReady`) — billing falls
+   * back to its old path on a 404, never shows a number from a half-built index.
+   */
+  async needsInvoiceCount(): Promise<number> {
+    await this.assertNeedsInvoiceReady();
+    const cached = await this.cache.getJson<number>(NEEDS_INVOICE_COUNT_KEY).catch(() => null);
+    if (typeof cached === 'number') return cached;
+    const count = await this.onNeedsInvoiceIndex(() => this.repository.countNeedsInvoice());
+    await this.cache.setJson(NEEDS_INVOICE_COUNT_KEY, count, NEEDS_INVOICE_COUNT_TTL_SECONDS).catch(() => undefined);
+    return count;
+  }
+
+  /**
+   * A page of the jobs that need an invoice, newest first, off the
+   * NeedsInvoiceIndex — the same `Deal` rows the public
+   * `GET /deals?needsInvoice=true` answers. No data scope here: billing
+   * scopes what it shows. 404 until the index is ready, as the count.
+   */
+  async listNeedsInvoice(limit: string | number | undefined, cursor: string | undefined): Promise<{ items: Deal[]; nextCursor?: string }> {
+    await this.assertNeedsInvoiceReady();
+    const n = Math.min(Math.max(Math.floor(Number(limit)) || NEEDS_INVOICE_PAGE_DEFAULT, 1), NEEDS_INVOICE_PAGE_MAX);
+    return this.onNeedsInvoiceIndex(() => this.repository.findNeedsInvoice(n, cursor || undefined));
+  }
+
+  /** The readiness row (`NEEDSINVOICEINDEX / STATE`) is stamped by the backfill; until then, 404. */
+  private async assertNeedsInvoiceReady(): Promise<void> {
+    if (!(await this.repository.needsInvoiceIndexReady())) {
+      throw new NotFoundException('The needs-invoice index is not ready on this environment yet');
+    }
+  }
+
+  /** A Query on a GSI the table does not have (Terraform not applied) is "not ready" — a 404, logged once — never a 500. */
+  private async onNeedsInvoiceIndex<T>(read: () => Promise<T>): Promise<T> {
+    try {
+      return await read();
+    } catch (error) {
+      if (!isMissingIndexError(error)) throw error;
+      if (!this.needsInvoiceMissingLogged) {
+        this.needsInvoiceMissingLogged = true;
+        this.logger.warn(`NeedsInvoiceIndex missing — answering 404: ${(error as Error).message}`);
+      }
+      throw new NotFoundException('The needs-invoice index is not ready on this environment yet');
+    }
   }
 
   /** Billing marks the job invoiced (invoiceId === dealId) or un-invoiced (null). */

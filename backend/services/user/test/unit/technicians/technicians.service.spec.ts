@@ -78,6 +78,36 @@ describe('TechniciansService (unit)', () => {
     });
   });
 
+  describe('getProfile — phone and photo resolved together', () => {
+    it('reads the user record and the photo document concurrently, and merges both', async () => {
+      const docs = { getByType: jest.fn() };
+      const s3 = { getPresignedDownloadUrl: jest.fn().mockResolvedValue('https://x/photo.jpg') };
+      const withPhoto = new TechniciansService(
+        repo as never, cache as never, roles as never, geocoding as never, users as never,
+        sns as never, undefined, undefined, undefined, docs as never, s3 as never,
+      );
+      cache.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
+      let releaseUser!: () => void;
+      users.findById.mockImplementation(
+        () => new Promise((resolve) => (releaseUser = () => resolve({ id: 'tech-1', phone: '+15551112222' }))),
+      );
+      docs.getByType.mockResolvedValue({ s3Key: 'k/photo.jpg' });
+
+      const answer = withPhoto.getProfile('tech-1', caller('role-admin'));
+      for (let i = 0; i < 10 && !docs.getByType.mock.calls.length; i++) {
+        await new Promise((r) => setImmediate(r));
+      }
+      // The photo lookup started while the user read is still outstanding.
+      expect(docs.getByType).toHaveBeenCalledWith('tech-1', 'profile_photo');
+      releaseUser();
+
+      await expect(answer).resolves.toMatchObject({
+        phone: '+15551112222',
+        profilePhotoUrl: 'https://x/photo.jpg',
+      });
+    });
+  });
+
   describe('updateProfile', () => {
     it('lets a technician edit their own self-fill fields and publishes tech.updated', async () => {
       repo.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));

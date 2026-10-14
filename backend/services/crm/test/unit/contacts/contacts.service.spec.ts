@@ -166,12 +166,12 @@ describe('ContactsService', () => {
   describe('list', () => {
     it('should delegate to repository with query params', async () => {
       const contacts = [createMockContact()];
-      repository.findAll.mockResolvedValue({ items: contacts, nextCursor: undefined });
+      repository.findActive.mockResolvedValue({ items: contacts, nextCursor: undefined });
 
       const result = await service.list({ limit: 20 });
 
       expect(result).toEqual({ items: contacts, nextCursor: undefined });
-      expect(repository.findAll).toHaveBeenCalledWith(20, undefined);
+      expect(repository.findActive).toHaveBeenCalledWith(20, undefined);
     });
 
     it('should use findByCompany when companyId provided', async () => {
@@ -185,11 +185,11 @@ describe('ContactsService', () => {
 
     // Workiz's "Filter results" → TAGS: a client with ANY of the picked tags.
     it('narrows the list to the picked client tags (comma-separated, trimmed)', async () => {
-      repository.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+      repository.findActive.mockResolvedValue({ items: [], nextCursor: undefined });
 
       await service.list({ limit: 10, tagIds: 'tag-1, tag-2,' });
 
-      expect(repository.findAll).toHaveBeenCalledWith(10, undefined, { tagIds: ['tag-1', 'tag-2'] });
+      expect(repository.findActive).toHaveBeenCalledWith(10, undefined, { tagIds: ['tag-1', 'tag-2'] });
     });
 
     it('narrows a company roster by tags too', async () => {
@@ -370,7 +370,7 @@ describe('ContactsService', () => {
 
   describe('count', () => {
     it('counts the whole list when no company is picked', async () => {
-      repository.countAll.mockResolvedValue({ total: 585, atLeast: false });
+      repository.countActive.mockResolvedValue({ total: 585, atLeast: false });
 
       expect(await service.count({})).toEqual({ total: 585, atLeast: false });
     });
@@ -379,27 +379,27 @@ describe('ContactsService', () => {
       repository.countByCompany.mockResolvedValue({ total: 7, atLeast: false });
 
       expect(await service.count({ companyId: 'comp-1' })).toEqual({ total: 7, atLeast: false });
-      expect(repository.countAll).not.toHaveBeenCalled();
+      expect(repository.countActive).not.toHaveBeenCalled();
     });
 
     it('answers a repeat from the cache', async () => {
-      repository.countAll.mockResolvedValue({ total: 585, atLeast: false });
+      repository.countActive.mockResolvedValue({ total: 585, atLeast: false });
 
       await service.count({});
       await service.count({});
 
-      expect(repository.countAll).toHaveBeenCalledTimes(1);
+      expect(repository.countActive).toHaveBeenCalledTimes(1);
     });
 
     it('counts the tagged list with the same tags the list was narrowed by', async () => {
-      repository.countAll.mockResolvedValue({ total: 268, atLeast: false });
+      repository.countActive.mockResolvedValue({ total: 268, atLeast: false });
 
       expect(await service.count({ tagIds: 'tag-1,tag-2' })).toEqual({ total: 268, atLeast: false });
-      expect(repository.countAll).toHaveBeenCalledWith({ tagIds: ['tag-1', 'tag-2'] });
+      expect(repository.countActive).toHaveBeenCalledWith({ tagIds: ['tag-1', 'tag-2'] });
     });
 
     it('keeps a tagged count apart from the whole count in the cache', async () => {
-      repository.countAll
+      repository.countActive
         .mockResolvedValueOnce({ total: 585, atLeast: false })
         .mockResolvedValueOnce({ total: 12, atLeast: false });
 

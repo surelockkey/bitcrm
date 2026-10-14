@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
+  BatchGetCommand,
   DeleteCommand,
   GetCommand,
   PutCommand,
@@ -14,15 +15,73 @@ import {
   type CountRowsResult,
 } from '@bitcrm/shared';
 import { type User, UserStatus } from '@bitcrm/types';
-import { USERS_TABLE, GSI1_NAME, GSI2_NAME } from './constants/dynamo.constants';
+import {
+  USERS_TABLE,
+  GSI1_NAME,
+  GSI2_NAME,
+  GSI3_NAME,
+  ALL_USERS_GSI_PK,
+  ALL_USERS_INDEX_STATE_KEY,
+  allUsersGsiSk,
+} from './constants/dynamo.constants';
 
 interface PaginatedResult {
   items: User[];
   nextCursor?: string;
 }
 
+/** The projection `findNamesByIds` reads — a name join and nothing more. */
+export interface UserNameRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  workizName?: string;
+}
+
+/**
+ * Exactly the attributes `toUser` reads — a list read projected to these
+ * returns the same `User` as a full-row read, minus the GSI keys and anything
+ * else a user row carries. Keep in step with `toUser`.
+ */
+const USER_ATTRIBUTES = [
+  'id', 'cognitoSub', 'email', 'firstName', 'lastName', 'workizName', 'roleId', 'department',
+  'phone', 'fieldTeamMember', 'userType', 'smsMfaEnabled', 'status', 'permissionOverrides',
+  'createdAt', 'updatedAt',
+] as const;
+const USER_PROJECTION = {
+  ProjectionExpression: USER_ATTRIBUTES.map((_, i) => `#ua${i}`).join(', '),
+  ExpressionAttributeNames: Object.fromEntries(USER_ATTRIBUTES.map((a, i) => [`#ua${i}`, a])),
+};
+
+/** BatchGetItem's hard limit on keys per request. */
+const BATCH_GET_MAX_KEYS = 100;
+/** Re-asks for `UnprocessedKeys` before a chunk settles for what it has. */
+const BATCH_GET_MAX_RETRIES = 5;
+const BATCH_GET_BACKOFF_MS = 20;
+
+/** How long a "not ready" answer about the all-users index is trusted. */
+const ALL_USERS_READY_RECHECK_MS = 60_000;
+
+/**
+ * Whether a list cursor was issued by `findAllIndexed` (its key names the
+ * index partition) rather than by the table Scan. The cursor picks the path,
+ * so a walk begun on one never continues on the other.
+ */
+export function isAllUsersIndexCursor(cursor?: string): boolean {
+  if (!cursor) return false;
+  try {
+    const key = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
+    return key?.GSI3PK === ALL_USERS_GSI_PK;
+  } catch {
+    return false;
+  }
+}
+
 @Injectable()
 export class UsersRepository {
+  private readonly logger = new Logger(UsersRepository.name);
+  private allUsersIndexState?: { ready: boolean; at: number };
+
   constructor(private readonly dynamoDb: DynamoDbService) {}
 
   async create(user: User): Promise<void> {
@@ -36,6 +95,8 @@ export class UsersRepository {
           GSI1SK: `USER#${user.id}`,
           GSI2PK: `DEPT#${user.department}`,
           GSI2SK: `USER#${user.id}`,
+          GSI3PK: ALL_USERS_GSI_PK,
+          GSI3SK: allUsersGsiSk(user.id),
           ...user,
         },
         ConditionExpression: 'attribute_not_exists(PK)',
@@ -53,6 +114,66 @@ export class UsersRepository {
 
     if (!result.Item) return null;
     return this.toUser(result.Item);
+  }
+
+  /**
+   * Names for a set of ids: `USER#<id> / METADATA`, BatchGetItem in chunks of
+   * 100 run in parallel, projected to `id, firstName, lastName, workizName`.
+   *
+   * Answers in no particular order and simply leaves out ids with no row.
+   * Throttled keys (`UnprocessedKeys`) are re-asked with a short exponential
+   * backoff; a chunk that still has some after the retries, or that throws,
+   * costs only its own names — one bad read must not cost the caller every
+   * other teammate's name.
+   */
+  async findNamesByIds(ids: string[]): Promise<UserNameRow[]> {
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += BATCH_GET_MAX_KEYS) {
+      chunks.push(ids.slice(i, i + BATCH_GET_MAX_KEYS));
+    }
+    const answers = await Promise.all(
+      chunks.map((chunk) =>
+        this.batchGetNames(chunk).catch((err: Error) => {
+          this.logger.warn(`names-by-ids: a chunk of ${chunk.length} failed (${err.message})`);
+          return [] as UserNameRow[];
+        }),
+      ),
+    );
+    return answers.flat();
+  }
+
+  private async batchGetNames(ids: string[]): Promise<UserNameRow[]> {
+    const rows: UserNameRow[] = [];
+    let keys: Record<string, unknown>[] = ids.map((id) => ({ PK: `USER#${id}`, SK: 'METADATA' }));
+
+    for (let attempt = 0; keys.length > 0; attempt++) {
+      if (attempt > 0) {
+        if (attempt > BATCH_GET_MAX_RETRIES) {
+          this.logger.warn(`names-by-ids: ${keys.length} key(s) still unprocessed, left out`);
+          break;
+        }
+        await new Promise((r) => setTimeout(r, BATCH_GET_BACKOFF_MS * 2 ** (attempt - 1)));
+      }
+      const result = await this.dynamoDb.client.send(
+        new BatchGetCommand({
+          RequestItems: {
+            [USERS_TABLE]: {
+              Keys: keys,
+              ProjectionExpression: '#id, #fn, #ln, #wn',
+              ExpressionAttributeNames: {
+                '#id': 'id',
+                '#fn': 'firstName',
+                '#ln': 'lastName',
+                '#wn': 'workizName',
+              },
+            },
+          },
+        }),
+      );
+      rows.push(...((result.Responses?.[USERS_TABLE] ?? []) as UserNameRow[]));
+      keys = result.UnprocessedKeys?.[USERS_TABLE]?.Keys ?? [];
+    }
+    return rows;
   }
 
   async findByRole(
@@ -164,6 +285,54 @@ export class UsersRepository {
       items: page.items.map(this.toUser),
       nextCursor: this.encodeCursor(page.lastKey),
     };
+  }
+
+  /**
+   * One page of every user, off the all-users index (`USERS#ALL` on
+   * TechnicianIndex): a Query of exactly `limit` rows, projected to the user
+   * fields — the same `User`s and the same opaque-cursor contract as
+   * `findAll`, without reading the technicians' other rows. Ordered by id.
+   * Read only once `allUsersIndexReady()`, or to continue its own cursor.
+   */
+  async findAllIndexed(limit: number, cursor?: string): Promise<PaginatedResult> {
+    const result = await this.dynamoDb.client.send(
+      new QueryCommand({
+        TableName: USERS_TABLE,
+        IndexName: GSI3_NAME,
+        KeyConditionExpression: 'GSI3PK = :pk',
+        ExpressionAttributeValues: { ':pk': ALL_USERS_GSI_PK },
+        ...USER_PROJECTION,
+        Limit: limit,
+        ExclusiveStartKey: this.decodeCursor(cursor),
+      }),
+    );
+    return {
+      items: (result.Items || []).map(this.toUser),
+      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+    };
+  }
+
+  /**
+   * Whether the all-users index may be read: `USERSALLINDEX / STATE` (stamped
+   * by `backfill:users-all-index -- --apply`) exists. Asked again at most once
+   * a minute while it does not; once it does, kept for the life of the
+   * process. A failed read counts as not ready.
+   */
+  async allUsersIndexReady(now: number = Date.now()): Promise<boolean> {
+    const known = this.allUsersIndexState;
+    if (known?.ready) return true;
+    if (known && now - known.at < ALL_USERS_READY_RECHECK_MS) return false;
+    let ready = false;
+    try {
+      const res = await this.dynamoDb.client.send(
+        new GetCommand({ TableName: USERS_TABLE, Key: { ...ALL_USERS_INDEX_STATE_KEY } }),
+      );
+      ready = typeof res?.Item?.readyAt === 'string';
+    } catch (error) {
+      this.logger.warn(`all-users index readiness unreadable — treated as not ready: ${(error as Error).message}`);
+    }
+    this.allUsersIndexState = { ready, at: now };
+    return ready;
   }
 
   /**
@@ -357,6 +526,7 @@ export class UsersRepository {
           IndexName: GSI1_NAME,
           KeyConditionExpression: 'GSI1PK = :pk',
           ExpressionAttributeValues: { ':pk': `ROLE_USER#${roleId}` },
+          ...USER_PROJECTION,
           ExclusiveStartKey: lastKey,
         }),
       );

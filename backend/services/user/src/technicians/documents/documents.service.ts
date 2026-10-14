@@ -195,17 +195,27 @@ export class DocumentsService {
 
   private async isPrivileged(caller: JwtUser): Promise<boolean> {
     if (!caller.roleId) throw new ForbiddenException('User has no roleId assigned');
+    // The reference role is asked for alongside the caller's, but only awaited
+    // where the old sequential code read it: a Super Admin never depends on it
+    // (a missing reference role must not 404 them), anyone else gets its error.
+    const techRead = this.rolesService.findById(TECHNICIAN_ROLE_ID);
+    techRead.catch(() => undefined);
     const role = await this.rolesService.findById(caller.roleId);
     if (role.isSystem && role.name === 'Super Admin') return true;
-    const tech = await this.rolesService.findById(TECHNICIAN_ROLE_ID);
+    const tech = await techRead;
     return role.priority > tech.priority;
   }
 
   private async isAdmin(caller: JwtUser): Promise<boolean> {
     if (!caller.roleId) throw new ForbiddenException('User has no roleId assigned');
+    // The reference role is asked for alongside the caller's, but only awaited
+    // where the old sequential code read it: a Super Admin never depends on it
+    // (a missing reference role must not 404 them), anyone else gets its error.
+    const adminRead = this.rolesService.findById(ADMIN_ROLE_ID);
+    adminRead.catch(() => undefined);
     const role = await this.rolesService.findById(caller.roleId);
     if (role.isSystem && role.name === 'Super Admin') return true;
-    const admin = await this.rolesService.findById(ADMIN_ROLE_ID);
+    const admin = await adminRead;
     return role.priority >= admin.priority;
   }
 

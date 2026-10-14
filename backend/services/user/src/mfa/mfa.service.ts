@@ -108,10 +108,16 @@ export class MfaService {
   /** After the password: the tokens themselves, or a challenge that holds them back. */
   async gate(tokens: LoginResponse): Promise<LoginResponse | SmsMfaChallenge | MfaSetupChallenge> {
     const userId = userIdOf(tokens.idToken);
-    const user = userId ? await this.repository.findById(userId) : null;
+    if (!userId) return tokens;
+    // Two independent reads on every sign-in: side by side. The settings are
+    // read fresh every time — a cached copy would let other tasks skip a
+    // just-switched-on "Require 2FA".
+    const [user, settings] = await Promise.all([
+      this.repository.findById(userId),
+      this.security.getSettings(),
+    ]);
     if (!user) return tokens;
 
-    const settings = await this.security.getSettings();
     const required = settings.requireMfa && !isSubcontractor(user);
     if (!user.smsMfaEnabled && !required) return tokens;
 

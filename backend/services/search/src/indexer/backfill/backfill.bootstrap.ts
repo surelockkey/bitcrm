@@ -4,9 +4,16 @@ import { BackfillService } from './backfill.service';
 /**
  * Runs the index backfill automatically on boot when ENABLE_SEARCH_BACKFILL=true.
  * Non-blocking (not awaited) so it never delays startup or health checks; the
- * backfill is idempotent (upsert-only) so a re-run per task start is safe.
- * Set the flag on exactly one always-on task in prod (or trigger via
- * POST /api/search/internal/reindex) to avoid redundant scans.
+ * backfill is idempotent (upsert-only), so a re-run is safe — but not cheap.
+ *
+ * OFF by default in deployed environments: `render-taskdef.sh` does not set the
+ * flag. A full backfill pages every service's internal list routes (e.g.
+ * inventory's 46k-row product catalog); running it on every task start meant a
+ * re-index on every deploy (31 in one week) that flooded the other services.
+ * The SQS indexer keeps the index fresh; run the backfill deliberately — after a
+ * Workiz import or a mapping change — via `npm run backfill -w
+ * backend/services/search` or POST /api/search/internal/reindex. Turn this flag
+ * on only for a one-off, on exactly one task.
  */
 @Injectable()
 export class BackfillBootstrap implements OnModuleInit {

@@ -36,11 +36,12 @@ import {
   type ListCount,
   type UserType,
 } from '@bitcrm/types';
-import { UsersRepository } from './users.repository';
+import { UsersRepository, isAllUsersIndexCursor } from './users.repository';
 import { UsersCacheService } from './users-cache.service';
 import { TechniciansRepository } from '../technicians/technicians.repository';
 import { TechniciansCacheService } from '../technicians/technicians-cache.service';
 import { TechnicianAssignmentsRepository } from '../technicians/assignments/technician-assignments.repository';
+import { readApprovedAssignments } from '../technicians/assignments/approved-assignments.cache';
 import { CommissionRepository } from '../technicians/commission/commission.repository';
 import { buildDefaultCommission } from '../technicians/commission/commission.defaults';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -106,6 +107,10 @@ function isRename(
   );
 }
 
+/** Page sizes for draining the whole directory: the Scan filters most rows away, the index does not. */
+const DRAIN_PAGE_SCAN = 200;
+const DRAIN_PAGE_INDEX = 1000;
+
 /** How long a list count stays good enough. Matches the deals tab counts. */
 const COUNT_TTL_SECONDS = 30;
 @Injectable()
@@ -156,10 +161,15 @@ export class UsersService implements OnModuleInit {
       return [];
     }
 
-    const [users, jobTypes, areas, profiles] = await Promise.all([
+    // Three reads in parallel: the directory (the all-users index once it is
+    // ready — one or two Queries, no Scan), the approved assignments (the
+    // shared `technicians:assignments:approved` cache, cleared by every
+    // assignment write), the technician profiles (TechnicianIndex). Not cached
+    // as a whole: deal-service DELETES whoever is missing from this answer, so
+    // it is read fresh.
+    const [users, approved, profiles] = await Promise.all([
       this.listAllUsers(),
-      this.assignmentsRepository.listAllApproved('job_type'),
-      this.assignmentsRepository.listAllApproved('service_area'),
+      readApprovedAssignments(this.assignmentsRepository, this.redis, this.logger),
       this.listAllTechnicianProfiles(),
     ]);
 
@@ -169,8 +179,8 @@ export class UsersService implements OnModuleInit {
       byTech.set(userId, entry);
       return entry;
     };
-    for (const a of jobTypes) bucket(a.userId).jobTypeIds.push(a.catalogId);
-    for (const a of areas) bucket(a.userId).serviceAreaIds.push(a.catalogId);
+    for (const a of approved.jobTypes) bucket(a.userId).jobTypeIds.push(a.jobTypeId);
+    for (const a of approved.serviceAreas) bucket(a.userId).serviceAreaIds.push(a.serviceAreaId);
 
     const homeByTech = new Map(profiles.map((p) => [p.userId, p.homeAddress]));
 
@@ -254,14 +264,35 @@ export class UsersService implements OnModuleInit {
    * as the profiles below.
    */
   private async listAllUsers(): Promise<User[]> {
+    const indexed = await this.repository.allUsersIndexReady();
     const all: User[] = [];
     let cursor: string | undefined;
     do {
-      const page = await this.repository.findAll(200, cursor);
+      const page = indexed
+        ? await this.repository.findAllIndexed(DRAIN_PAGE_INDEX, cursor)
+        : await this.repository.findAll(DRAIN_PAGE_SCAN, cursor);
       all.push(...page.items);
       cursor = page.nextCursor;
     } while (cursor && all.length < 5000);
     return all;
+  }
+
+  /**
+   * One page of every user. The cursor decides the path when there is one —
+   * a walk never changes horses — and the all-users index's readiness when
+   * there is not: `USERS#ALL` on TechnicianIndex once
+   * `backfill:users-all-index` has stamped it, the table Scan before.
+   */
+  private async pageAllUsers(
+    limit: number,
+    cursor?: string,
+  ): Promise<{ items: User[]; nextCursor?: string }> {
+    const indexed = cursor
+      ? isAllUsersIndexCursor(cursor)
+      : await this.repository.allUsersIndexReady();
+    return indexed
+      ? this.repository.findAllIndexed(limit, cursor)
+      : this.repository.findAll(limit, cursor);
   }
 
   /**
@@ -515,7 +546,7 @@ export class UsersService implements OnModuleInit {
         query.cursor,
       );
     } else {
-      result = await this.repository.findAll(limit, query.cursor);
+      result = await this.pageAllUsers(limit, query.cursor);
     }
 
     return {
@@ -565,13 +596,14 @@ export class UsersService implements OnModuleInit {
 
   /**
    * Unfiltered, cursor-paginated user listing for internal consumers such as
-   * the search-service backfill/indexer. Thin passthrough to the repository.
+   * the search-service backfill/indexer, telephony's directory and messaging's
+   * role lookups. The cursor is opaque: callers only hand it back.
    */
   async findAll(
     limit: number,
     cursor?: string,
   ): Promise<{ items: User[]; nextCursor?: string }> {
-    return this.repository.findAll(limit, cursor);
+    return this.pageAllUsers(limit, cursor);
   }
 
   /**
@@ -726,16 +758,14 @@ export class UsersService implements OnModuleInit {
       .slice(0, MAX_NAME_LOOKUP);
     if (wanted.length === 0) return [];
 
-    const found = await Promise.all(
-      wanted.map((id) =>
-        this.repository
-          .findById(id)
-          // One unreadable row must not cost the caller every other name.
-          .catch(() => null),
-      ),
+    // One BatchGetItem per 100 ids, answered in no particular order — put the
+    // names back in the order the caller asked for.
+    const byId = new Map(
+      (await this.repository.findNamesByIds(wanted)).map((u) => [u.id, u]),
     );
 
-    return found
+    return wanted
+      .map((id) => byId.get(id))
       .filter((u): u is NonNullable<typeof u> => Boolean(u))
       .map((u) => ({
         id: u.id,

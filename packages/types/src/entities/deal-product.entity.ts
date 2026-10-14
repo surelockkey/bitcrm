@@ -17,7 +17,8 @@ export type DealProductFulfillment =
 /**
  * Where the line's client price came from:
  * - `catalog`  — the product's list price, unchanged.
- * - `override` — set by hand within the ±15% band the add-item dialog enforces.
+ * - `override` — set by hand; the add-item dialog holds a technician to the
+ *   ±15% band, the office to nothing (web `priceBandBinds`).
  * - `imported` — recorded by Workiz. 128 460 of the 156 612 matched historical
  *   lines differ from today's catalog price and 110 865 sit outside ±15%, so
  *   the band must not judge them.

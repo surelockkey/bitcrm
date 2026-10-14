@@ -1,5 +1,6 @@
 import { Logger, Module, OnModuleInit, Optional } from '@nestjs/common';
 import { SqsConsumerService } from '@bitcrm/shared';
+import { TechScopeModule } from '../tech-scope/tech-scope.module';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { CrmContactsClient } from '../outbound/internal/crm-contacts.client';
 import { ContactEventsHandler } from './contact-events.handler';
@@ -17,7 +18,8 @@ import { ContactPointersRepository } from './contact-pointers.repository';
  * still be picked up, the map is read per message.
  */
 @Module({
-  imports: [ConversationsModule],
+  // TechScopeModule: the technician inbox scope (C4) a merge renames the contact in.
+  imports: [ConversationsModule, TechScopeModule],
   providers: [ContactPointersRepository, CrmContactsClient, ContactEventsHandler],
   exports: [ContactEventsHandler],
 })

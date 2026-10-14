@@ -34,6 +34,7 @@ describe('UsersService — search across the whole directory', () => {
       findAll: jest.fn(async (_limit: number, cursor?: string) =>
         cursor === 'p2' ? { items: directory.slice(3) } : { items: directory.slice(0, 3), nextCursor: 'p2' },
       ),
+      allUsersIndexReady: jest.fn().mockResolvedValue(false),
       findByRoleId: jest.fn(),
       findByStatus: jest.fn(),
       findByDepartment: jest.fn(),

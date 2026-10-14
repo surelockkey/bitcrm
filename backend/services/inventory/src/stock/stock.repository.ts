@@ -10,11 +10,12 @@ import {
   TransactWriteCommand,
   type TransactWriteCommandInput,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService, RedisService } from '@bitcrm/shared';
+import { DynamoDbService, RedisService, SnsPublisherService } from '@bitcrm/shared';
 import { type StockItem } from '@bitcrm/types';
 import { INVENTORY_TABLE } from '../common/constants/dynamo.constants';
 import { productCacheKey } from '../products/products-cache.service';
 import { batchGetAll } from '../common/utils/batch-get';
+import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import {
   guessStockRowVariant,
   stockRowVariant,
@@ -65,7 +66,9 @@ function cancellationReasons(error: unknown): string[] | null {
  * has no total yet (written before the attribute existed, until
  * `backfill:location-totals` / `backfill:product-onhand` has run) is left
  * alone rather than given a wrong number. The product's Redis cache entry is
- * dropped afterwards.
+ * dropped afterwards, and — when `onHand` moved — `product.updated` is
+ * published (`fields: ['onHand']`) so search rebuilds the product document:
+ * the Price Book's stock-level filter reads `productList.stockLevel` there.
  */
 @Injectable()
 export class StockRepository {
@@ -74,6 +77,7 @@ export class StockRepository {
   constructor(
     private readonly dynamoDb: DynamoDbService,
     @Optional() private readonly redis?: RedisService,
+    @Optional() private readonly snsPublisher?: SnsPublisherService,
   ) {}
 
   async getStockLevel(
@@ -299,13 +303,22 @@ export class StockRepository {
       }
     }
 
-    if (!onHand || !this.redis) return;
-    try {
-      await this.redis.client.del(productCacheKey(onHand.productId));
-    } catch (err) {
-      this.logger.warn(
-        `Product cache eviction failed for ${onHand.productId}: ${(err as Error).message}`,
-      );
+    if (!onHand) return;
+    if (this.redis) {
+      try {
+        await this.redis.client.del(productCacheKey(onHand.productId));
+      } catch (err) {
+        this.logger.warn(
+          `Product cache eviction failed for ${onHand.productId}: ${(err as Error).message}`,
+        );
+      }
+    }
+    // After the eviction, so the indexer's re-fetch reads the new onHand.
+    if (withOnHand) {
+      publishInventoryEvent(this.snsPublisher, this.logger, 'product.updated', {
+        productId: onHand.productId,
+        fields: ['onHand'],
+      });
     }
   }
 

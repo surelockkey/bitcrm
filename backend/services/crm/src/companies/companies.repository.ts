@@ -113,14 +113,19 @@ export class CompaniesRepository {
 
   /** The company owning this (already normalized) number, if any. */
   async findByPhone(normalizedPhone: string): Promise<Company | null> {
+    const companyId = await this.findIdByPhone(normalizedPhone);
+    return companyId ? this.findById(companyId) : null;
+  }
+
+  /** The company id the `PHONE#<e164> / COMPANY` pointer names, without reading the company. */
+  async findIdByPhone(normalizedPhone: string): Promise<string | null> {
     const result = await this.dynamoDb.client.send(
       new GetCommand({
         TableName: this.tableName,
         Key: { PK: `PHONE#${normalizedPhone}`, SK: 'COMPANY' },
       }),
     );
-    const companyId = result.Item?.companyId as string | undefined;
-    return companyId ? this.findById(companyId) : null;
+    return (result.Item?.companyId as string | undefined) || null;
   }
 
   async findByClientType(

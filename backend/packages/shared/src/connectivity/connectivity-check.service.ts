@@ -14,6 +14,14 @@ import { DependencyMetricsService } from './dependency-metrics.service';
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_INTERVAL_MS = 30_000;
+const DEFAULT_PEER_SETTLE_INTERVAL_MS = 2_000;
+const DEFAULT_PEER_SETTLE_TIMEOUT_MS = 30_000;
+
+/** Something is down, and every failure is a peer service (an `http` probe). */
+function onlyPeersDown(results: ProbeResult[]): boolean {
+  const down = results.filter((r) => !r.ok);
+  return down.length > 0 && down.every((r) => r.kind === 'http');
+}
 
 @Injectable()
 export class ConnectivityCheckService
@@ -21,6 +29,7 @@ export class ConnectivityCheckService
 {
   private readonly logger = new Logger('Connectivity');
   private timer: NodeJS.Timeout | null = null;
+  private settleTimer: NodeJS.Timeout | null = null;
   private lastResults: ProbeResult[] = [];
   private lastRunAt: number | null = null;
 
@@ -47,9 +56,12 @@ export class ConnectivityCheckService
   async onApplicationBootstrap(): Promise<void> {
     if (this.probes.length === 0) return;
     const results = await this.runAll();
-    this.logSummary(results);
     this.metrics?.update(this.options.serviceName ?? 'unknown', results);
     this.failFastIfNeeded(results);
+    // Never awaited: this hook runs before app.listen(), so waiting here would
+    // keep this service from answering the peers that are waiting on it.
+    if (onlyPeersDown(results)) this.settlePeers(Date.now());
+    else this.logSummary(results);
     this.startPeriodic();
   }
 
@@ -58,6 +70,27 @@ export class ConnectivityCheckService
       clearInterval(this.timer);
       this.timer = null;
     }
+    if (this.settleTimer) {
+      clearTimeout(this.settleTimer);
+      this.settleTimer = null;
+    }
+  }
+
+  /** Re-probes until the peers answer or the deadline passes, then prints the report once. */
+  private settlePeers(startedAt: number): void {
+    const every = this.options.peerSettleIntervalMs ?? DEFAULT_PEER_SETTLE_INTERVAL_MS;
+    const deadline = startedAt + (this.options.peerSettleTimeoutMs ?? DEFAULT_PEER_SETTLE_TIMEOUT_MS);
+    this.settleTimer = setTimeout(async () => {
+      this.settleTimer = null;
+      const results = await this.runAll();
+      this.metrics?.update(this.options.serviceName ?? 'unknown', results);
+      if (onlyPeersDown(results) && Date.now() < deadline) {
+        this.settlePeers(startedAt);
+      } else {
+        this.logSummary(results);
+      }
+    }, every);
+    this.settleTimer.unref?.();
   }
 
   private startPeriodic(): void {

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  BatchGetCommand,
   DeleteCommand,
   GetCommand,
   PutCommand,
@@ -200,6 +201,10 @@ const sameIds = (a: string[] | undefined, b: string[]) =>
 
 /** `countMessagesAfter` never reads past this many rows; the UI shows "99+". */
 export const UNREAD_COUNT_CAP = 99;
+
+/** `BatchGetItem` takes at most 100 keys a request. */
+const BATCH_GET_MAX = 100;
+const BATCH_GET_ATTEMPTS = 5;
 
 /**
  * Conversations in the messaging table (design §3.2–3.5, §6):
@@ -641,6 +646,38 @@ export class ConversationsRepository {
     return pointer ? this.get(pointer.conversationId) : null;
   }
 
+  /**
+   * A8 for many parties at once — the `assigned_only` inbox: one BatchGet of
+   * the `CONVOF#` pointers, then one of the conversations they name (100 keys
+   * a request, the requests side by side). Keyed `<kind>:<id>`; a party with
+   * no thread (or a dangling pointer) is absent. Same answer as `getByParty`
+   * per party, in two round trips instead of two per party.
+   */
+  async getManyByParty(
+    parties: ReadonlyArray<{ kind: ConversationPointerKind; id: string }>,
+  ): Promise<Map<string, Conversation>> {
+    const out = new Map<string, Conversation>();
+    if (parties.length === 0) return out;
+    const pointerItems = await this.batchGet(parties.map((p) => ({ PK: convOfPk(p.kind, p.id), SK: METADATA_SK })));
+    const pointers = new Map<string, ConversationPointer>();
+    for (const item of pointerItems) pointers.set(item.PK as string, stripKeys<ConversationPointer>(item));
+
+    const ids = [...new Set([...pointers.values()].map((p) => p.conversationId).filter(Boolean))];
+    const conversationItems = await this.batchGet(ids.map((id) => ({ PK: conversationPk(id), SK: METADATA_SK })));
+    const byId = new Map<string, Conversation>();
+    for (const item of conversationItems) {
+      const c = toConversation(item);
+      byId.set(c.id, c);
+    }
+
+    for (const p of parties) {
+      const pointer = pointers.get(convOfPk(p.kind, p.id));
+      const c = pointer ? byId.get(pointer.conversationId) : undefined;
+      if (c) out.set(`${p.kind}:${p.id}`, c);
+    }
+    return out;
+  }
+
   /** A9: `GetItem ADDR#<e164|email>/METADATA` — the inbound routing hit. */
   async getByAddress(address: string): Promise<ConversationAddressPointer | null> {
     const res = await this.dynamoDb.client.send(
@@ -869,6 +906,36 @@ export class ConversationsRepository {
   }
 
   /** Every row of one conversation partition under a sort-key prefix (`MEMBER#`, `READ#`). */
+  /**
+   * `BatchGetItem` over any number of keys: duplicates dropped, 100 a
+   * request, the requests side by side, `UnprocessedKeys` asked again (with
+   * a short backoff) until DynamoDB has answered them all.
+   */
+  private async batchGet(keys: Array<{ PK: string; SK: string }>): Promise<Record<string, unknown>[]> {
+    const unique = [...new Map(keys.map((k) => [`${k.PK}|${k.SK}`, k])).values()];
+    const chunks: Array<Array<{ PK: string; SK: string }>> = [];
+    for (let i = 0; i < unique.length; i += BATCH_GET_MAX) chunks.push(unique.slice(i, i + BATCH_GET_MAX));
+    const parts = await Promise.all(
+      chunks.map(async (chunk) => {
+        const items: Record<string, unknown>[] = [];
+        let pending: Record<string, unknown>[] = chunk;
+        for (let attempt = 0; pending.length; attempt++) {
+          if (attempt >= BATCH_GET_ATTEMPTS) {
+            throw new Error(`BatchGet left ${pending.length} key(s) unprocessed after ${BATCH_GET_ATTEMPTS} attempts`);
+          }
+          if (attempt > 0) await new Promise((r) => setTimeout(r, 20 * 2 ** attempt));
+          const res = await this.dynamoDb.client.send(
+            new BatchGetCommand({ RequestItems: { [this.tableName]: { Keys: pending } } }),
+          );
+          items.push(...((res.Responses?.[this.tableName] ?? []) as Record<string, unknown>[]));
+          pending = (res.UnprocessedKeys?.[this.tableName]?.Keys ?? []) as Record<string, unknown>[];
+        }
+        return items;
+      }),
+    );
+    return parts.flat();
+  }
+
   private async queryPartition(conversationId: string, prefix: string): Promise<Record<string, unknown>[]> {
     const items: Record<string, unknown>[] = [];
     let startKey: Record<string, unknown> | undefined;

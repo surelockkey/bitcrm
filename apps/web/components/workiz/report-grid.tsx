@@ -255,11 +255,16 @@ export function WzReportGrid<R>({
   // Workiz's dots sit 340px down ten of its own 56/57px blanks; over taller rows, the grid's middle.
   const workizBlanks = minRows === MIN_ROWS && (rowHeight === undefined || rowHeight <= 57);
   const headRef = useRef<HTMLDivElement>(null);
+  // Columns the reader can drag are at least as wide as they add up to: a
+  // single fixed-layout table dragged past its frame widened the PAGE, which
+  // then scrolled sideways with white space beside its header (2026-10-14).
+  const resizeWidth = resize ? columns.reduce((sum, c) => sum + resize.widthOf(c.id), 0) : 0;
+  const tableWidth = Math.max(minTableWidth ?? 0, resizeWidth) || undefined;
   // Wider than its frame, the grid is two tables on the same columns: the
   // header in a pinned box, the rows in the one sideways scroller (as
   // `WzScrollGrid`); otherwise one table, as it always was.
-  const split = Boolean(minTableWidth);
-  const tableStyle = minTableWidth ? { minWidth: minTableWidth } : undefined;
+  const split = Boolean(tableWidth);
+  const tableStyle = tableWidth ? { minWidth: tableWidth } : undefined;
   const colgroup = (
     <colgroup>
       {columns.map((c) => {

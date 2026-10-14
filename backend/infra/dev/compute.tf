@@ -367,6 +367,25 @@ data "aws_iam_policy_document" "task_telephony" {
     actions   = ["sns:Publish", "sns:GetTopicAttributes"]
     resources = [module.sns_sqs.topic_arns["call-events"]]
   }
+
+  # deal-events → `dealTotal` on linked calls (CallDealEventsHandler).
+  statement {
+    sid       = "ConsumeDealEvents"
+    effect    = "Allow"
+    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+    resources = [module.sns_sqs.queue_arns["deal-events-to-telephony"]]
+  }
+
+  # Call recordings in the app bucket, under calls/: the audio imported from
+  # Workiz (read) and Twilio recordings copied after their webhook
+  # (calls/recordings/<callSid>/<recordingSid>.mp3 — written, then read or
+  # presigned for the player). The bucket is SSE-S3, so no KMS grant.
+  statement {
+    sid       = "CallRecordings"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["${module.s3_app.arn}/calls/*"]
+  }
 }
 
 # messaging-svc: DDB messaging + S3 messaging/* (SSE-KMS) + SNS message-events
@@ -580,6 +599,44 @@ locals {
 
 # ---------- ECS services ----------
 
+# Sizing per service (perf Phase A, A8). One 0.25-vCPU task queued bursts of
+# 4-8 concurrent requests on its single event loop, so every service gets
+# half a vCPU. This is a development/testing environment, so everything stays
+# on one Spot task (~$51/month for all eight). Memory peaked at 23% of 2 GB; it
+# stays 2048 because that is what runs: render-taskdef.sh bumps every task to
+# 2048 when the Alloy sidecar is present (cpu 512 would allow 1024 — change it
+# there and here together).
+#
+# cpu/memory here only shape the placeholder task definition; the running one
+# comes from services/<svc>/taskdef.json, whose "cpu" must say the same.
+#
+# When real users arrive: give deal, user and crm (every screen needs them)
+# desired_count = 2 so a Spot reclaim or a crash no longer takes the app down
+# (~+$19/month on Spot), or capacity_provider = "FARGATE" (on-demand, ~+$45 for
+# one task each). Two tasks were audited as safe: their boot jobs (eligibility
+# reconcile, role seed, technician-profile/commission and fulfillment/coverage
+# self-heals) are idempotent, the dashboard snapshot takes a Redis lock, live
+# deal events fan out over Redis pub/sub, and SQS consumers share the queue.
+# Switching capacity_provider on a live service needs a forced deployment —
+# see the variable's description in modules/ecs-service.
+locals {
+  service_sizing_defaults = {
+    cpu               = 512
+    memory            = 2048
+    capacity_provider = "FARGATE_SPOT"
+    desired_count     = 1
+    max_capacity      = 2
+  }
+
+  # e.g. deal = { desired_count = 2 } or deal = { capacity_provider = "FARGATE" }
+  service_sizing_overrides = {}
+
+  service_sizing = {
+    for name in keys(local.services) :
+    name => merge(local.service_sizing_defaults, lookup(local.service_sizing_overrides, name, {}))
+  }
+}
+
 module "ecs_service" {
   source   = "../modules/ecs-service"
   for_each = local.services
@@ -600,4 +657,13 @@ module "ecs_service" {
   service_sg_id = module.network.service_sg_id
 
   task_role_policy_json = local.task_role_policies[each.key]
+
+  cpu               = local.service_sizing[each.key].cpu
+  memory            = local.service_sizing[each.key].memory
+  capacity_provider = local.service_sizing[each.key].capacity_provider
+  # desired_count only applies at creation (the module ignores later changes);
+  # min_capacity is what holds an existing service at that count.
+  desired_count = local.service_sizing[each.key].desired_count
+  min_capacity  = local.service_sizing[each.key].desired_count
+  max_capacity  = max(local.service_sizing[each.key].max_capacity, local.service_sizing[each.key].desired_count)
 }

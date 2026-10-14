@@ -264,3 +264,36 @@ describe('ContactEventsHandler.onContactUpdated', () => {
     expect(conversations.update).not.toHaveBeenCalled();
   });
 });
+
+describe('ContactEventsHandler — the inbox name cache (B5)', () => {
+  it('contact.updated drops the contact\'s cached name, thread or not, so a rename shows on the next page', async () => {
+    const { FakeRedis, fakeRedisService } = await import('../fake-redis');
+    const { partyNameKey } = await import('../../../src/api/access/party-names.service');
+    const redis = new FakeRedis();
+    redis.write(partyNameKey('contact', 'ct1'), JSON.stringify({ n: 'Old Name' }), 'EX', 600);
+    const { conversations, pointers, crm } = makeHandler();
+    const handler = new ContactEventsHandler(conversations as any, pointers as any, crm as any, fakeRedisService(redis));
+
+    await handler.onContactUpdated({ contactId: 'ct1' });
+
+    expect(redis.peek(partyNameKey('contact', 'ct1'))).toBeNull();
+  });
+});
+
+describe('ContactEventsHandler.onContactMerged — the technician inbox scope (C4)', () => {
+  it('renames the duplicate to the survivor in the stored scope, then hands the thread over', async () => {
+    const conversations = { getPointer: jest.fn(async () => null) };
+    const techScope = { onContactMerged: jest.fn(async () => undefined) };
+    const handler = new ContactEventsHandler(conversations as any, {} as any, {} as any, undefined, techScope as any);
+    await handler.onContactMerged({ oldContactId: 'dup', newContactId: 'win' });
+    expect(techScope.onContactMerged).toHaveBeenCalledWith('dup', 'win');
+    expect(conversations.getPointer).toHaveBeenCalledWith('contact', 'dup');
+  });
+
+  it('a malformed payload touches neither', async () => {
+    const techScope = { onContactMerged: jest.fn(async () => undefined) };
+    const handler = new ContactEventsHandler({} as any, {} as any, {} as any, undefined, techScope as any);
+    await handler.onContactMerged({ oldContactId: 'dup' });
+    expect(techScope.onContactMerged).not.toHaveBeenCalled();
+  });
+});

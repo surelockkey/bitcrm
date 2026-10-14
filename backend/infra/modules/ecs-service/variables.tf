@@ -44,18 +44,48 @@ variable "port" {
 }
 
 variable "cpu" {
-  type    = number
-  default = 256
+  description = <<-EOT
+    Task CPU units for the PLACEHOLDER task definition only. The task
+    definitions that actually run are registered by CI from
+    services/<svc>/taskdef.json (+ scripts/render-taskdef.sh), and the service
+    ignores task_definition changes — keep the two in step by hand.
+  EOT
+  type        = number
+  default     = 256
 }
 
 variable "memory" {
-  type    = number
-  default = 1024
+  description = "Task memory (MiB) for the placeholder task definition — see `cpu`."
+  type        = number
+  default     = 1024
+}
+
+variable "capacity_provider" {
+  description = <<-EOT
+    FARGATE_SPOT (default, ~70% cheaper, interruptible) or FARGATE (on-demand)
+    for the services the UI cannot do without. The AWS provider changes the
+    capacity provider of an existing service only together with a forced
+    deployment: when switching one, add `force_new_deployment = true` to
+    aws_ecs_service.main for that apply (it rolls onto the task definition CI
+    registered), then remove it again.
+  EOT
+  type        = string
+  default     = "FARGATE_SPOT"
+
+  validation {
+    condition     = contains(["FARGATE", "FARGATE_SPOT"], var.capacity_provider)
+    error_message = "capacity_provider must be FARGATE or FARGATE_SPOT."
+  }
 }
 
 variable "desired_count" {
-  type    = number
-  default = 1
+  description = <<-EOT
+    Task count at CREATION only: the service ignores desired_count afterwards
+    (lifecycle.ignore_changes), so on an existing service the lever is
+    min_capacity on the autoscaling target — keep min_capacity >= this.
+  EOT
+  type        = number
+  default     = 1
 }
 
 variable "min_capacity" {

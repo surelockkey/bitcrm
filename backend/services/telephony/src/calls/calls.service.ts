@@ -11,6 +11,7 @@ import {
   RedisService,
   cachedCount,
   countCacheKey,
+  type CountRowsResult,
 } from '@bitcrm/shared';
 import {
   CALL_TAG_LIMITS,
@@ -25,7 +26,13 @@ import {
   CallTagsConflictError,
   type CallRecord,
   type CallStatus,
+  type ListCallsFilter,
+  type UpsertOutcome,
 } from './calls.repository';
+import { CallCountersRepository, monthFullyCovered } from './call-counters.repository';
+import { CallFinalizer } from './call-finalizer';
+import { RecordingArchiveService } from './recording-archive.service';
+import { monthsDescending } from '../common/constants/dynamo.constants';
 import { CallEventsBus } from './call-events.bus';
 import { DealLinkService } from '../common/deal-link.service';
 import { NumberSettingsRepository } from '../numbers/number-settings.repository';
@@ -34,6 +41,7 @@ import { CallTagsService } from '../call-tags/call-tags.service';
 import { callFlowSeries } from './call-flow-series';
 import { CallsSummaryTally, SUMMARY_ATTRIBUTES, type CallsSummary, type SummaryCall } from './call-summary';
 import { DealTotalsClient } from '../common/deal-totals.client';
+import { StoredDealTotals } from './stored-deal-totals';
 
 /** What `PATCH /calls/:sid/tags` carries: ids to put on, ids to take off. */
 export interface CallTagsChange {
@@ -153,7 +161,38 @@ export class CallsService {
     @Optional() private readonly callFlows?: CallFlowsService,
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly dealTotals?: DealTotalsClient,
+    /** Names, freezes and lists a call once it has ended (write path). */
+    @Optional() private readonly finalizer?: CallFinalizer,
+    /** Per-month call counters (`CALLCOUNT`) behind the unfiltered count. */
+    @Optional() private readonly counters?: CallCountersRepository,
+    /** Copies a finished recording from Twilio into our bucket. */
+    @Optional() private readonly recordings?: RecordingArchiveService,
   ) {}
+
+  /**
+   * Move the month counters on the two transitions `upsert` reports: a row
+   * entering the log (+1, unless it is a hidden internal leg) and a counted
+   * row turning out to be one (−1). Fire-and-forget: a counter is never worth
+   * failing a call write for; `recount:calls` corrects any drift.
+   */
+  private countWrite(outcome: UpsertOutcome | undefined, record: CallRecord): void {
+    if (!this.counters || !outcome) return;
+    let month: string | undefined;
+    let delta = 0;
+    if (outcome.created && !record.internalLegOf) {
+      month = record.startedAt.slice(0, 7);
+      delta = 1;
+    } else if (outcome.becameInternal) {
+      month = (outcome.startedAt ?? record.startedAt).slice(0, 7);
+      delta = -1;
+    }
+    if (!month || !delta) return;
+    this.counters
+      .bump(month, delta)
+      .catch((err) =>
+        this.logger.warn(`Call counter ${month} ${delta > 0 ? '+' : ''}${delta} lost: ${err instanceof Error ? err.message : err}`),
+      );
+  }
 
   /**
    * Call-tracking attribution: the tracked number a call came through
@@ -274,7 +313,7 @@ export class CallsService {
       startedAt: update.startedAt ?? existing?.startedAt ?? now,
       updatedAt: now,
     };
-    await this.repo.upsert(record);
+    this.countWrite(await this.repo.upsert(record), record);
     const merged: CallRecord = {
       ...existing,
       ...record,
@@ -302,6 +341,8 @@ export class CallsService {
       });
     }
     if (status && statusRank(status) === 4 && existing?.status !== status) {
+      // Name, freeze and list the call — once, off the webhook's path.
+      if (!merged.internalLegOf) this.finalizer?.schedule(merged.callSid);
       const direction = merged.direction ?? 'unknown';
       this.businessMetrics?.callsCompleted.inc({ direction, status });
       if (merged.durationSeconds !== undefined) {
@@ -323,6 +364,8 @@ export class CallsService {
       });
     }
     if (update.recordingSid && !existing?.recordingSid) {
+      // Copy the audio into our bucket in the background (webhook queue).
+      if (!merged.recordingKey) this.recordings?.schedule(merged.callSid, update.recordingSid);
       this.bus?.publish({ type: 'call.recording_ready', call: merged });
       this.publishSns(CallEventType.CALL_RECORDING_READY, {
         callSid: merged.callSid,
@@ -334,28 +377,19 @@ export class CallsService {
   }
 
   /**
-   * Freeze who a finished call was with. One-shot at the repository level, so
-   * calling it again is harmless — which is what makes it safe to trigger
-   * from a read path.
-   */
-  freezeParties(
-    callSid: string,
-    parties: Parameters<CallsRepository['setParties']>[1],
-    startedAt: string,
-  ) {
-    return this.repo.setParties(callSid, parties, startedAt, 'auto');
-  }
-
-  /**
    * A person correcting who a call was with. Overwrites whatever automatic
-   * resolution decided and marks the record so it is never re-derived.
+   * resolution decided and marks the record so it is never re-derived — and
+   * rewrites the Search box's names to match (best effort).
    */
-  setPartiesManually(
+  async setPartiesManually(
     callSid: string,
     parties: Parameters<CallsRepository['setParties']>[1],
     startedAt: string,
-  ) {
-    return this.repo.setParties(callSid, parties, startedAt, 'manual');
+  ): Promise<void> {
+    await this.repo.setParties(callSid, parties, startedAt, 'manual');
+    await this.finalizer?.restampNames(callSid).catch((err) =>
+      this.logger.warn(`Call ${callSid}: search names not restamped: ${err instanceof Error ? err.message : err}`),
+    );
   }
 
   /**
@@ -384,15 +418,6 @@ export class CallsService {
       .catch(() => undefined);
   }
 
-  /**
-   * Put both sides' folded names on the row, for the Search box. Called
-   * fire-and-forget from the read path once a finished call has been named;
-   * a failure only means the next read tries again.
-   */
-  stampPartyNames(callSid: string, partyNames: string): Promise<void> {
-    return this.repo.setPartyNames(callSid, partyNames);
-  }
-
   /** Attach a call to a job, or detach it, and tell the job about it. */
   async linkDeal(
     callSid: string,
@@ -403,7 +428,12 @@ export class CallsService {
     if (!before) return null;
 
     await this.repo.setDeal(callSid, dealId, actor.id);
+    await this.reindexDealLink(callSid, before.dealId, dealId);
     const after = await this.repo.getBySid(callSid);
+    // The job's total rides on the call for the reports — read after the
+    // answer, best effort: a failure leaves it unset, and the reports ask
+    // deal-service for exactly the rows that carry none.
+    if (dealId) void this.stampDealTotal(callSid, dealId);
 
     // The job's activity feed is the other half of the link. Best-effort: a
     // deal-service hiccup must not lose the link itself.
@@ -429,6 +459,53 @@ export class CallsService {
       this.bus?.publish({ type: 'call.upserted', call: after });
     }
     return after;
+  }
+
+  /**
+   * Keep the `DEALCALLS#<dealId>` adjacency in step with the link. Never fails
+   * the link: a missing row only means deal-events skip this call until the
+   * next link change or `backfill:call-deal-totals`.
+   */
+  private async reindexDealLink(
+    callSid: string,
+    previous: string | undefined,
+    next: string | null,
+  ): Promise<void> {
+    try {
+      if (previous && previous !== next) await this.repo.unindexDealLink(previous, callSid);
+      if (next) await this.repo.indexDealLink(next, callSid);
+    } catch (err) {
+      this.logger.warn(
+        `Call ${callSid}: job index not updated (${previous ?? '-'} → ${next ?? '-'}): ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  /** Read one job's total and stamp it on one call. Never throws. */
+  async stampDealTotal(callSid: string, dealId: string): Promise<void> {
+    if (!this.dealTotals) return;
+    try {
+      const total = await this.dealTotals.totalOf(dealId);
+      await this.repo.setDealTotal(callSid, dealId, total, new Date().toISOString());
+    } catch (err) {
+      this.logger.warn(
+        `Call ${callSid}: total of job ${dealId} not stamped: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  /**
+   * A deal-event said job `dealId` may have a new total: read it once and
+   * restamp every call filed under the job. Returns how many calls are filed.
+   * Throws when deal-service cannot answer, so the SQS message is retried.
+   */
+  async refreshDealTotals(dealId: string): Promise<number> {
+    const sids = await this.repo.callSidsForDeal(dealId);
+    if (!sids.length || !this.dealTotals) return sids.length;
+    const total = await this.dealTotals.totalOf(dealId);
+    const at = new Date().toISOString();
+    await Promise.all(sids.map((sid) => this.repo.setDealTotal(sid, dealId, total, at)));
+    return sids.length;
   }
 
   /**
@@ -565,7 +642,7 @@ export class CallsService {
    * the biggest table in the app, and a dispatcher changes filters constantly.
    */
   async count(filter: Parameters<CallsRepository['count']>[0]): Promise<ListCount> {
-    const take = () => this.repo.count(filter);
+    const take = async () => (await this.countFromCounters(filter)) ?? this.repo.count(filter);
     if (!this.redis) return take();
     return cachedCount(
       this.redis.client,
@@ -573,6 +650,37 @@ export class CallsService {
       COUNT_TTL_SECONDS,
       take,
     );
+  }
+
+  /**
+   * An unfiltered or date-only count off the month counters: the months the
+   * window covers whole are read from `CALLCOUNT`, the edge months of a date
+   * window are walked (in parallel). Null — walk the log as before — for any
+   * other filter, or while the counters have not been recounted.
+   */
+  private async countFromCounters(filter: ListCallsFilter): Promise<CountRowsResult | null> {
+    if (!this.counters) return null;
+    const keys = Object.keys(filter).filter((k) => filter[k as keyof ListCallsFilter] !== undefined);
+    if (keys.some((k) => k !== 'dateFrom' && k !== 'dateTo')) return null;
+    try {
+      if (!(await this.counters.ready())) return null;
+      const months = monthsDescending(filter.dateFrom, filter.dateTo);
+      if (!months.length) return { total: 0, atLeast: false };
+      const whole = months.filter((m) => monthFullyCovered(m, filter.dateFrom, filter.dateTo));
+      const edges = months.filter((m) => !whole.includes(m));
+      const [stored, walked] = await Promise.all([
+        whole.length
+          ? this.counters.months(whole[whole.length - 1], whole[0])
+          : Promise.resolve(new Map<string, number>()),
+        edges.length ? this.repo.count(filter, { months: edges }) : Promise.resolve({ total: 0, atLeast: false }),
+      ]);
+      let total = walked.total;
+      for (const m of whole) total += stored.get(m) ?? 0;
+      return { total, atLeast: walked.atLeast };
+    } catch (err) {
+      this.logger.warn(`Calls count: counters unavailable, walking — ${err instanceof Error ? err.message : err}`);
+      return null;
+    }
   }
 
   /**
@@ -599,19 +707,26 @@ export class CallsService {
     }
 
     const tally = new CallsSummaryTally();
-    const { atLeast } = await this.repo.walkSelection(filter, SUMMARY_ATTRIBUTES, (row) =>
-      tally.add(row as unknown as SummaryCall),
-    );
+    const stored = new StoredDealTotals();
+    const { atLeast } = await this.repo.walkSelection(filter, SUMMARY_ATTRIBUTES, (row) => {
+      tally.add(row as unknown as SummaryCall);
+      stored.add(row);
+    });
 
     let totals: ReadonlyMap<string, number> | undefined;
     let keep = true;
     if (opts.withRevenue) {
+      // The rows carry their job's total; deal-service is asked only for the
+      // jobs whose rows have none yet (old data, before the backfill).
       const ids = tally.dealIds();
+      const missing = stored.missing(ids);
       if (!ids.length) {
         totals = new Map();
+      } else if (!missing.length) {
+        totals = stored.totals;
       } else if (this.dealTotals) {
         try {
-          totals = await this.dealTotals.totals(ids);
+          totals = stored.merged(await this.dealTotals.totals(missing));
         } catch (err) {
           keep = false;
           this.logger.warn(`Calls summary: job totals unavailable — ${(err as Error).message}`);
@@ -768,7 +883,10 @@ export class CallsService {
       updatedAt: now,
     };
 
-    await this.repo.upsert(record);
+    this.countWrite(await this.repo.upsert(record), record);
+    if (isTerminalStatus(reported) && existing?.status !== reported && !isTerminalStatus(existing?.status)) {
+      this.finalizer?.schedule(params.CallSid);
+    }
   }
 
   listByParty(kind: string, id: string, limit: number, cursor?: string) {

@@ -80,3 +80,74 @@ describe('ItemsReportRepository.linesOf', () => {
     expect(dynamoDb.client.send).not.toHaveBeenCalled();
   });
 });
+
+describe('ItemsReportRepository — the Done-lines index (EndIndex, DONELINES#<month>)', () => {
+  const inputs = (dynamoDb: ReturnType<typeof createMockDynamoDbService>) =>
+    dynamoDb.client.send.mock.calls.map((c: any[]) => ({ name: c[0].constructor.name, input: c[0].input }));
+
+  it('not ready (no DONELINESINDEX / STATE): answers null, so the report keeps one Query per job', async () => {
+    const dynamoDb = createMockDynamoDbService();
+    dynamoDb.client.send.mockResolvedValue({});
+    const repo = new ItemsReportRepository(dynamoDb as any);
+    await expect(repo.linesOfWindow('2026-09-01', '2026-09-27', ITEMS_LINE_PROJECTION)).resolves.toBeNull();
+    expect(inputs(dynamoDb)).toEqual([
+      { name: 'GetCommand', input: expect.objectContaining({ Key: { PK: 'DONELINESINDEX', SK: 'STATE' } }) },
+    ]);
+  });
+
+  it('readiness is asked again at most once a minute, and kept for good once ready', async () => {
+    const dynamoDb = createMockDynamoDbService();
+    dynamoDb.client.send.mockResolvedValueOnce({}).mockResolvedValueOnce({ Item: { readyAt: '2026-10-13T00:00:00.000Z' } });
+    const repo = new ItemsReportRepository(dynamoDb as any);
+    expect(await repo.doneLinesIndexReady(0)).toBe(false);
+    expect(await repo.doneLinesIndexReady(30_000)).toBe(false);
+    expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+    expect(await repo.doneLinesIndexReady(61_000)).toBe(true);
+    expect(await repo.doneLinesIndexReady(10 * 3_600_000)).toBe(true);
+    expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
+  });
+
+  it('ready: one Query per month of the window (with margin), all at once, grouped by job in line order', async () => {
+    const dynamoDb = createMockDynamoDbService();
+    dynamoDb.client.send.mockImplementation(async (cmd: any) => {
+      if (cmd.constructor.name === 'GetCommand') return { Item: { readyAt: 'x' } };
+      const { ':pk': pk } = cmd.input.ExpressionAttributeValues;
+      if (pk === 'DONELINES#2026-09' && !cmd.input.ExclusiveStartKey) {
+        return { Items: [{ PK: 'DEAL#d1', SK: 'PRODUCT#b' }, { PK: 'DEAL#d2', SK: 'PRODUCT#z' }], LastEvaluatedKey: { k: 1 } };
+      }
+      if (pk === 'DONELINES#2026-09') return { Items: [{ PK: 'DEAL#d1', SK: 'PRODUCT#a' }, { PK: 'DEAL#d2', SK: 'PRODUCT#z' }] };
+      return { Items: [{ PK: 'DEAL#d3', SK: 'PRODUCT#q' }] };
+    });
+    const lines = await new ItemsReportRepository(dynamoDb as any).linesOfWindow('2026-09-01', '2026-09-27', ITEMS_LINE_PROJECTION);
+
+    expect(lines).not.toBeNull();
+    expect(lines!.get('d1')!.map((r) => r.SK)).toEqual(['PRODUCT#a', 'PRODUCT#b']);
+    // A row met twice (a page boundary under a concurrent restamp) is kept once.
+    expect(lines!.get('d2')!.map((r) => r.SK)).toEqual(['PRODUCT#z']);
+    expect(lines!.get('d3')!.map((r) => r.SK)).toEqual(['PRODUCT#q']);
+
+    const queries = inputs(dynamoDb).filter((c) => c.name === 'QueryCommand').map((c) => c.input);
+    expect(new Set(queries.map((q: any) => q.ExpressionAttributeValues[':pk']))).toEqual(
+      new Set(['DONELINES#2026-08', 'DONELINES#2026-09']),
+    );
+    for (const q of queries) {
+      expect(q.IndexName).toBe('EndIndex');
+      expect(q.KeyConditionExpression).toBe('#pk = :pk AND #sk BETWEEN :lo AND :hi');
+      expect(q.ExpressionAttributeValues[':lo']).toBe('2026-08-30#');
+      expect(q.ExpressionAttributeValues[':hi']).toBe('2026-09-29#~');
+      // The line's own attributes plus the job it belongs to.
+      expect(q.ProjectionExpression.split(', ')).toHaveLength(ITEMS_LINE_PROJECTION.length + 1);
+    }
+  });
+
+  it('an index read that fails answers null — the report falls back, never errors on it', async () => {
+    const dynamoDb = createMockDynamoDbService();
+    dynamoDb.client.send.mockImplementation(async (cmd: any) => {
+      if (cmd.constructor.name === 'GetCommand') return { Item: { readyAt: 'x' } };
+      throw Object.assign(new Error('The table does not have the specified index'), { name: 'ValidationException' });
+    });
+    await expect(
+      new ItemsReportRepository(dynamoDb as any).linesOfWindow('2026-09-01', '2026-09-27', ITEMS_LINE_PROJECTION),
+    ).resolves.toBeNull();
+  });
+});

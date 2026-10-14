@@ -295,6 +295,61 @@ describe('TransfersRepository — month index', () => {
       expect(await repository.countAll()).toEqual({ total: 0, atLeast: false });
       expect(queries()).toHaveLength(0);
     });
+
+    /**
+     * A past month never gains a transfer (they are dated now), so its count
+     * is kept in Redis: after the Workiz history is filed (years of months),
+     * a count is one MGET plus the current month, not a Query per month.
+     */
+    describe('closed months from Redis', () => {
+      function fakeRedis(store = new Map<string, string>()) {
+        return {
+          store,
+          client: {
+            mget: jest.fn(async (...keys: string[]) => keys.map((k) => store.get(k) ?? null)),
+            set: jest.fn(async (k: string, v: string) => {
+              store.set(k, v);
+              return 'OK';
+            }),
+          },
+        };
+      }
+
+      it('counts a closed month once and answers it from Redis after; the current month always live', async () => {
+        const redis = fakeRedis();
+        const cached = new TransfersRepository(dynamoDb as any, redis as any);
+        jest.spyOn(cached as any, 'currentMonth').mockReturnValue('2026-09');
+        table([row('a', '2026-09-03T00:00:00.000Z'), row('b', '2026-07-02T00:00:00.000Z')], '2026-07');
+
+        expect(await cached.countAll()).toEqual({ total: 2, atLeast: false });
+        expect(redis.store.get('inventory:transfers:month-count:2026-07:all')).toBe('1');
+        expect(redis.store.get('inventory:transfers:month-count:2026-08:all')).toBe('0');
+        expect(redis.store.has('inventory:transfers:month-count:2026-09:all')).toBe(false);
+        expect(redis.client.set.mock.calls[0].slice(2)).toEqual(['EX', 6 * 3600]);
+
+        dynamoDb.client.send.mockClear();
+        expect(await cached.countAll()).toEqual({ total: 2, atLeast: false });
+        expect(queries().map((q: any) => q.input.ExpressionAttributeValues[':pk'])).toEqual(['TRANSFERS#2026-09']);
+      });
+
+      it('keeps a type\'s counts apart, and never caches a count that hit its ceiling', async () => {
+        const redis = fakeRedis();
+        const cached = new TransfersRepository(dynamoDb as any, redis as any);
+        jest.spyOn(cached as any, 'currentMonth').mockReturnValue('2026-09');
+        table([row('r', '2026-08-03T00:00:00.000Z', TransferType.RETURN)], '2026-08');
+
+        await cached.countAll({ type: TransferType.RETURN });
+        expect(redis.store.get('inventory:transfers:month-count:2026-08:return')).toBe('1');
+      });
+
+      it('a Redis that fails only costs the cache', async () => {
+        const redis = { client: { mget: jest.fn().mockRejectedValue(new Error('down')), set: jest.fn().mockRejectedValue(new Error('down')) } };
+        const cached = new TransfersRepository(dynamoDb as any, redis as any);
+        jest.spyOn(cached as any, 'currentMonth').mockReturnValue('2026-09');
+        table([row('a', '2026-08-03T00:00:00.000Z')], '2026-08');
+        expect(await cached.countAll()).toEqual({ total: 1, atLeast: false });
+      });
+    });
   });
 });
 

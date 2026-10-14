@@ -108,7 +108,7 @@ resource "aws_ecs_service" "main" {
   desired_count   = var.desired_count
 
   capacity_provider_strategy {
-    capacity_provider = "FARGATE_SPOT"
+    capacity_provider = var.capacity_provider
     weight            = 100
   }
 

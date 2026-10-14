@@ -8,6 +8,7 @@ import {
 import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
 import { type JobType } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
+import { CatalogCache } from '../common/cache/catalog-cache';
 import { JobTypesRepository } from './job-types.repository';
 import { type CreateJobTypeDto } from './dto/create-job-type.dto';
 import { type UpdateJobTypeDto } from './dto/update-job-type.dto';
@@ -20,6 +21,13 @@ function durationOf(minutes: number | undefined): { durationMinutes?: number } {
 @Injectable()
 export class JobTypesService {
   private readonly logger = new Logger(JobTypesService.name);
+
+  /** The full list, sorted as `list()` answers it — see `CatalogCache` (60 s, local invalidation). */
+  private readonly catalog = new CatalogCache<JobType>(async () =>
+    (await this.repository.listAll()).sort(
+      (a, b) => b.priority - a.priority || a.name.localeCompare(b.name),
+    ),
+  );
 
   constructor(
     private readonly repository: JobTypesRepository,
@@ -59,16 +67,16 @@ export class JobTypesService {
     };
 
     await this.repository.create(jobType);
+    this.catalog.invalidate();
     this.businessMetrics?.entityCreated?.inc({ entity_type: 'job_type' });
     this.publishEvent('job-type.created', { jobTypeId: jobType.id, name: jobType.name });
     return jobType;
   }
 
   async list(options: { activeOnly?: boolean } = {}): Promise<JobType[]> {
-    const jobTypes = await this.repository.listAll({ activeOnly: options.activeOnly ?? false });
-    return jobTypes.sort(
-      (a, b) => b.priority - a.priority || a.name.localeCompare(b.name),
-    );
+    const jobTypes = await this.catalog.get();
+    // Derived from the cached full list (same order): `activeOnly` is a filter, not a second read.
+    return options.activeOnly ? jobTypes.filter((t) => t.active) : jobTypes;
   }
 
   async findById(id: string): Promise<JobType> {
@@ -97,6 +105,7 @@ export class JobTypesService {
     };
 
     await this.repository.put(updated);
+    this.catalog.invalidate();
     this.publishEvent('job-type.updated', { jobTypeId: id, name: updated.name });
     return updated;
   }
@@ -118,6 +127,7 @@ export class JobTypesService {
           active: false,
           updatedAt: new Date().toISOString(),
         });
+        this.catalog.invalidate();
       }
       this.publishEvent('job-type.archived', { jobTypeId: id, archivedBy: caller.id });
       this.logger.log(`Archived job type ${id} — still referenced by at least one deal`);
@@ -125,6 +135,7 @@ export class JobTypesService {
     }
 
     await this.repository.remove(id);
+    this.catalog.invalidate();
     this.publishEvent('job-type.deleted', { jobTypeId: id, deletedBy: caller.id });
     return { archived: false };
   }

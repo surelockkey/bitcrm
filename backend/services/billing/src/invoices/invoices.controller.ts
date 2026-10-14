@@ -106,8 +106,8 @@ export class InvoicesController {
     summary: 'Jobs with items and no invoice',
     description: '**Guard:** `invoices.view` (the job list also applies the caller’s `deals` scope).',
   })
-  async needingInvoice(@Headers('authorization') authorization?: string) {
-    return { success: true, data: await this.invoices.needingInvoice(authorization) };
+  async needingInvoice(@CallerCtx() caller: Caller, @Headers('authorization') authorization?: string) {
+    return { success: true, data: await this.invoices.needingInvoice(authorization, caller) };
   }
 
   @Get('by-deal/:dealId')

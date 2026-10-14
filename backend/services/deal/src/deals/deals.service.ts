@@ -55,6 +55,7 @@ import {
   accountDayInstants,
   type DayWindow,
 } from './deals.repository';
+import { isMissingIndexError } from './needs-invoice-index';
 import {
   assertFromOwnContainer,
   assertPriceInBand,
@@ -92,9 +93,14 @@ const COUNTS_TTL_SECONDS = 30;
  * whole partition would read every Canceled job in the account (≈ 244 k
  * after the import) on every cache miss; stopping here costs a bounded read
  * and still answers the question the tab is asking — "how many?" — for any
- * account small enough for the number to matter.
+ * account small enough for the number to matter. Two bounds: `maxMatches`
+ * (the tab then shows "1,000+"), and `maxScanned` rows read, so a selective
+ * filter (a technician's My Jobs, a rare tag) cannot walk the whole
+ * partition looking for its few matches — that floor can be small ("12+").
+ * It was 10,000 matches with no read bound: up to ~30 sequential 1 MB reads
+ * per status unfiltered, the whole partition under a selective filter.
  */
-const CLOSED_COUNT_CAP = 10_000;
+const CLOSED_COUNT_LIMITS = { maxMatches: 1_000, maxScanned: 3_000 } as const;
 
 /**
  * The longest window "Jobs By Status" will draw. A quarter of daily bars is
@@ -751,6 +757,23 @@ export class DealsService {
       return this.repository.findByTech(query.techId, limit, query.cursor, filters);
     }
 
+    // "Needs invoice" with nothing narrower (billing's list) is the sparse
+    // NeedsInvoiceIndex, not a Scan of the whole table — once the backfill has
+    // stamped it ready. It holds live rows only, so a list of another status
+    // still takes the Scan; so does an environment whose index is not built.
+    if (
+      filters.needsInvoice &&
+      (!query.status || query.status === DealStatus.ACTIVE) &&
+      (await this.repository.needsInvoiceIndexReady())
+    ) {
+      try {
+        return await this.repository.findNeedsInvoice(limit, query.cursor, filters);
+      } catch (error) {
+        if (!isMissingIndexError(error)) throw error;
+        this.warnNeedsInvoiceIndexMissing(error);
+      }
+    }
+
     return this.repository.findAll(limit, query.cursor, {
       status: query.status,
       ...filters,
@@ -854,6 +877,30 @@ export class DealsService {
     return aggregateDealStats(deals, window, opts);
   }
 
+  private needsInvoiceMissingLogged = false;
+
+  /** Logged once per process: the readiness row exists but the GSI does not (Terraform not applied). */
+  private warnNeedsInvoiceIndexMissing(error: unknown): void {
+    if (this.needsInvoiceMissingLogged) return;
+    this.needsInvoiceMissingLogged = true;
+    this.logger.warn(`NeedsInvoiceIndex missing — needsInvoice lists take the Scan: ${(error as Error).message}`);
+  }
+
+  /**
+   * The same aggregate as `stats` for one bare window over the whole account
+   * (no filters, `all` scope) — what the dashboard snapshots are built from.
+   * One projected window read (`readStatsWindow`) instead of the list paged a
+   * hundred full rows at a time: the same rows, a fraction of the bytes.
+   */
+  async windowStats(
+    by: 'created' | 'closed',
+    window: { from: string; to: string },
+    opts: { money: boolean },
+  ): Promise<DealStats> {
+    const deals = await this.repository.readStatsWindow(by, window.from, window.to);
+    return aggregateDealStats(deals, { by, from: window.from, to: window.to }, opts);
+  }
+
   private statsWindow(query: ListDealsQueryDto): DealStatsWindow {
     if (query.createdFrom) return { by: 'created', from: query.createdFrom, to: query.createdTo || query.createdFrom };
     if (query.closedFrom) return { by: 'closed', from: query.closedFrom, to: query.closedTo || query.closedFrom };
@@ -877,6 +924,17 @@ export class DealsService {
     return deals.filter(
       (d) => d.status === DealStatus.ACTIVE && (dataScope !== 'assigned_only' || d.assignedTechIds.includes(caller.id)),
     );
+  }
+
+  /**
+   * K1 (`POST /deals/internal/by-ids`): every deal of the ids that exists,
+   * deleted ones included — a service reads them as `GET internal/:id` does,
+   * with no caller and so no data scope. Order kept, duplicates read once.
+   */
+  async findByIdsInternal(ids: string[]): Promise<Deal[]> {
+    const unique = [...new Set(ids.filter(Boolean))];
+    if (!unique.length) return [];
+    return this.repository.findByIds(unique);
   }
 
   /** Does one deal belong on the page this query describes — its tab, its keys, its filters? */
@@ -1079,6 +1137,7 @@ export class DealsService {
     if (cached) return cached;
 
     let byStatus: (number | null)[];
+    let floors = new Set<JobSuperStatus>();
     let undated = 0;
     if (report?.created) {
       byStatus = await Promise.all(SUPER_STATUS_ORDER.map((s) => this.repository.countByCreated(s, report.created!, filters)));
@@ -1089,31 +1148,28 @@ export class DealsService {
     } else {
       const [statuses, undatedByStatus] = await Promise.all([
         Promise.all(
-          SUPER_STATUS_ORDER.map(async (status) =>
+          SUPER_STATUS_ORDER.map(async (status): Promise<{ count: number; atLeast: boolean } | null> => {
+            // Відкриті статуси малі за визначенням — їх рахуємо до кінця.
+            if (bounded || !CLOSED_SUPER_STATUSES.has(status)) {
+              const count = await this.repository.countBySchedule(status, { from: window.from, to: window.to }, filters);
+              return { count, atLeast: false };
+            }
             // Під пошуком закритий статус без вікна не рахуємо зовсім: стеля
             // рахує ЗБІГИ, тож рідкісне ім'я прочитало б увесь Canceled (~246 тис.).
-            !bounded && CLOSED_SUPER_STATUSES.has(status) && filters.text
-              ? null
-              : this.repository.countBySchedule(
-                  status,
-                  { from: window.from, to: window.to },
-                  filters,
-                  // Відкриті статуси малі за визначенням — їх рахуємо до кінця;
-                  // закритий без вікна — лише до стелі.
-                  !bounded && CLOSED_SUPER_STATUSES.has(status) ? CLOSED_COUNT_CAP : undefined,
-                ),
-          ),
+            if (filters.text) return null;
+            // Закритий без вікна — лише до стелі (збігів і прочитаних рядків).
+            return this.repository.countByScheduleBounded(status, {}, filters, CLOSED_COUNT_LIMITS);
+          }),
         ),
         Promise.all(open.map((status) => this.repository.countBySchedule(status, { unscheduled: true }, filters))),
       ]);
-      byStatus = statuses;
+      byStatus = statuses.map((r) => (r ? r.count : null));
+      floors = new Set(SUPER_STATUS_ORDER.filter((_, i) => statuses[i]?.atLeast));
       undated = undatedByStatus.reduce((a, b) => a + b, 0);
     }
 
     // Число, що вперлося в стелю, — це «не менше»; сума з таким доданком теж.
-    const atLeast: (JobSuperStatus | 'total')[] = SUPER_STATUS_ORDER.filter(
-      (_, i) => (byStatus[i] ?? 0) >= CLOSED_COUNT_CAP,
-    );
+    const atLeast: (JobSuperStatus | 'total')[] = SUPER_STATUS_ORDER.filter((s) => floors.has(s));
     const total = byStatus.some((n) => n === null) ? null : byStatus.reduce<number>((a, b) => a + (b ?? 0), 0);
     const result: DealCounts = {
       ...(Object.fromEntries(SUPER_STATUS_ORDER.map((s, i) => [s, byStatus[i]])) as Record<JobSuperStatus, number | null>),
@@ -1121,6 +1177,25 @@ export class DealsService {
       total,
       atLeast: atLeast.length && total !== null ? [...atLeast, 'total'] : atLeast,
     };
+    await this.cache.setJson(cacheKey, result, COUNTS_TTL_SECONDS);
+    return result;
+  }
+
+  /**
+   * The dashboard's "Jobs" widget: the four open statuses over the whole
+   * account, nothing else. The same no-window counts `counts({})` makes for
+   * the open tabs, without the Done / Canceled walks and the undated pass
+   * the widget would throw away. Cached thirty seconds, like the tabs.
+   */
+  async openCounts(caller: JwtUser): Promise<Partial<Record<JobSuperStatus, number>>> {
+    const filters = this.listFilters({} as ListDealsQueryDto, caller, 'all');
+    const open = SUPER_STATUS_ORDER.filter((s) => !CLOSED_SUPER_STATUSES.has(s));
+    const cacheKey = `deal-counts-open:${createHash('sha1').update(JSON.stringify(filters)).digest('hex')}`;
+    const cached = await this.cache.getJson<Partial<Record<JobSuperStatus, number>>>(cacheKey);
+    if (cached) return cached;
+
+    const counts = await Promise.all(open.map((status) => this.repository.countBySchedule(status, {}, filters)));
+    const result: Partial<Record<JobSuperStatus, number>> = Object.fromEntries(open.map((s, i) => [s, counts[i]]));
     await this.cache.setJson(cacheKey, result, COUNTS_TTL_SECONDS);
     return result;
   }
@@ -2845,9 +2920,13 @@ export class DealsService {
     return this.repository.findByTech(techId, 100);
   }
 
-  /** Thin passthrough for the search-service backfill/indexer. */
+  /**
+   * Every live deal, paged — `GET /deals/internal/all` (search backfill,
+   * billing's payment-report rebuild). A walk of the StageIndex partitions,
+   * not a table Scan; the cursor is opaque (`listAllForIndex`).
+   */
   async findAll(limit: number, cursor?: string) {
-    return this.repository.findAll(limit, cursor);
+    return this.repository.listAllForIndex(limit, cursor);
   }
 
   /**

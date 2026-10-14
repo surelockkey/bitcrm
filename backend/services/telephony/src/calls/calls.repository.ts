@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { AccountClock, accountWindowUtc } from '@bitcrm/types';
 import {
   DynamoDbService,
@@ -16,6 +16,7 @@ import {
   agentGsiPk,
   partyGsiPk,
   allCallsSk,
+  dealCallsPk,
 } from '../common/constants/dynamo.constants';
 import { callFilterClauses } from './call-filter-expression';
 import { callSearchClause, type CallTextSearch } from './call-search';
@@ -102,6 +103,16 @@ export interface CallRecord {
   dealId?: string;
   dealLinkedBy?: string;
   dealLinkedAt?: string;
+  /**
+   * The linked job's total, copied from deal-service when the call is linked
+   * and refreshed from deal-events (DealEventsHandler) — what the call reports
+   * sum, instead of asking deal-service for every job on every read. Like
+   * `dealId`, NOT in the `upsert` whitelist: written by `setDealTotal` only,
+   * removed by `setDeal` whenever the link changes.
+   */
+  dealTotal?: number;
+  /** When `dealTotal` was read. */
+  dealTotalAt?: string;
   /**
    * Call-tag catalog ids (CALLTAG# rows) a person put on this call — the
    * Workiz "call tags": SPAM CALLER, Tech Call, WRONG NUMBER… Like `dealId`,
@@ -236,6 +247,16 @@ export class CallTagsConflictError extends Error {
   }
 }
 
+/** What one `upsert` did to the log — see `CallsRepository.upsert`. */
+export interface UpsertOutcome {
+  /** This write put the row into the log (first GSI2SK). */
+  created: boolean;
+  /** A row already in the log just became a hidden internal leg. */
+  becameInternal: boolean;
+  /** The stored start of a row that `becameInternal` — its counter month. */
+  startedAt?: string;
+}
+
 export interface ListCallsResult {
   items: CallRecord[];
   nextCursor?: string;
@@ -284,6 +305,31 @@ const MAX_QUERY_PAGES = 20;
  */
 const MAX_COUNT_QUERIES = 60;
 
+/**
+ * Month partitions read at once by the count and the cards' walk. They are
+ * independent partitions, so reading them one after another only added up
+ * their latencies; the read budget is shared, so the cost is unchanged.
+ */
+const MONTH_CONCURRENCY = 6;
+
+/** Run `fn` over `months`, `concurrency` at a time. */
+async function forEachMonth(
+  months: readonly string[],
+  concurrency: number,
+  fn: (month: string) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const month = months[next];
+      next += 1;
+      if (month === undefined) return;
+      await fn(month);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, months.length)) }, worker));
+}
+
 @Injectable()
 export class CallsRepository {
   private tableName = CALLS_TABLE;
@@ -295,8 +341,14 @@ export class CallsRepository {
    * first write (if_not_exists); every subsequent status callback refreshes the
    * mutable fields. GSI1 (agent history) is written when the agent is known;
    * GSI2 (global time-ordered log) is always written.
+   *
+   * Says whether this write is the one that put the row into the log (its
+   * GSI2SK did not exist before — a row may already exist without it, from a
+   * flow step or a party write) and whether a row already in the log just
+   * became a hidden internal leg: the per-month counters move on exactly
+   * those two transitions (CallsService).
    */
-  async upsert(rec: CallRecord): Promise<void> {
+  async upsert(rec: CallRecord): Promise<UpsertOutcome> {
     const sets: string[] = [
       '#callSid = :callSid',
       '#startedAt = if_not_exists(#startedAt, :startedAt)',
@@ -361,15 +413,24 @@ export class CallsRepository {
       sets.push('#gsi1pk = :gsi1pk', '#gsi1sk = if_not_exists(#gsi1sk, :gsi1sk)');
     }
 
-    await this.dynamoDb.client.send(
+    const res = await this.dynamoDb.client.send(
       new UpdateCommand({
         TableName: this.tableName,
         Key: { PK: callPk(rec.callSid), SK: 'METADATA' },
         UpdateExpression: `SET ${sets.join(', ')}`,
         ExpressionAttributeNames: names,
         ExpressionAttributeValues: values,
+        // The old values of the attributes this write SETs — GSI2SK and
+        // startedAt always, internalLegOf when it is being set.
+        ReturnValues: 'UPDATED_OLD',
       }),
     );
+    const old = (res?.Attributes ?? {}) as Record<string, unknown>;
+    const created = !old.GSI2SK;
+    const becameInternal = !created && !!rec.internalLegOf && !old.internalLegOf;
+    return becameInternal
+      ? { created, becameInternal, startedAt: (old.startedAt as string | undefined) ?? rec.startedAt }
+      : { created, becameInternal };
   }
 
   /**
@@ -458,7 +519,9 @@ export class CallsRepository {
 
   /**
    * Attach this call to a job, or detach it. A job collects many calls, so
-   * this is a plain overwrite — there is nothing to guard against.
+   * this is a plain overwrite — there is nothing to guard against. Either way
+   * the stamped `dealTotal` goes: it was the previous job's (setDealTotal
+   * writes the new one).
    */
   async setDeal(
     callSid: string,
@@ -473,12 +536,14 @@ export class CallsRepository {
         ...(dealId
           ? {
               UpdateExpression:
-                'SET #dealId = :dealId, #by = :by, #at = :at, #updatedAt = :at',
+                'SET #dealId = :dealId, #by = :by, #at = :at, #updatedAt = :at REMOVE #dealTotal, #dealTotalAt',
               ExpressionAttributeNames: {
                 '#dealId': 'dealId',
                 '#by': 'dealLinkedBy',
                 '#at': 'dealLinkedAt',
                 '#updatedAt': 'updatedAt',
+                '#dealTotal': 'dealTotal',
+                '#dealTotalAt': 'dealTotalAt',
               },
               ExpressionAttributeValues: {
                 ':dealId': dealId,
@@ -488,17 +553,125 @@ export class CallsRepository {
             }
           : {
               UpdateExpression:
-                'REMOVE #dealId, #by, #at SET #updatedAt = :now',
+                'REMOVE #dealId, #by, #at, #dealTotal, #dealTotalAt SET #updatedAt = :now',
               ExpressionAttributeNames: {
                 '#dealId': 'dealId',
                 '#by': 'dealLinkedBy',
                 '#at': 'dealLinkedAt',
                 '#updatedAt': 'updatedAt',
+                '#dealTotal': 'dealTotal',
+                '#dealTotalAt': 'dealTotalAt',
               },
               ExpressionAttributeValues: { ':now': now },
             }),
       }),
     );
+  }
+
+  /**
+   * Where the call's audio lives in our bucket, once the Twilio recording has
+   * been copied (RecordingArchiveService). Written once: never over a key that
+   * is already there (an imported call's), never onto a phantom row.
+   */
+  async setRecordingKey(callSid: string, key: string): Promise<boolean> {
+    try {
+      await this.dynamoDb.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: { PK: callPk(callSid), SK: 'METADATA' },
+          UpdateExpression: 'SET #recordingKey = :key',
+          ConditionExpression: 'attribute_exists(PK) AND attribute_not_exists(#recordingKey)',
+          ExpressionAttributeNames: { '#recordingKey': 'recordingKey' },
+          ExpressionAttributeValues: { ':key': key },
+        }),
+      );
+      return true;
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'ConditionalCheckFailedException') return false;
+      throw error;
+    }
+  }
+
+  /** File the call under its job (`DEALCALLS#<dealId>`). Idempotent. */
+  async indexDealLink(dealId: string, callSid: string): Promise<void> {
+    await this.dynamoDb.client.send(
+      new PutCommand({
+        TableName: this.tableName,
+        Item: {
+          PK: dealCallsPk(dealId),
+          SK: callPk(callSid),
+          dealId,
+          callSid,
+          linkedAt: new Date().toISOString(),
+        },
+      }),
+    );
+  }
+
+  /** Take the call out of a job's adjacency partition. */
+  async unindexDealLink(dealId: string, callSid: string): Promise<void> {
+    await this.dynamoDb.client.send(
+      new DeleteCommand({
+        TableName: this.tableName,
+        Key: { PK: dealCallsPk(dealId), SK: callPk(callSid) },
+      }),
+    );
+  }
+
+  /** The calls filed under a job, every page of its adjacency partition. */
+  async callSidsForDeal(dealId: string): Promise<string[]> {
+    const out: string[] = [];
+    let startKey: Record<string, unknown> | undefined;
+    do {
+      const res = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: { ':pk': dealCallsPk(dealId) },
+          ProjectionExpression: 'SK',
+          ...(startKey && { ExclusiveStartKey: startKey }),
+        }),
+      );
+      for (const item of res.Items ?? []) {
+        const sk = item.SK as string | undefined;
+        if (sk?.startsWith('CALL#')) out.push(sk.slice('CALL#'.length));
+      }
+      startKey = res.LastEvaluatedKey;
+    } while (startKey);
+    return out;
+  }
+
+  /**
+   * Stamp the linked job's total on the call. Conditional three ways, and a
+   * failed condition is "nothing to do", not an error (false):
+   * - the call is still on THAT job (a relink in between wins);
+   * - the total actually changed (an unchanged one costs no index writes);
+   * - no newer read is already stored (`dealTotalAt`), so two refreshes that
+   *   race can't leave the older figure behind.
+   */
+  async setDealTotal(callSid: string, dealId: string, total: number, at: string): Promise<boolean> {
+    try {
+      await this.dynamoDb.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: { PK: callPk(callSid), SK: 'METADATA' },
+          UpdateExpression: 'SET #dealTotal = :total, #dealTotalAt = :at',
+          ConditionExpression:
+            '#dealId = :dealId AND (attribute_not_exists(#dealTotal) OR ' +
+            '(#dealTotal <> :total AND (attribute_not_exists(#dealTotalAt) OR #dealTotalAt <= :at)))',
+          ExpressionAttributeNames: {
+            '#dealId': 'dealId',
+            '#dealTotal': 'dealTotal',
+            '#dealTotalAt': 'dealTotalAt',
+          },
+          ExpressionAttributeValues: { ':dealId': dealId, ':total': total, ':at': at },
+        }),
+      );
+      return true;
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'ConditionalCheckFailedException') return false;
+      throw error;
+    }
   }
 
   /**
@@ -777,19 +950,28 @@ export class CallsRepository {
    * way `list` is. Out of budget, the answer is a floor and the panel says
    * `7+` rather than lie or spend the page's time.
    */
-  async count(filter: ListCallsFilter): Promise<CountRowsResult> {
+  async count(
+    filter: ListCallsFilter,
+    opts: { months?: string[] } = {},
+  ): Promise<CountRowsResult> {
     const { keyCondition, filterExpression, names, values } =
       this.buildListQuery(filter);
-    const months = monthsDescending(filter.dateFrom, filter.dateTo);
+    // `opts.months`: only these partitions of the window (the edge months of
+    // a date-only count whose whole months come from the counters).
+    const months = opts.months ?? monthsDescending(filter.dateFrom, filter.dateTo);
 
     let total = 0;
     let queries = 0;
+    let atLeast = false;
 
-    for (const month of months) {
+    await forEachMonth(months, MONTH_CONCURRENCY, async (month) => {
       let exclusiveStartKey: Record<string, unknown> | undefined;
 
       for (;;) {
-        if (queries >= MAX_COUNT_QUERIES) return { total, atLeast: true };
+        if (queries >= MAX_COUNT_QUERIES) {
+          atLeast = true;
+          return;
+        }
         queries += 1;
 
         const res = await this.dynamoDb.client.send(
@@ -809,20 +991,20 @@ export class CallsRepository {
         if (!res.LastEvaluatedKey) break;
         exclusiveStartKey = res.LastEvaluatedKey;
       }
-    }
+    });
 
-    return { total, atLeast: false };
+    return { total, atLeast };
   }
 
   /**
    * Every row the filter selects, projected to `attributes` — what the stat
    * cards over the log are tallied from (`CallsSummaryTally`).
    *
-   * The count's walk exactly: the same months, the same key condition and
-   * filter, the same page size (none — DynamoDB's own megabyte) and the same
-   * budget, so the rows read here are the rows the count counted and CALLS
-   * matches "of N". Only a projection instead of `Select: 'COUNT'`. Out of
-   * budget it stops and says so.
+   * The count's walk exactly: the same months (six at a time), the same key
+   * condition and filter, the same page size (none — DynamoDB's own megabyte)
+   * and the same budget, so the rows read here are the rows the count counted
+   * and CALLS matches "of N". Only a projection instead of `Select: 'COUNT'`.
+   * Out of budget it stops and says so. Rows arrive in no particular order.
    */
   async walkSelection(
     filter: ListCallsFilter,
@@ -837,12 +1019,16 @@ export class CallsRepository {
       return `#p${i}`;
     });
     let queries = 0;
+    let atLeast = false;
 
-    for (const month of monthsDescending(filter.dateFrom, filter.dateTo)) {
+    await forEachMonth(monthsDescending(filter.dateFrom, filter.dateTo), MONTH_CONCURRENCY, async (month) => {
       let exclusiveStartKey: Record<string, unknown> | undefined;
 
       for (;;) {
-        if (queries >= MAX_COUNT_QUERIES) return { atLeast: true };
+        if (queries >= MAX_COUNT_QUERIES) {
+          atLeast = true;
+          return;
+        }
         queries += 1;
 
         const res = await this.dynamoDb.client.send(
@@ -862,9 +1048,9 @@ export class CallsRepository {
         if (!res.LastEvaluatedKey) break;
         exclusiveStartKey = res.LastEvaluatedKey;
       }
-    }
+    });
 
-    return { atLeast: false };
+    return { atLeast };
   }
 
   /**

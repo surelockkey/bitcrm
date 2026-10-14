@@ -9,6 +9,7 @@ describe('InternalHttpService', () => {
   let crmGet: jest.Mock;
   let crmPost: jest.Mock;
   let userGet: jest.Mock;
+  let userPost: jest.Mock;
   let inventoryPost: jest.Mock;
   let inventoryGet: jest.Mock;
 
@@ -16,12 +17,13 @@ describe('InternalHttpService', () => {
     crmGet = jest.fn();
     crmPost = jest.fn();
     userGet = jest.fn();
+    userPost = jest.fn();
     inventoryPost = jest.fn();
     inventoryGet = jest.fn();
 
     mockedAxios.create.mockImplementation((config: any) => {
       if (config.baseURL?.includes('4002')) return { get: crmGet, post: crmPost } as any;
-      if (config.baseURL?.includes('4001')) return { get: userGet, post: jest.fn() } as any;
+      if (config.baseURL?.includes('4001')) return { get: userGet, post: userPost } as any;
       if (config.baseURL?.includes('4004')) return { get: inventoryGet, post: inventoryPost } as any;
       return {} as any;
     });
@@ -168,36 +170,35 @@ describe('InternalHttpService', () => {
    * a person it cannot name is simply left out.
    */
   describe('getUserNames', () => {
-    it('looks each distinct id up on the internal user route', async () => {
-      userGet.mockResolvedValue({ data: { data: { id: 'u-1', firstName: 'Daniel', lastName: 'Munoz' } } });
+    it("asks user-service's batch route once for every distinct id", async () => {
+      userPost.mockResolvedValue({ data: { data: [{ id: 'u-1', firstName: 'Daniel', lastName: 'Munoz' }] } });
 
-      await service.getUserNames(['u-1', 'u-1', '']);
+      await service.getUserNames(['u-1', 'u-1', '', 'u-2']);
 
-      expect(userGet).toHaveBeenCalledTimes(1);
-      expect(userGet.mock.calls[0][0]).toBe('/api/users/internal/u-1');
-      expect(userGet.mock.calls[0][1].timeout).toBeGreaterThan(0);
+      expect(userPost).toHaveBeenCalledTimes(1);
+      expect(userPost.mock.calls[0][0]).toBe('/api/users/internal/names-by-ids');
+      expect(userPost.mock.calls[0][1]).toEqual({ userIds: ['u-1', 'u-2'] });
+      expect(userPost.mock.calls[0][2].timeout).toBeGreaterThan(0);
+      expect(userGet).not.toHaveBeenCalled();
     });
 
     it('copies out the names and nothing else', async () => {
-      userGet.mockResolvedValue({
-        data: { data: { id: 'u-1', firstName: 'Daniel', lastName: 'Munoz', email: 'd@x.com', phone: '+1404' } },
+      userPost.mockResolvedValue({
+        data: { data: [{ id: 'u-1', firstName: 'Daniel', lastName: 'Munoz', email: 'd@x.com', phone: '+1404' }] },
       });
 
       expect(await service.getUserNames(['u-1'])).toEqual([{ id: 'u-1', firstName: 'Daniel', lastName: 'Munoz' }]);
     });
 
-    it('a user it cannot fetch is left out, the rest still come back', async () => {
-      userGet.mockImplementation(async (path: string) => {
-        if (path.endsWith('u-2')) throw new Error('404');
-        return { data: { data: { id: 'u-1', firstName: 'Tess', lastName: '' } } };
-      });
+    it('a failed batch costs the names, never the board', async () => {
+      userPost.mockRejectedValue(new Error('503'));
 
-      expect(await service.getUserNames(['u-1', 'u-2'])).toEqual([{ id: 'u-1', firstName: 'Tess', lastName: '' }]);
+      expect(await service.getUserNames(['u-1', 'u-2'])).toEqual([]);
     });
 
     it('asks for nothing when there are no ids', async () => {
       expect(await service.getUserNames([])).toEqual([]);
-      expect(userGet).not.toHaveBeenCalled();
+      expect(userPost).not.toHaveBeenCalled();
     });
   });
 

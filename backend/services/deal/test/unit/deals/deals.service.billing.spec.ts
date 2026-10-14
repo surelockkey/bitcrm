@@ -352,11 +352,41 @@ describe('DealsService — billing', () => {
   });
 
   describe('list', () => {
-    it('passes needsInvoice through as a filter', async () => {
+    it('needsInvoice with nothing narrower reads the NeedsInvoiceIndex — never the table Scan', async () => {
+      repo.findNeedsInvoice.mockResolvedValue({ items: [createMockDeal({ id: 'd9' })], nextCursor: 'c2' });
+
+      const page = await service.list({ needsInvoice: 'true', limit: '100', cursor: 'c1', jobTypeId: 'jt1' } as any, caller);
+
+      expect(repo.findNeedsInvoice).toHaveBeenCalledWith(100, 'c1', expect.objectContaining({ needsInvoice: true, jobTypeId: 'jt1' }));
+      expect(repo.findAll).not.toHaveBeenCalled();
+      expect(page).toEqual({ items: [expect.objectContaining({ id: 'd9' })], nextCursor: 'c2' });
+    });
+
+    it('until the backfill stamps the index ready, needsInvoice keeps the Scan', async () => {
+      repo.needsInvoiceIndexReady.mockResolvedValue(false);
       repo.findAll.mockResolvedValue({ items: [] });
       await service.list({ needsInvoice: 'true' } as any, caller);
       expect(repo.findAll).toHaveBeenCalledWith(20, undefined, expect.objectContaining({ needsInvoice: true }));
+      expect(repo.findNeedsInvoice).not.toHaveBeenCalled();
+    });
 
+    it('a GSI the table does not have (Terraform not applied) falls back to the Scan, not a 500', async () => {
+      repo.findNeedsInvoice.mockRejectedValue(
+        Object.assign(new Error('The table does not have the specified index: NeedsInvoiceIndex'), { name: 'ValidationException' }),
+      );
+      repo.findAll.mockResolvedValue({ items: [createMockDeal({ id: 'd1' })] });
+      const page = await service.list({ needsInvoice: 'true' } as any, caller);
+      expect(page.items.map((d: { id: string }) => d.id)).toEqual(['d1']);
+    });
+
+    it('a list of deleted jobs still takes the Scan — the index holds live rows only', async () => {
+      repo.findAll.mockResolvedValue({ items: [] });
+      await service.list({ needsInvoice: 'true', status: 'deleted' } as any, caller);
+      expect(repo.findAll).toHaveBeenCalledWith(20, undefined, expect.objectContaining({ needsInvoice: true, status: 'deleted' }));
+      expect(repo.findNeedsInvoice).not.toHaveBeenCalled();
+    });
+
+    it('passes needsInvoice through as a filter on a narrower index', async () => {
       repo.findBySuperStatus.mockResolvedValue({ items: [] });
       await service.list({ superStatus: 'submitted', needsInvoice: true } as any, caller);
       expect(repo.findBySuperStatus.mock.calls[0][3]).toMatchObject({ needsInvoice: true });

@@ -8,7 +8,6 @@ import type {
   DashboardToday,
   DealDashboardBundle,
   DealStats,
-  JobSuperStatus,
   JwtUser,
 } from '@bitcrm/types';
 import { DealsService } from '../deals.service';
@@ -16,7 +15,6 @@ import { DealsCacheService } from '../deals-cache.service';
 import { JobTypesService } from '../../job-types/job-types.service';
 import { JobSourcesService } from '../../job-sources/job-sources.service';
 import { InternalHttpService } from '../../common/services/internal-http.service';
-import type { ListDealsQueryDto } from '../dto/list-deals-query.dto';
 import { jobsNowOf, salesOf, scoreboardOf, todayOf, topShares } from '../stats/dashboard-widgets';
 
 /** The same ceiling as every report window; "Last 3 months" reaches exactly it. */
@@ -143,10 +141,12 @@ export class DealDashboardService {
     return todayOf(closed.stats, created.stats);
   }
 
-  /** Right now, not a window: the same counts the jobs board's tabs show. */
+  /**
+   * Right now, not a window: the same numbers the jobs board's open tabs show.
+   * Only the four open statuses are counted — never the Done / Canceled walks.
+   */
   async jobsNow(caller: JwtUser): Promise<DashboardJobsNow> {
-    const counts = await this.deals.counts({} as ListDealsQueryDto, caller, 'all');
-    return jobsNowOf(counts as unknown as Record<JobSuperStatus, number | null>);
+    return jobsNowOf(await this.deals.openCounts(caller));
   }
 
   /**
@@ -215,7 +215,8 @@ export class DealDashboardService {
   private async aggregate(
     by: 'created' | 'closed',
     window: DayWindow,
-    caller: JwtUser,
+    // Kept for the widget routes' shape; the aggregate is the whole account's.
+    _caller: JwtUser,
     money: boolean,
     opts: SnapshotOptions & { ttlSeconds?: number } = {},
   ): Promise<Snapshot> {
@@ -233,8 +234,10 @@ export class DealDashboardService {
     if (inFlight) return inFlight;
 
     const build = (async () => {
-      const query = { [`${by}From`]: window.from, [`${by}To`]: window.to } as unknown as ListDealsQueryDto;
-      const stats = await this.deals.stats(query, caller, 'all', { money });
+      // One projected read of the window (`windowStats`), not the jobs list
+      // paged a hundred full rows at a time — the same aggregate, a fraction
+      // of the bytes. Always the whole account, so the caller plays no part.
+      const stats = await this.deals.windowStats(by, window, { money });
       const snapshot = { stats, computedAt: new Date().toISOString() };
       await this.cache.setJson(key, snapshot, opts.ttlSeconds ?? SNAPSHOT_TTL_SECONDS);
       return snapshot;

@@ -1,10 +1,17 @@
-import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  Optional,
+} from '@nestjs/common';
 import { type Twilio } from 'twilio';
-import { TwilioRest } from '@bitcrm/shared';
+import { RedisService, TwilioRest } from '@bitcrm/shared';
 import {
   TELEPHONY_CONFIG,
   type TelephonyConfig,
 } from '../telephony/telephony.config';
+import { RedisSwrCache } from '../common/redis-swr-cache';
 
 export interface OwnedNumber {
   sid: string;
@@ -66,12 +73,44 @@ interface OwnedPage {
  */
 export const OWNED_NUMBERS_PAGE_SIZE = 100;
 
-const toOwnedNumber = (n: OwnedInstance): OwnedNumber => ({
+/**
+ * Twilio number data, cached in Redis so every task shares one walk.
+ *
+ * Fresh for five minutes; up to an hour old it is served at once while one
+ * background reload replaces it; older than that the request waits for the
+ * reload. A failing reload serves whatever is held. Every path in this
+ * service that buys or releases a number drops both keys, so the workspace's
+ * own changes show on the next read. A change made in the Twilio console is
+ * picked up within five minutes (plus one request).
+ */
+export const NUMBERS_CACHE = {
+  ownedKey: 'telephony:cache:numbers:owned:v1',
+  membershipKey: 'telephony:cache:numbers:ms-membership:v1',
+  freshMs: 5 * 60_000,
+  staleMs: 60 * 60_000,
+} as const;
+
+/** Everything any reader of the owned list needs — what the cache holds. */
+const toOwnedDetails = (n: OwnedInstance): OwnedNumberDetails => ({
   sid: n.sid,
   phoneNumber: n.phoneNumber,
   friendlyName: n.friendlyName,
   voiceUrl: n.voiceUrl,
   dateCreated: n.dateCreated instanceof Date ? n.dateCreated.toISOString() : null,
+  smsUrl: n.smsUrl,
+  capabilities: {
+    sms: n.capabilities?.sms === true,
+    mms: n.capabilities?.mms === true,
+    voice: n.capabilities?.voice === true,
+  },
+});
+
+const toOwnedNumber = (n: OwnedNumberDetails): OwnedNumber => ({
+  sid: n.sid,
+  phoneNumber: n.phoneNumber,
+  friendlyName: n.friendlyName,
+  voiceUrl: n.voiceUrl,
+  dateCreated: n.dateCreated ?? null,
 });
 
 @Injectable()
@@ -85,10 +124,35 @@ export class NumbersService {
     { price: string; priceUnit: string } | null
   >();
 
+  private readonly ownedCache: RedisSwrCache<OwnedNumberDetails[]>;
+  /** E.164 → MG sid, as entries (a Map does not survive JSON). */
+  private readonly membershipCache: RedisSwrCache<Array<[string, string]>>;
+
   constructor(
     @Inject(TELEPHONY_CONFIG) private readonly config: TelephonyConfig,
+    // Optional so the older specs construct the service with the config
+    // alone; without Redis every read goes to Twilio, as it always did.
+    @Optional() redis?: RedisService,
   ) {
     this.rest = new TwilioRest(config);
+    const timing = {
+      freshMs: NUMBERS_CACHE.freshMs,
+      staleMs: NUMBERS_CACHE.staleMs,
+    };
+    this.ownedCache = new RedisSwrCache(redis, NUMBERS_CACHE.ownedKey, timing);
+    this.membershipCache = new RedisSwrCache(
+      redis,
+      NUMBERS_CACHE.membershipKey,
+      timing,
+    );
+  }
+
+  /** Drop both number caches, for every task. Never throws. */
+  async invalidateCache(): Promise<void> {
+    await Promise.all([
+      this.ownedCache.invalidate(),
+      this.membershipCache.invalidate(),
+    ]);
   }
 
   private get client(): Twilio {
@@ -112,19 +176,21 @@ export class NumbersService {
    * designated and the lines-health panel reported numbers as not owned —
    * for two-thirds of the account.
    */
-  private async fetchOwned(): Promise<OwnedInstance[]> {
-    return this.run(async () => {
-      const all: OwnedInstance[] = [];
-      let page: OwnedPage | undefined =
-        await this.client.incomingPhoneNumbers.page({
-          pageSize: OWNED_NUMBERS_PAGE_SIZE,
-        });
-      while (page) {
-        all.push(...page.instances);
-        page = await page.nextPage();
-      }
-      return all;
-    });
+  private async fetchOwned(): Promise<OwnedNumberDetails[]> {
+    return this.ownedCache.get(() =>
+      this.run(async () => {
+        const all: OwnedNumberDetails[] = [];
+        let page: OwnedPage | undefined =
+          await this.client.incomingPhoneNumbers.page({
+            pageSize: OWNED_NUMBERS_PAGE_SIZE,
+          });
+        while (page) {
+          all.push(...page.instances.map(toOwnedDetails));
+          page = await page.nextPage();
+        }
+        return all;
+      }),
+    );
   }
 
   async listOwned(): Promise<OwnedNumber[]> {
@@ -135,15 +201,7 @@ export class NumbersService {
   /** `listOwned` with the fields the messaging service selects a sender by. */
   async listOwnedDetailed(): Promise<OwnedNumberDetails[]> {
     const nums = await this.fetchOwned();
-    return nums.map((n) => ({
-      ...toOwnedNumber(n),
-      smsUrl: n.smsUrl,
-      capabilities: {
-        sms: n.capabilities?.sms === true,
-        mms: n.capabilities?.mms === true,
-        voice: n.capabilities?.voice === true,
-      },
-    }));
+    return nums.map((n) => ({ ...n, capabilities: { ...n.capabilities } }));
   }
 
   /**
@@ -155,30 +213,42 @@ export class NumbersService {
    * otherwise every service on the account (first one listed wins).
    *
    * Best-effort: the Messaging API being unreachable must not hide the
-   * numbers themselves, so any failure yields an empty map — the caller sees
-   * "membership unknown", not an error.
+   * numbers themselves, so any failure yields the cached map if there is one,
+   * else an empty map — the caller sees "membership unknown", not an error.
+   * The empty answer is never cached.
    */
   async messagingServiceMembership(): Promise<Map<string, string>> {
-    const membership = new Map<string, string>();
     try {
-      const messaging = this.client.messaging.v1;
-      const serviceSids = this.config.messagingServiceSid
-        ? [this.config.messagingServiceSid]
-        : (await messaging.services.list()).map((s) => s.sid);
-      for (const serviceSid of serviceSids) {
-        const members = await messaging.services(serviceSid).phoneNumbers.list();
-        for (const m of members) {
-          if (!membership.has(m.phoneNumber)) {
-            membership.set(m.phoneNumber, serviceSid);
-          }
-        }
-      }
+      return new Map(
+        await this.membershipCache.get(() => this.fetchMembership()),
+      );
     } catch (e) {
       this.logger.warn(
         `Could not read Messaging Service membership: ${(e as Error).message ?? e}`,
       );
+      return new Map();
     }
-    return membership;
+  }
+
+  /** The uncached walk; throws on any failure so nothing partial is cached. */
+  private async fetchMembership(): Promise<Array<[string, string]>> {
+    const messaging = this.client.messaging.v1;
+    const serviceSids = this.config.messagingServiceSid
+      ? [this.config.messagingServiceSid]
+      : (await messaging.services.list()).map((s) => s.sid);
+    // In parallel, folded in listing order — first service listed still wins.
+    const perService = await Promise.all(
+      serviceSids.map((sid) => messaging.services(sid).phoneNumbers.list()),
+    );
+    const membership = new Map<string, string>();
+    perService.forEach((members, i) => {
+      for (const m of members) {
+        if (!membership.has(m.phoneNumber)) {
+          membership.set(m.phoneNumber, serviceSids[i]);
+        }
+      }
+    });
+    return [...membership];
   }
 
   /** Monthly price for a local number in a country (Pricing API, cached). */
@@ -237,6 +307,7 @@ export class NumbersService {
         voiceMethod: 'POST',
       }),
     );
+    await this.invalidateCache();
     return {
       sid: n.sid,
       phoneNumber: n.phoneNumber,
@@ -270,6 +341,11 @@ export class NumbersService {
         );
       }
     }
-    await this.run(() => this.client.incomingPhoneNumbers(sid).remove());
+    try {
+      await this.run(() => this.client.incomingPhoneNumbers(sid).remove());
+    } finally {
+      // Also on failure: Twilio may have released it before the error.
+      await this.invalidateCache();
+    }
   }
 }

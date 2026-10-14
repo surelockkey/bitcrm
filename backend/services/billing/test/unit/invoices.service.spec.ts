@@ -77,6 +77,7 @@ function mockRepo() {
       items: [...store.values()].filter((i) => !filter?.contactId || i.contactId === filter.contactId),
     })),
     listAll: jest.fn(async () => [...store.values()]),
+    listAllForSummary: jest.fn(async () => [...store.values()]),
   };
 }
 
@@ -571,15 +572,132 @@ describe('InvoicesService', () => {
     });
   });
 
-  describe('summary — untouched by the cards', () => {
+  describe('summary — jobs needing an invoice (C1)', () => {
     const inv = (id: string, contactId: string, status: Invoice['status'], balanceDue: number) =>
       ({ id, dealId: id, contactId, status, totals: { balanceDue } }) as unknown as Invoice;
 
-    it('still counts the jobs needing an invoice', async () => {
+    it("reads deal-service's internal count, not the public list", async () => {
       repo.store.set('i1', inv('i1', 'c1', 'due', 1));
-      await service.summary(caller(), 'Bearer t');
+      deal.countNeedsInvoice.mockResolvedValueOnce(137);
 
-      expect(deal.listNeedsInvoice).toHaveBeenCalled();
+      const s = await service.summary(caller(), 'Bearer t');
+
+      expect(s.needsInvoiceCount).toBe(137);
+      expect(deal.listNeedsInvoice).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the public list when deal-service has no count route yet (404 → null)', async () => {
+      deal.countNeedsInvoice.mockResolvedValueOnce(null);
+      deal.listNeedsInvoice.mockResolvedValueOnce([
+        { id: 'd1', itemCount: 2 },
+        { id: 'd2', itemCount: 0 },
+        { id: 'd3', itemCount: 1 },
+      ]);
+
+      const s = await service.summary(caller(), 'Bearer t');
+
+      expect(s.needsInvoiceCount).toBe(2);
+      expect(deal.listNeedsInvoice).toHaveBeenCalledWith('Bearer t');
+    });
+
+    it("keeps a technician's count to their own jobs: the bearer-scoped public list", async () => {
+      deal.listNeedsInvoice.mockResolvedValueOnce([{ id: 'd1', itemCount: 1 }]);
+
+      const s = await service.summary(caller(DataScope.ASSIGNED_ONLY, { id: 'tech-1' }), 'Bearer t');
+
+      expect(s.needsInvoiceCount).toBe(1);
+      expect(deal.countNeedsInvoice).not.toHaveBeenCalled();
+    });
+
+    it('a failed count costs the number, not the summary', async () => {
+      deal.countNeedsInvoice.mockRejectedValueOnce(new Error('deal down'));
+      await expect(service.summary(caller(), 'Bearer t')).resolves.toMatchObject({ needsInvoiceCount: 0 });
+    });
+
+    it('caches the count in Redis for 30 s', async () => {
+      const store = new Map<string, string>();
+      const redis = {
+        client: {
+          get: jest.fn(async (k: string) => store.get(k) ?? null),
+          set: jest.fn(async (k: string, v: string) => void store.set(k, v)),
+        },
+      };
+      const cached = new InvoicesService(repo as never, deal as never, crm as never, profiles as never, undefined, undefined, redis as never);
+      deal.countNeedsInvoice.mockResolvedValue(9);
+
+      expect(await cached.needsInvoiceCount(caller(), 'Bearer t')).toBe(9);
+      expect(await cached.needsInvoiceCount(caller(), 'Bearer t')).toBe(9);
+
+      expect(deal.countNeedsInvoice).toHaveBeenCalledTimes(1);
+      expect(redis.client.set).toHaveBeenCalledWith('billing:needs-invoice:count', '9', 'EX', 30);
+    });
+  });
+
+  describe('summary — the open balances come off UnpaidIndex', () => {
+    const inv = (id: string, contactId: string, status: Invoice['status'], balanceDue: number, extra: Partial<Invoice> = {}) =>
+      ({ id, dealId: id, contactId, status, totals: { balanceDue, amountPaid: 0, total: balanceDue }, ...extra }) as unknown as Invoice;
+
+    it('gives the same numbers as the full-list walk did', async () => {
+      const fixtures = [
+        inv('i1', 'c1', 'due', 100, { sentAt: 't' }),
+        inv('i2', 'c1', 'overdue', 50),
+        inv('i3', 'c2', 'due', 10.1, { sentAt: 't' }),
+        inv('i4', 'c3', 'overdue', 5.25, { sentAt: 't' }),
+        { ...inv('i5', 'c4', 'paid', 0), totals: { balanceDue: 0, amountPaid: 80, total: 80 } } as unknown as Invoice,
+        { ...inv('i6', 'c5', 'paid', 0, { sentAt: 't' }), totals: { balanceDue: 0, total: 20 } } as unknown as Invoice,
+        inv('i7', 'c6', 'draft' as Invoice['status'], 3),
+      ];
+      for (const f of fixtures) repo.store.set(f.id, f);
+      const open = fixtures.filter((f) => f.status === 'due' || f.status === 'overdue');
+      const unpaid = { listUnpaid: jest.fn(async () => ({ items: open, indexReady: true })) };
+      const indexed = new InvoicesService(repo as never, deal as never, crm as never, profiles as never, undefined, undefined, undefined, undefined, unpaid as never);
+
+      const s = await indexed.summary(caller(), 'Bearer t');
+
+      expect(s).toEqual({
+        dueAmount: 110.1,
+        dueCount: 2,
+        overdueAmount: 55.25,
+        overdueCount: 2,
+        unsentCount: 3,
+        paidAmount: 100,
+        paidCount: 2,
+        needsInvoiceCount: 0,
+        dueClientCount: 3,
+        overdueClientCount: 2,
+      });
+      expect(unpaid.listUnpaid).toHaveBeenCalled();
+      // The rest reads the slim projection, never the full rows.
+      expect(repo.listAll).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('needingInvoice — the list', () => {
+    it("reads the internal list (one page of 100) for a caller whose deals scope is global", async () => {
+      deal.listNeedsInvoiceInternal.mockResolvedValueOnce([
+        { id: 'd1', dealNumber: '1', contactId: 'c1', itemCount: 2, createdAt: 't', actualTotal: 50 },
+      ]);
+
+      const rows = await service.needingInvoice('Bearer t', caller());
+
+      expect(deal.listNeedsInvoiceInternal).toHaveBeenCalledWith(100);
+      expect(deal.listNeedsInvoice).not.toHaveBeenCalled();
+      expect(rows).toEqual([{ id: 'd1', dealNumber: '1', contactId: 'c1', itemCount: 2, total: 50, createdAt: 't' }]);
+    });
+
+    it('falls back to the public list on 404', async () => {
+      deal.listNeedsInvoiceInternal.mockResolvedValueOnce(null);
+      deal.listNeedsInvoice.mockResolvedValueOnce([{ id: 'd9', itemCount: 1, createdAt: 't' }]);
+
+      const rows = await service.needingInvoice('Bearer t', caller());
+
+      expect(rows.map((r) => r.id)).toEqual(['d9']);
+    });
+
+    it('a technician gets the bearer-scoped public list', async () => {
+      await service.needingInvoice('Bearer t', caller(DataScope.ASSIGNED_ONLY, { id: 'tech-1' }));
+      expect(deal.listNeedsInvoiceInternal).not.toHaveBeenCalled();
+      expect(deal.listNeedsInvoice).toHaveBeenCalledWith('Bearer t');
     });
   });
 

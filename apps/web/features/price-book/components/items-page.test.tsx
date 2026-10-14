@@ -365,12 +365,12 @@ describe("ItemsPage — Workiz's grid", () => {
 
   it("shows Cost only with financials.view", () => {
     const { unmount } = renderWithClient(<ItemsPage />);
-    expect(screen.getByRole("columnheader", { name: "Cost" })).toBeInTheDocument();
+    expect(within(document.querySelector("[data-slot=wz-report-grid-head]") as HTMLElement).getByRole("columnheader", { name: "Cost" })).toBeInTheDocument();
     unmount();
     mocks.denied = new Set(["financials.view"]);
     renderWithClient(<ItemsPage />);
-    expect(screen.getByRole("columnheader", { name: "Price" })).toBeInTheDocument();
-    expect(screen.queryByRole("columnheader", { name: "Cost" })).toBeNull();
+    expect(within(document.querySelector("[data-slot=wz-report-grid-head]") as HTMLElement).getByRole("columnheader", { name: "Price" })).toBeInTheDocument();
+    expect(within(document.querySelector("[data-slot=wz-report-grid-head]") as HTMLElement).queryByRole("columnheader", { name: "Cost" })).toBeNull();
   });
 
   it("draws the first load as Workiz's grid under its loader, with no pager yet", () => {

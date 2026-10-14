@@ -13,9 +13,11 @@ import {
 import {
   CALL_COMPLETED_EVENT,
   DEAL_CREATED_EVENT,
+  DEAL_DELETED_EVENT,
   DEAL_SCHEDULED_CHANGED_EVENT,
   DEAL_STATUS_CHANGED_EVENT,
   DEAL_TECH_ASSIGNED_EVENT,
+  DEAL_TECH_UNASSIGNED_EVENT,
   DEAL_UPDATED_EVENT,
 } from '../../../src/automations/deal-events';
 import { AutomationDealEventsHandler } from '../../../src/automations/engine/deal-events.handler';
@@ -105,6 +107,9 @@ describe('AutomationsModule wiring', () => {
       DEAL_SCHEDULED_CHANGED_EVENT,
       DealEventType.SENT_TO_TECH,
       DealEventType.DEAL_CLIENT_CONFIRMED,
+      // C4: the technician inbox scope also listens to roster removals and deletes.
+      DEAL_TECH_UNASSIGNED_EVENT,
+      DEAL_DELETED_EVENT,
     ]) {
       expect(handlers.has(event)).toBe(true);
     }

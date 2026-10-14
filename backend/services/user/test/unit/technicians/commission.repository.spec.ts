@@ -91,4 +91,23 @@ describe('CommissionRepository (unit)', () => {
     expect(out['tech-1']).toHaveLength(2);
     expect(out['tech-2']).toEqual([]);
   });
+
+  it('listHistories reads up to 40 technicians at once, never more', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    client.send.mockImplementation(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setImmediate(r));
+      inFlight -= 1;
+      return { Items: [] };
+    });
+    const ids = Array.from({ length: 100 }, (_, i) => `tech-${i}`);
+
+    const out = await repo.listHistories(ids);
+
+    expect(peak).toBe(40);
+    expect(client.send).toHaveBeenCalledTimes(100);
+    expect(Object.keys(out)).toHaveLength(100);
+  });
 });

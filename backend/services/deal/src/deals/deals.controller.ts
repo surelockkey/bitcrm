@@ -25,7 +25,7 @@ import { MarkArrivedDto } from './dto/mark-arrived.dto';
 import { ChangeDealClientDto } from './dto/change-deal-client.dto';
 import { ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { splitRefresh, WidgetWindowQueryDto } from './dashboard/widget-window-query.dto';
-import { DealsByIdsDto } from './dto/deals-by-ids.dto';
+import { DealsByIdsDto, INTERNAL_BY_IDS_MAX, InternalDealsByIdsDto } from './dto/deals-by-ids.dto';
 import { AddNoteDto } from './dto/add-note.dto';
 import { UpdateNoteDto } from './dto/update-note.dto';
 import { AssignTechsDto } from './dto/assign-techs.dto';
@@ -184,6 +184,28 @@ export class DealsController {
     @ResolvedPerms() perms: ResolvedPermissions,
   ) {
     const data = await this.dealsService.findByIds(dto.ids, user, perms?.dataScope?.deals);
+    return { success: true, data };
+  }
+
+  /**
+   * K1 — billing reads the jobs of a page of invoices in one call. Declared
+   * here, ahead of every `internal/:id…` route (a POST cannot meet
+   * `GET internal/:id`, and no `POST :id/<x>` route ends in `by-ids`).
+   */
+  @Post('internal/by-ids')
+  @HttpCode(200)
+  @Internal()
+  @ApiOperation({
+    summary: 'The deals of a set of ids (internal)',
+    description:
+      '**Guard:** Internal service-to-service only (`x-internal-secret` header required). ' +
+      `Body \`{ ids }\`, at most ${INTERNAL_BY_IDS_MAX} (400 above); duplicates are read once. Answers ` +
+      '`{ success, data: Deal[] }` — the same `Deal` rows as `POST /deals/by-ids`, in the order asked, missing ' +
+      'ids absent. No data scope (no signed-in user) and deleted jobs included (`status: deleted`), as ' +
+      '`GET internal/:id` answers them.',
+  })
+  async findByIdsInternal(@Body() dto: InternalDealsByIdsDto) {
+    const data = await this.dealsService.findByIdsInternal(dto.ids);
     return { success: true, data };
   }
 

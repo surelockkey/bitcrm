@@ -16,6 +16,8 @@ export interface DealForMessaging {
   assignedTechIds: string[];
   assignedDispatcherId?: string;
   superStatus?: string;
+  /** `active` | `deleted` — `GET /deals/internal/:id` answers soft-deleted jobs too. */
+  status?: string;
 }
 
 const CACHE_TTL_MS = 60_000;
@@ -41,9 +43,9 @@ export class DealReadService {
   }
 
   /** One job. `null` = not found *or* unreachable; a 404 is cached, a 5xx is not. */
-  async find(dealId: string): Promise<DealForMessaging | null> {
+  async find(dealId: string, opts: { fresh?: boolean } = {}): Promise<DealForMessaging | null> {
     if (!dealId) return null;
-    const hit = this.byId.get(dealId);
+    const hit = opts.fresh ? undefined : this.byId.get(dealId);
     if (hit && hit.expiresAt > Date.now()) return hit.deal;
 
     const body = await this.getJson<{ data?: DealForMessaging }>(
@@ -60,10 +62,12 @@ export class DealReadService {
   /**
    * The jobs a technician is on (deal-service returns the 100 most recent
    * from TechIndex). `null` when the deal service could not answer.
+   * `fresh` skips the 60 s cache (the answer still refreshes it) — what the
+   * tech-scope projection writes from must not be a minute old.
    */
-  async listByTech(techId: string): Promise<DealForMessaging[] | null> {
+  async listByTech(techId: string, opts: { fresh?: boolean } = {}): Promise<DealForMessaging[] | null> {
     if (!techId) return [];
-    const hit = this.byTech.get(techId);
+    const hit = opts.fresh ? undefined : this.byTech.get(techId);
     if (hit && hit.expiresAt > Date.now()) return hit.deals;
 
     const body = await this.getJson<{ data?: DealForMessaging[] }>(

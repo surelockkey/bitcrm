@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   DeleteCommand,
   GetCommand,
@@ -84,6 +84,8 @@ export interface PaymentListFilter {
  */
 @Injectable()
 export class PaymentsRepository {
+  private readonly logger = new Logger(PaymentsRepository.name);
+
   constructor(private readonly db: DynamoDbService) {}
 
   // ------------------------------------------------------------- ledger rows
@@ -180,8 +182,8 @@ export class PaymentsRepository {
             ExpressionAttributeValues: { ...expr.ExpressionAttributeValues, ':ev': opts.expectedVersion },
             ConditionExpression: 'attribute_exists(PK) AND #ev = :ev',
           };
-    try {
-      await this.db.client.send(
+    const write = () =>
+      this.db.client.send(
         new TransactWriteCommand({
           TransactItems: [
             {
@@ -202,13 +204,53 @@ export class PaymentsRepository {
           ],
         }),
       );
+    try {
+      await write();
     } catch (err) {
-      if (isConditionalCheckFailed(err) || isTransactionCanceled(err)) throw new PaymentVersionConflictError();
-      throw err;
+      if (!isConditionalCheckFailed(err) && !isTransactionCanceled(err)) throw err;
+      // Only the job's copy refused: it is missing, not stale. Put it back from
+      // the canonical row and write once more. Anything else is a real conflict.
+      if (!onlyCopyRefused(err) || !(await this.restoreJobCopy(payment.id))) throw new PaymentVersionConflictError();
+      try {
+        await write();
+      } catch (retryErr) {
+        if (isConditionalCheckFailed(retryErr) || isTransactionCanceled(retryErr)) throw new PaymentVersionConflictError();
+        throw retryErr;
+      }
     }
     const fresh = await this.get(payment.id);
     if (!fresh) throw new PaymentVersionConflictError();
     return fresh;
+  }
+
+  /**
+   * Re-create a payment's copy under its job from the canonical row (strongly
+   * consistent read; the Put never overwrites a copy that is there). True when
+   * a copy now exists.
+   */
+  private async restoreJobCopy(paymentId: string): Promise<boolean> {
+    const res = await this.db.client.send(
+      new GetCommand({
+        TableName: BILLING_TABLE,
+        Key: { PK: paymentPk(paymentId), SK: METADATA_SK },
+        ConsistentRead: true,
+      }),
+    );
+    const canonical = stripKeys<Payment>(res.Item);
+    if (!canonical) return false;
+    try {
+      await this.db.client.send(
+        new PutCommand({
+          TableName: BILLING_TABLE,
+          Item: this.adjacentItem(canonical),
+          ConditionExpression: 'attribute_not_exists(PK)',
+        }),
+      );
+      this.logger.warn(`payment ${paymentId}: its copy under job ${canonical.invoiceId} was missing — restored`);
+    } catch (err) {
+      if (!isConditionalCheckFailed(err)) throw err;
+    }
+    return true;
   }
 
   /** Both copies, plus the Stripe pointers. Offline payments only (the service enforces that). */
@@ -465,4 +507,14 @@ export class PaymentsRepository {
     );
     return settings;
   }
+}
+
+/**
+ * A cancelled `update` whose canonical row (item 0) passed and whose job copy
+ * (item 1) failed its `attribute_exists` — the copy is missing.
+ */
+function onlyCopyRefused(err: unknown): boolean {
+  const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> }).CancellationReasons;
+  if (!reasons || reasons.length < 2) return false;
+  return (reasons[0]?.Code ?? 'None') === 'None' && reasons[1]?.Code === 'ConditionalCheckFailed';
 }

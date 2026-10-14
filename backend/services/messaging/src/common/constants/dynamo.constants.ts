@@ -119,6 +119,20 @@ export const templateCatalogSk = (title: string, templateId: string) =>
 export const SETTINGS_PK = 'MESSAGING#SETTINGS';
 export const COUNTERS_PK = 'INBOX#COUNTERS';
 
+/**
+ * The technician inbox projection (`src/tech-scope/`): one row per user,
+ * `TECHSCOPE` / `USER#<userId>`, holding the jobs that put client threads in
+ * their `assigned_only` inbox (the deal-service by-tech answer, filtered to
+ * the jobs whose roster names them). One small partition — read by key, and
+ * walked whole only by the reconciling backfill and a CRM merge.
+ */
+export const TECH_SCOPE_PK = 'TECHSCOPE';
+export const techScopeSk = (userId: string) => `USER#${userId}`;
+export const TECH_SCOPE_SK_PREFIX = 'USER#';
+/** `TECHSCOPEINDEX` / `STATE` { readyAt, count } — stamped by `backfill:tech-scope`; until then, the live path. */
+export const TECH_SCOPE_STATE_PK = 'TECHSCOPEINDEX';
+export const TECH_SCOPE_STATE_SK = 'STATE';
+
 /** `AUTOMATION#<id>` / METADATA — Workiz rules stored as data until M21. */
 export const automationPk = (ruleId: string) => `AUTOMATION#${ruleId}`;
 

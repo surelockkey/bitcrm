@@ -125,8 +125,12 @@ export interface PaymentOwner {
  * write the job timeline and publish the event. Nothing anywhere applies a
  * delta to a stored total.
  */
-/** Ledgers read at once by `ledgersByDeals`. */
-const LEDGER_READ_CONCURRENCY = 10;
+/**
+ * Ledger Queries kept in flight by `ledgersByDeals` — a pool: each finished
+ * read starts the next, so one slow ledger never holds a wave back, and a
+ * 100-job report page never has more than this many reads open.
+ */
+export const LEDGER_READ_CONCURRENCY = 50;
 /** The DTO's cap, held here too: the body is not validated on every deployment. */
 const LEDGERS_MAX_DEALS = 100;
 
@@ -172,12 +176,16 @@ export class PaymentsService {
     const ids = Array.isArray(dealIds) ? dealIds.filter((id) => typeof id === 'string' && id) : [];
     const unique = [...new Set(ids)].slice(0, LEDGERS_MAX_DEALS);
     const out: Record<string, Payment[]> = {};
-    for (let i = 0; i < unique.length; i += LEDGER_READ_CONCURRENCY) {
-      const batch = unique.slice(i, i + LEDGER_READ_CONCURRENCY);
-      const ledgers = await Promise.all(batch.map((id) => this.repo.listByInvoice(id)));
-      batch.forEach((id, n) => (out[id] = ledgers[n]));
-    }
-    return out;
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < unique.length) {
+        const id = unique[next++];
+        out[id] = await this.repo.listByInvoice(id);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(LEDGER_READ_CONCURRENCY, unique.length) }, worker));
+    // Keys in request order, as the waves produced them.
+    return Object.fromEntries(unique.map((id) => [id, out[id]]));
   }
 
   /**
@@ -187,12 +195,52 @@ export class PaymentsService {
    * picks them up as its `amountPaid`.
    */
   async listForDeal(dealId: string, caller: Caller): Promise<JobPaymentLedger> {
-    const ctx = await this.jobContext(dealId, caller);
-    const { payments, summary } = await this.ledger(ctx.view.deal.id);
-    const total = jobTotal(ctx.view, summary.settled);
+    // The invoice Get and the ledger Query are side-effect free and keyed by
+    // the id asked for, so they run BESIDE the job's billing view (an HTTP hop
+    // to deal-service) instead of after it. The access check still decides
+    // first: nothing they read is answered, and none of their errors is
+    // raised, until `accessibleJob` has let the caller through.
+    const view$ = this.accessibleJob(dealId, caller);
+    const invoice$ = this.invoices.getStored(dealId);
+    const ledger$ = this.ledger(dealId);
+    invoice$.catch(() => undefined);
+    ledger$.catch(() => undefined);
+    const view = await view$;
+    if (view.deal.id !== dealId) return this.ledgerForJob(view);
+    const [invoice, ledger] = await Promise.all([invoice$, ledger$]);
+    return this.jobLedger(view, invoice, ledger);
+  }
+
+  /**
+   * The job, once the caller may see it — the same check `listForDeal` makes
+   * (404 for no job, `payments` assigned-only for a technician not on it),
+   * without reading the invoice or the ledger. For a reader that may have
+   * nothing to show (a job with no payment schedule) and should not pay for
+   * the ledger to find out.
+   */
+  async accessibleJob(dealId: string, caller: Caller): Promise<DealBillingView> {
+    const view = await this.deal.getBillingView(dealId);
+    if (!view) throw new NotFoundException('Job not found');
+    assertDealAccess(caller, 'payments', view.deal);
+    return view;
+  }
+
+  /** The job's ledger, for a job `accessibleJob` already let through. */
+  async ledgerForJob(view: DealBillingView): Promise<JobPaymentLedger> {
+    // Independent reads once access is decided: side by side.
+    const [invoice, ledger] = await Promise.all([this.invoices.getStored(view.deal.id), this.ledger(view.deal.id)]);
+    return this.jobLedger(view, invoice, ledger);
+  }
+
+  private jobLedger(
+    view: DealBillingView,
+    invoice: Invoice | null,
+    { payments, summary }: InvoiceLedger,
+  ): JobPaymentLedger {
+    const total = jobTotal(view, summary.settled);
     return {
-      dealId: ctx.view.deal.id,
-      ...(ctx.invoice && { invoiceId: ctx.invoice.id }),
+      dealId: view.deal.id,
+      ...(invoice && { invoiceId: invoice.id }),
       payments,
       summary,
       total,
@@ -727,9 +775,7 @@ export class PaymentsService {
    * scope enforced. The job-level twin of `context`, which insists on an invoice.
    */
   private async jobContext(dealId: string, caller: Caller): Promise<JobContext> {
-    const view = await this.deal.getBillingView(dealId);
-    if (!view) throw new NotFoundException('Job not found');
-    assertDealAccess(caller, 'payments', view.deal);
+    const view = await this.accessibleJob(dealId, caller);
     const invoice = await this.invoices.getStored(view.deal.id);
     return { invoice, view };
   }

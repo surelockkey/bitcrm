@@ -107,6 +107,14 @@ export type NeedsInvoiceDeal = Pick<
 > & { estimatedTotal?: number; actualTotal?: number };
 
 const CATALOG_TTL_MS = 60_000;
+/** K1 answers, kept per deal id — the Payments report pages through the same jobs. */
+const DEALS_BY_ID_TTL_MS = 60_000;
+/** Past this many cached deals the expired ones are swept before the next insert. */
+const DEALS_BY_ID_SWEEP_AT = 5_000;
+/** `POST /deals/internal/by-ids` takes at most this many ids per body (contract K1). */
+export const DEALS_INTERNAL_BY_IDS_MAX = 500;
+/** How long a 404 from K1 (deal-service not deployed yet) sends callers to the fallback. */
+const K1_MISSING_RETRY_MS = 60_000;
 
 /**
  * Deal-service calls (contract §1). Paths used:
@@ -123,14 +131,28 @@ const CATALOG_TTL_MS = 60_000;
  *   GET   /api/deals/service-areas/internal          (existing — name + timezone)
  *   GET   /api/deals/custom-fields/internal          (existing — id → name)
  *   GET   /api/deals/job-types/internal              (existing — id → name; the Payments report)
- *   POST  /api/deals/by-ids                          (public; the caller's bearer — the Payments report)
- *   GET   /api/deals?needsInvoice=true               (public; the caller's bearer is forwarded)
+ *   POST  /api/deals/internal/by-ids                 (K1 — the Payments report's job names, ≤500 ids)
+ *   POST  /api/deals/by-ids                          (public; the caller's bearer — the Payments report's
+ *                                                     fallback while deal-service lacks K1)
+ *   GET   /api/deals/internal/needs-invoice/count    (C1 — the summaries' "needs invoice" count)
+ *   GET   /api/deals/internal/needs-invoice          (C1 — the needing-invoice list, one page)
+ *   GET   /api/deals?needsInvoice=true               (public; the caller's bearer is forwarded —
+ *                                                     a technician's scope, and the fallback
+ *                                                     while deal-service lacks the C1 routes)
  */
 @Injectable()
 export class DealClient {
   private readonly logger = new Logger(DealClient.name);
   private readonly http: InternalHttp;
   private readonly catalogs = new Map<string, { rows: unknown[]; expiresAt: number }>();
+  /** The catalog reads in flight, so concurrent misses share one request. */
+  private readonly catalogFlights = new Map<string, Promise<unknown[]>>();
+  /** Deals answered by K1, by id, for `DEALS_BY_ID_TTL_MS`. */
+  private readonly dealsById = new Map<string, { deal: Deal; expiresAt: number }>();
+  /** Until when K1 is known to be missing (a 404) — the caller uses the public route meanwhile. */
+  private internalByIdsMissingUntil = 0;
+  /** Billing views in flight, by deal id: concurrent reads of one job share a request (no cache). */
+  private readonly billingViewFlights = new Map<string, Promise<DealBillingView | null>>();
 
   constructor(
     @Optional() @Inject(INTERNAL_FETCH) fetchImpl?: FetchLike,
@@ -139,11 +161,23 @@ export class DealClient {
     this.http = new InternalHttp('deal', DEAL_SERVICE_URL, fetchImpl ?? defaultFetch, metrics);
   }
 
+  /**
+   * The job + lines + totals. Single-flight per job: the Payments tab and the
+   * Payment schedule open together and both start here, so concurrent reads
+   * of one job share ONE request. Nothing outlives the request — the access
+   * check (`accessibleJob`) never sees a view older than a concurrent read.
+   */
   getBillingView(dealId: string): Promise<DealBillingView | null> {
-    return this.http.request<DealBillingView>(
-      `/api/deals/internal/${encodeURIComponent(dealId)}/billing-view`,
-      { operation: 'getBillingView', nullOn404: true },
-    );
+    const pending = this.billingViewFlights.get(dealId);
+    if (pending) return pending;
+    const flight = this.http
+      .request<DealBillingView>(`/api/deals/internal/${encodeURIComponent(dealId)}/billing-view`, {
+        operation: 'getBillingView',
+        nullOn404: true,
+      })
+      .finally(() => this.billingViewFlights.delete(dealId));
+    this.billingViewFlights.set(dealId, flight);
+    return flight;
   }
 
   async replaceAllProducts(
@@ -263,6 +297,70 @@ export class DealClient {
     );
   }
 
+  /**
+   * The jobs of a set of ids through deal-service's INTERNAL by-ids (contract
+   * K1): internal secret, ≤ 500 ids a body (side by side above that), missing
+   * ids omitted. No data scope — the caller applies the one the public route
+   * would have (see `PaymentReportService.dealsFor`). Found deals are cached
+   * 60 s, so a repeat asks only for what it has not seen.
+   *
+   * `null` when deal-service answers 404 (a deal-service from before K1): the
+   * caller falls back to `getDealsByIds`. That answer is remembered for a
+   * minute so the fallback does not pay for a 404 on every page.
+   */
+  async getDealsByIdsInternal(ids: string[]): Promise<Deal[] | null> {
+    const wanted = [...new Set(ids.filter(Boolean))];
+    if (wanted.length === 0) return [];
+    const now = Date.now();
+    if (now < this.internalByIdsMissingUntil) return null;
+
+    const found: Deal[] = [];
+    const missing: string[] = [];
+    for (const id of wanted) {
+      const hit = this.dealsById.get(id);
+      if (hit && hit.expiresAt > now) found.push(hit.deal);
+      else missing.push(id);
+    }
+    if (missing.length === 0) return found;
+
+    const chunks: string[][] = [];
+    for (let i = 0; i < missing.length; i += DEALS_INTERNAL_BY_IDS_MAX) {
+      chunks.push(missing.slice(i, i + DEALS_INTERNAL_BY_IDS_MAX));
+    }
+    const answers = await Promise.all(
+      chunks.map((chunk) =>
+        this.http.request<Deal[]>('/api/deals/internal/by-ids', {
+          method: 'POST',
+          body: { ids: chunk },
+          operation: 'getDealsByIdsInternal',
+          nullOn404: true,
+        }),
+      ),
+    );
+    if (answers.some((a) => a === null)) {
+      this.internalByIdsMissingUntil = Date.now() + K1_MISSING_RETRY_MS;
+      return null;
+    }
+    if (this.dealsById.size > DEALS_BY_ID_SWEEP_AT) this.sweepDeals();
+    const expiresAt = Date.now() + DEALS_BY_ID_TTL_MS;
+    for (const deal of answers.flat() as Deal[]) {
+      if (!deal?.id) continue;
+      this.dealsById.set(deal.id, { deal, expiresAt });
+      found.push(deal);
+    }
+    return found;
+  }
+
+  private sweepDeals(): void {
+    const now = Date.now();
+    for (const [id, entry] of this.dealsById) if (entry.expiresAt <= now) this.dealsById.delete(id);
+    // Still too many live ones: drop the oldest inserts (Map keeps insertion order).
+    for (const id of this.dealsById.keys()) {
+      if (this.dealsById.size <= DEALS_BY_ID_SWEEP_AT) break;
+      this.dealsById.delete(id);
+    }
+  }
+
   /** id → name of every job type (active or not), cached 60s. */
   async listJobTypes(): Promise<Array<{ id: string; name: string }>> {
     return this.cachedCatalog<{ id: string; name: string }>('job-types', '/api/deals/job-types/internal');
@@ -291,16 +389,56 @@ export class DealClient {
     );
   }
 
+  /**
+   * How many jobs have items and no invoice — account-wide, no data scope
+   * (contract C1). `null` when deal-service answers 404: a deal-service from
+   * before the route, and the caller falls back to `listNeedsInvoice`.
+   */
+  async countNeedsInvoice(): Promise<number | null> {
+    const res = await this.http.request<{ count: number }>('/api/deals/internal/needs-invoice/count', {
+      operation: 'countNeedsInvoice',
+      nullOn404: true,
+      timeoutMs: 5_000,
+    });
+    return res ? Number(res.count) || 0 : null;
+  }
+
+  /**
+   * One page of the jobs with items and no invoice — account-wide (contract
+   * C1), same row shape as the public list. `null` on 404, as above.
+   */
+  listNeedsInvoiceInternal(limit = 100, cursor?: string): Promise<NeedsInvoiceDeal[] | null> {
+    const qs = `limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+    return this.http.request<NeedsInvoiceDeal[]>(`/api/deals/internal/needs-invoice?${qs}`, {
+      operation: 'listNeedsInvoiceInternal',
+      nullOn404: true,
+    });
+  }
+
+  /**
+   * A deal-service catalog, cached `CATALOG_TTL_MS`. Single-flight: misses
+   * that arrive while a read is in flight wait for it instead of each asking
+   * deal-service. A failure is never cached — the waiters of that flight get
+   * the stale rows (or `[]`), and the next caller tries again.
+   */
   private async cachedCatalog<T>(key: string, path: string): Promise<T[]> {
     const hit = this.catalogs.get(key);
     if (hit && hit.expiresAt > Date.now()) return hit.rows as T[];
-    try {
-      const rows = (await this.http.request<T[]>(path, { operation: `catalog:${key}` })) ?? [];
-      this.catalogs.set(key, { rows, expiresAt: Date.now() + CATALOG_TTL_MS });
-      return rows;
-    } catch (err) {
-      this.logger.warn(`catalog ${key} unavailable: ${(err as Error).message}`);
-      return (hit?.rows as T[]) ?? [];
-    }
+    const pending = this.catalogFlights.get(key);
+    if (pending) return pending as Promise<T[]>;
+    const flight = (async () => {
+      try {
+        const rows = (await this.http.request<T[]>(path, { operation: `catalog:${key}` })) ?? [];
+        this.catalogs.set(key, { rows, expiresAt: Date.now() + CATALOG_TTL_MS });
+        return rows;
+      } catch (err) {
+        this.logger.warn(`catalog ${key} unavailable: ${(err as Error).message}`);
+        return (this.catalogs.get(key)?.rows as T[]) ?? [];
+      } finally {
+        this.catalogFlights.delete(key);
+      }
+    })();
+    this.catalogFlights.set(key, flight);
+    return flight;
   }
 }

@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   NotFoundException,
   Param,
   Post,
@@ -21,6 +22,7 @@ import { ProductThumbnailsService } from './product-thumbnails';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
+import { ProductsByIdsDto } from './dto/products-by-ids.dto';
 import { Internal } from '../common/decorators/internal.decorator';
 import { coerceInternalLimit } from '../common/utils/internal-pagination';
 
@@ -67,7 +69,10 @@ export class ProductsController {
       '`stockLevel` — Workiz\'s Stocked / Low Stock against `reorderLevel`) apply on top. On both name-ordered partitions a filtered page is filled across the whole ' +
       'partition, never an empty page with a cursor. A cursor is only good for the partition that ' +
       'handed it out; any other is a 400. An item with a photo whose thumbnail has been made ' +
-      'carries `thumbnailUrl` — a presigned GET of a 128×128 webp, the same URL all hour.' + MONEY_NOTE,
+      'carries `thumbnailUrl` — a presigned GET of a 128×128 webp, the same URL all hour. ' +
+      'Without a category but with a filter, the page is read off search-service\'s index once its ' +
+      'product backfill has stamped it ready (falling back to DynamoDB on any miss) — the same rows, ' +
+      'order and cursor; the rows themselves always come from here.' + MONEY_NOTE,
   })
   async list(@Query() query: ListProductsQueryDto, @Req() req: any) {
     const { items, nextCursor } = await this.productsService.list(query);
@@ -91,6 +96,7 @@ export class ProductsController {
       '`{ total, atLeast }` — the row count behind "Page 2 of 7", read off the same partition ' +
       'the list reads. `atLeast` means the walk ' +
       'stopped on a ceiling and the real number is higher, which the panel renders as `7+`. ' +
+      'A filtered count without a category is search-service\'s exact total when its index is ready. ' +
       'Cached for thirty seconds.',
   })
   async count(@Query() query: ListProductsQueryDto) {
@@ -246,6 +252,22 @@ export class ProductsController {
       coerceInternalLimit(limit),
       cursor,
     );
+    return { success: true, data };
+  }
+
+  @Post('internal/by-ids')
+  @Internal()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Internal: get many products by id',
+    description:
+      '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only. Body `{ ids }` — ' +
+      'duplicates ignored, more than 500 distinct ids is a 400. Answers the products in the order asked, ' +
+      'each the same item as `GET /products/internal/:id`; unknown ids are left out. Read-through the ' +
+      'per-product Redis cache, misses in one BatchGet.',
+  })
+  async findByIdsInternal(@Body() dto: ProductsByIdsDto) {
+    const data = await this.productsService.findByIdsInternal(dto.ids ?? []);
     return { success: true, data };
   }
 

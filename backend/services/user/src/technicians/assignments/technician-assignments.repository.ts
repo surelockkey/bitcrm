@@ -130,7 +130,12 @@ export class TechnicianAssignmentsRepository {
     };
   }
 
-  /** Every approved assignment of one kind, across all technicians. */
+  /**
+   * Every approved assignment of one kind, across all technicians — projected
+   * to `userId, kind, catalogId, status`: its readers (the Team list's Skills /
+   * Areas columns, the assignable roster) use nothing else, and the review
+   * fields (`proposedBy`, `reviewedAt`, `comments`, …) come back undefined.
+   */
   async listAllApproved(kind: AssignmentKind): Promise<TechnicianAssignment[]> {
     const items: TechnicianAssignment[] = [];
     let lastKey: Record<string, unknown> | undefined;
@@ -141,6 +146,8 @@ export class TechnicianAssignmentsRepository {
           IndexName: GSI4_NAME,
           KeyConditionExpression: 'GSI4PK = :pk',
           ExpressionAttributeValues: { ':pk': statusGsiPk(kind, 'approved') },
+          ProjectionExpression: '#u, #k, #c, #s',
+          ExpressionAttributeNames: { '#u': 'userId', '#k': 'kind', '#c': 'catalogId', '#s': 'status' },
           ExclusiveStartKey: lastKey,
         }),
       );

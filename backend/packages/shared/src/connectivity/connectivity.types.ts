@@ -42,6 +42,14 @@ export interface ConnectivityOptions {
   failFast?: ProbeKind[];
   intervalMs?: number;
   probeTimeoutMs?: number;
+  /**
+   * Peer services boot alongside this one, so at boot an `http` probe often
+   * fails only because the peer is not listening yet. When peers are the only
+   * failures, the boot report is held and they are re-probed every
+   * `peerSettleIntervalMs` until they answer or `peerSettleTimeoutMs` passes.
+   */
+  peerSettleIntervalMs?: number;
+  peerSettleTimeoutMs?: number;
   dynamodb?: { tables?: string[]; endpoint?: string; region?: string };
   redis?: boolean | { url?: string };
   s3?: { buckets: string[]; endpoint?: string; region?: string };

@@ -1,6 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import {
   GetCommand,
+  PutCommand,
   QueryCommand,
   ScanCommand,
   UpdateCommand,
@@ -93,6 +94,9 @@ export type StockManagedFilters = Omit<ProductListFilters, 'manageStock'>;
 /** The product-number counter row. */
 const COUNTER_KEY = { PK: 'COUNTER#PRODUCT', SK: 'METADATA' };
 
+/** Recorded once the boot-time type heal (ProductsTypeBackfill) has walked the catalog. */
+const TYPE_HEAL_STATE_KEY = { PK: 'PRODUCTTYPEHEAL', SK: 'STATE' };
+
 /**
  * Product rows in the single BitCRM_Inventory table:
  *   PK = PRODUCT#<id>, SK = METADATA
@@ -102,6 +106,8 @@ const COUNTER_KEY = { PK: 'COUNTER#PRODUCT', SK: 'METADATA' };
  *   PK = COUNTER#PRODUCT, SK = METADATA                   { seq } — the last
  *     product `number` handed out; `nextNumber` ADDs one atomically and
  *     `raiseCounterTo` moves it past imported (Workiz) numbers.
+ *   PK = PRODUCTTYPEHEAL, SK = STATE                      { doneAt } — the boot-time
+ *     type heal (ProductsTypeBackfill) walked the catalog once; boots skip it after.
  *   GSI3PK = PRODUCTS#STOCK, GSI3SK = <name lowercased>#<id>  (OwnerIndex, sparse:
  *     stock-managed products only — type `product`, `manageStock` not false,
  *     any status; the "inventory products" list, name order.
@@ -296,6 +302,20 @@ export class ProductsRepository {
     }
   }
 
+  /** Whether the boot-time type heal has completed a walk (its STATE row exists). */
+  async typeHealDone(): Promise<boolean> {
+    const { Item } = await this.dynamoDb.client.send(
+      new GetCommand({ TableName: INVENTORY_TABLE, Key: TYPE_HEAL_STATE_KEY }),
+    );
+    return typeof Item?.doneAt === 'string';
+  }
+
+  async markTypeHealDone(): Promise<void> {
+    await this.dynamoDb.client.send(
+      new PutCommand({ TableName: INVENTORY_TABLE, Item: { ...TYPE_HEAL_STATE_KEY, doneAt: new Date().toISOString() } }),
+    );
+  }
+
   async findById(id: string): Promise<Product | null> {
     const result = await this.dynamoDb.client.send(
       new GetCommand({
@@ -482,10 +502,7 @@ export class ProductsRepository {
     return this.queryIndex(GSI2_NAME, 'GSI2PK', `TYPE#${type}`, limit, cursor, filters);
   }
 
-  /**
-   * The Scan that selects products, shared by the list and its count so the
-   * two can never answer about different populations.
-   */
+  /** The Scan that selects products — what `countAll` counts. */
   private listFilter(filters?: ProductListFilters) {
     const f = this.filterParts(filters);
     return {
@@ -495,42 +512,27 @@ export class ProductsRepository {
     };
   }
 
-  async findAll(
+  /**
+   * Every product, for the search indexer's internal walk
+   * (`GET /products/internal/all`, paged by `nextCursor`, which callers treat
+   * as opaque). It reads the GSI4 `PRODUCTS#ALL` partition — the Price Book's,
+   * via `findCatalog` — in name order, any given filters on top.
+   *
+   * It used to be a filtered Scan of the whole table, where most rows are not
+   * products (SKU#, STOCK#, CONTAINER#, …), so each page read far more than it
+   * kept; a search re-index on every boot made that thousands of Scans a week.
+   *
+   * Depends on `backfill:product-catalog-index` having run on the environment
+   * (it already must, or the Price Book is empty): a product row without the
+   * GSI4 keys is invisible here. Cursors handed out by the old Scan carry no
+   * GSI4 keys and are refused with a 400 — restart the walk.
+   */
+  findAll(
     limit: number,
     cursor?: string,
     filters?: ProductListFilters,
   ): Promise<PaginatedResult> {
-    const f = this.listFilter(filters);
-    // Decoded before any read: a garbage cursor is a 400, not a 500.
-    const startKey = decodeIndexCursor(cursor, ['PK', 'SK']);
-
-    // The table holds far more than products — every SKU#, STOCK#, CONTAINER#
-    // and WAREHOUSE# row shares it — so a filtered Scan reads mostly rows it
-    // throws away, and `Limit` counts what was read, not what survived. Asking
-    // for fifty returned four products (two with a status filter), so the
-    // inventory page opened nearly empty. `fillPage` keeps reading until the
-    // page is full.
-    const page = await fillPage<Record<string, unknown>>(
-      (input) =>
-        this.dynamoDb.client.send(
-          new ScanCommand({
-            TableName: INVENTORY_TABLE,
-            FilterExpression: f.expression,
-            ExpressionAttributeValues: f.values,
-            ...(Object.keys(f.names).length > 0 && {
-              ExpressionAttributeNames: f.names,
-            }),
-            ...input,
-          }),
-        ),
-      limit,
-      { startKey, keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
-    );
-
-    return {
-      items: page.items.map(this.toProduct),
-      nextCursor: encodeIndexCursor(page.lastKey),
-    };
+    return this.findCatalog(limit, cursor, filters);
   }
 
   /**
