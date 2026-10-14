@@ -18,6 +18,9 @@ import { fetchAllUsers } from "@/features/technicians/api";
 import * as api from "./api";
 import { applyLineWrite, restoreLineCache, snapshotLineCache, type LineCacheSnapshot } from "./line-cache";
 import { getProduct } from "@/features/inventory/products/api";
+import { itemAttributesKey } from "@/features/inventory/item-attributes/hooks";
+import { listItemAttributes } from "@/features/inventory/item-attributes/api";
+import { fetchTechStock } from "./tech-stock";
 import { CATALOG_STALE_MS } from "@/features/price-book/catalog-search";
 import { SEND_TO_TECH_CHANNEL_LABEL } from "./lib";
 import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./schemas";
@@ -601,6 +604,21 @@ export function useAddProduct(id: string) {
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
+}
+
+/**
+ * What the job item card needs besides its item, read while the Items tab is
+ * on screen so Add item / Edit open whole and at once: the catalog's custom
+ * fields (the card's bottom) and the first assigned technician's van stock
+ * (the location's count). Both land in the cache entries the card reads.
+ */
+export function usePrefetchJobItemCard(techIds: readonly string[]) {
+  const qc = useQueryClient();
+  const first = techIds[0];
+  useEffect(() => {
+    void qc.prefetchQuery({ queryKey: itemAttributesKey, queryFn: listItemAttributes, staleTime: 5 * 60_000 });
+    if (first) void qc.prefetchQuery({ queryKey: ["deal-tech-stock", first], queryFn: () => fetchTechStock(first) });
+  }, [qc, first]);
 }
 
 /** Reads a catalog item ahead of the edit card (a row's hover), cached as the card's own read is. */

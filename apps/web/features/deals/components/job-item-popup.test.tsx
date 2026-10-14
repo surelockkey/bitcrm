@@ -6,11 +6,6 @@ import type { ItemAttribute, Product } from "@bitcrm/types";
 
 const mocks = vi.hoisted(() => ({
   attributes: [] as ItemAttribute[],
-  attributesLoading: false,
-}));
-
-vi.mock("@/features/inventory/item-attributes/hooks", () => ({
-  useItemAttributes: () => ({ data: mocks.attributes, isLoading: mocks.attributesLoading, isError: false }),
 }));
 
 import { Dialog } from "@/components/ui/dialog";
@@ -58,6 +53,7 @@ function renderPopup(over: Partial<JobItemPopupProps> = {}) {
     available: 5,
     stockCredit: 0,
     locations: [{ techId: "t1", label: "Bob Wrench's van", available: 5 }],
+    fields: mocks.attributes,
     techId: "t1",
     users: [
       { id: "u1", firstName: "Ann", lastName: "Seller" },
@@ -81,7 +77,6 @@ function renderPopup(over: Partial<JobItemPopupProps> = {}) {
 
 beforeEach(() => {
   mocks.attributes = [];
-  mocks.attributesLoading = false;
 });
 
 describe("JobItemPopup — Workiz's \"Add job item\" card", () => {

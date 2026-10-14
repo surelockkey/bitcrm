@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { WzDialogContent } from "@/features/inventory/item-edit/wz";
+import { useItemAttributes } from "@/features/inventory/item-attributes/hooks";
+import { settled } from "@/lib/use-page-ready";
 import { useUserMap, useAddProduct, useReplaceProduct, useAddItemGroup } from "../hooks";
 import { CATALOG_PAGE_SIZE, useCatalogProduct, useCatalogSearch } from "@/features/price-book/catalog-search";
 import { useItemGroups } from "@/features/price-book/item-groups/hooks";
@@ -84,7 +86,10 @@ function AddProductFlow({ dealId, techIds, editing, onClose }: AddProductProps &
     enabled: !!techId,
     retry: false,
   });
-  const { map: userMap, users } = useUserMap();
+  const { map: userMap, users, isLoading: usersLoading } = useUserMap();
+  // The card's own reads: the catalog's custom fields (its bottom), the
+  // people for "Sold by", the chosen van's stock (the location's count).
+  const attributes = useItemAttributes();
   // Only a technician is held to the ±15% band; the office sets any price.
   // The Cost box is the office's too: inventory hides costCompany from anyone else.
   const { isTechnician, can } = usePermissions();
@@ -121,11 +126,15 @@ function AddProductFlow({ dealId, techIds, editing, onClose }: AddProductProps &
 
   const matchedGroups = useMemo(() => pickableGroups(groups.data, search), [groups.data, search]);
 
-  // An edit opens on the card and nothing else: no "loading" window first that
-  // the card then replaces (the catalog item is usually prefetched on hover).
-  if (readingEdited) return null;
+  // The card shows whole or not at all: never a card whose bottom (the custom
+  // fields) or whose van count drops in a moment later and moves everything.
+  // The Items tab reads these ahead (`usePrefetchJobItemCard`), so in practice
+  // the wait is nil; an edit shows nothing until then (no "loading" window
+  // the card then replaces), a pick keeps the picker on screen.
+  const cardReady = settled(attributes) && !usersLoading && (!techId || settled(stockQuery));
+  if (readingEdited || (isEdit && !changingItem && !picked && !cardReady)) return null;
 
-  if (current) {
+  if (current && cardReady) {
     const sameLine = !!editing && current.id === editing.productId;
     // The vans the line can come from: the assigned technicians'. The count
     // is known for the chosen one (its stock is read); the others say none.
@@ -165,6 +174,7 @@ function AddProductFlow({ dealId, techIds, editing, onClose }: AddProductProps &
           techId={techId}
           onLocationChange={setTechId}
           users={users}
+          fields={attributes.data ?? []}
           pending={isEdit ? replace.isPending : add.isPending}
           initial={initial}
           onClose={onClose}

@@ -12,6 +12,7 @@ import type { Deal, DealProduct } from "@bitcrm/types";
 const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
   prefetch: vi.fn(),
+  prefetchCard: vi.fn(),
   updateDeal: vi.fn(),
   setTaxable: vi.fn(),
   setTax: vi.fn(),
@@ -59,6 +60,7 @@ vi.mock("@/features/payments/components/payment-schedule", async (importOriginal
 vi.mock("../hooks", () => ({
   useDealProducts: () => ({ data: mocks.products, isLoading: false }),
   usePrefetchCatalogProduct: () => mocks.prefetch,
+  usePrefetchJobItemCard: mocks.prefetchCard,
   useUpdateDeal: () => ({ mutate: mocks.updateDeal, isPending: false }),
   useRemoveProduct: () => ({ mutate: mocks.remove, isPending: false }),
   useMarkProductOrdered: () => ({ mutate: vi.fn(), isPending: false }),
@@ -169,6 +171,11 @@ describe("DealProductsTab (editable items)", () => {
 
     expect(lastDialog().open).toBe(true);
     expect(lastDialog().editing).toMatchObject({ productId: "p1" });
+  });
+
+  it("reads the card's custom fields and the first van's stock ahead, so Add item / Edit open whole", () => {
+    render(<DealProductsTab deal={deal} canEdit variant="job" />);
+    expect(mocks.prefetchCard).toHaveBeenCalledWith(["t1"]);
   });
 
   it("hovering a row reads its catalog item ahead, so the editor opens whole", async () => {

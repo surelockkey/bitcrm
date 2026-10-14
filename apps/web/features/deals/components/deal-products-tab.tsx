@@ -26,6 +26,7 @@ import {
   useDealTotals,
   useMarkProductOrdered,
   usePrefetchCatalogProduct,
+  usePrefetchJobItemCard,
   useRemoveProduct,
   useUpdateDeal,
   useResetDealTax,
@@ -174,6 +175,7 @@ export function DealProductsTab({
   const totalsQuery = useDealTotals(deal.id);
   const remove = useRemoveProduct(deal.id);
   const prefetchItem = usePrefetchCatalogProduct();
+  usePrefetchJobItemCard(deal.assignedTechIds);
   // Workiz's "Tech expenses" box under the totals writes the job's own amount.
   const updateDeal = useUpdateDeal(deal.id);
   const techExpenses = {

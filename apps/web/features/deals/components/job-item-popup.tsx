@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { ProductType } from "@bitcrm/types";
 import type { ItemAttribute, Product } from "@bitcrm/types";
-import { useItemAttributes } from "@/features/inventory/item-attributes/hooks";
 import { inputTypeFor } from "@/features/inventory/item-attributes/lib";
 import {
   FloatingInput,
@@ -60,6 +59,8 @@ export interface JobItemPopupProps {
   onLocationChange?: (techId: string | undefined) => void;
   /** Who may be credited with the sale ("Sold by"). */
   users: Array<{ id: string; firstName?: string; lastName?: string; workizName?: string; email?: string }>;
+  /** The item catalog's custom fields — read by the flow before the card opens, so it opens whole. */
+  fields: ItemAttribute[];
   pending: boolean;
   initial?: JobItemInitial;
   onSave: (values: AddProductValues) => void;
@@ -96,6 +97,7 @@ export function JobItemPopup({
   techId,
   onLocationChange,
   users,
+  fields: allFields,
   pending,
   initial,
   onSave,
@@ -123,12 +125,11 @@ export function JobItemPopup({
     () => initial?.customAttributes ?? product.customAttributes ?? {},
   );
 
-  const attributes = useItemAttributes();
   // The import's orphans (`workiz_attr_<id>`, a value with no field in Workiz)
   // are not fields the office sees — the same rule as the Price Book's columns.
   const fields = useMemo(
-    () => (attributes.data ?? []).filter((a) => (a as ItemAttribute & { orphan?: boolean }).orphan !== true),
-    [attributes.data],
+    () => allFields.filter((a) => (a as ItemAttribute & { orphan?: boolean }).orphan !== true),
+    [allFields],
   );
 
   const quantity = Math.max(1, Math.floor(Number(qty) || 0) || 1);

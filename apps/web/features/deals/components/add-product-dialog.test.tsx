@@ -15,6 +15,9 @@ const mocks = vi.hoisted(() => ({
   technician: true,
   // The edited line's catalog item is still being read.
   catalogPending: false,
+  // The catalog's custom fields / the chosen van's stock are still being read.
+  attributesPending: false,
+  stockPending: false,
 }));
 
 vi.mock("../hooks", () => ({
@@ -34,7 +37,10 @@ vi.mock("@/features/auth/use-permissions", () => ({
 
 // The card lists the item catalog's custom fields; none here.
 vi.mock("@/features/inventory/item-attributes/hooks", () => ({
-  useItemAttributes: () => ({ data: [], isLoading: false, isError: false }),
+  useItemAttributes: () =>
+    mocks.attributesPending
+      ? { data: undefined, isPending: true, isLoading: true, isError: false, fetchStatus: "fetching" }
+      : { data: [], isPending: false, isLoading: false, isError: false, fetchStatus: "idle" },
 }));
 
 // The dialog reads the catalog (one page of a search, one item by id), the
@@ -45,7 +51,10 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-query")>()),
   useQuery: (opts: { queryKey: readonly unknown[] }) => {
     const [root, kind, arg] = opts.queryKey;
-    if (root === "deal-tech-stock") return { data: mocks.stock, isSuccess: true, isLoading: false, isError: false };
+    if (root === "deal-tech-stock") {
+      if (mocks.stockPending) return { data: undefined, isSuccess: false, isPending: true, isLoading: true, isError: false };
+      return { data: mocks.stock, isSuccess: true, isPending: false, isLoading: false, isError: false };
+    }
     if (root === "item-groups") return { data: mocks.groups, isLoading: false };
     if (root === "products" && kind === "detail") {
       if (mocks.catalogPending) return { data: undefined, isPending: true, isError: false };
@@ -103,6 +112,8 @@ beforeEach(() => {
   mocks.groups = [];
   mocks.technician = true;
   mocks.catalogPending = false;
+  mocks.attributesPending = false;
+  mocks.stockPending = false;
   mocks.catalog = [deadbolt, schlage];
   mocks.stock = new Map([
     ["p1", 5],
@@ -140,6 +151,18 @@ describe("AddProductDialog (edit mode)", () => {
 
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByText(/loading the item/i)).toBeNull();
+  });
+
+  it("shows no window either while the catalog's custom fields or the van's stock are still being read — the card opens whole", () => {
+    mocks.attributesPending = true;
+    const { unmount } = render(dialog(editingLine));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    unmount();
+
+    mocks.attributesPending = false;
+    mocks.stockPending = true;
+    render(dialog(editingLine));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("saves an in-place edit through replace, keyed by the line", async () => {
@@ -328,6 +351,18 @@ describe("AddProductDialog (who the ±15% band binds)", () => {
 
     expect(screen.queryByText(/band/i)).toBeNull();
     expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+  });
+});
+
+describe("AddProductDialog (add mode) — the picker stays until the card can open whole", () => {
+  it("keeps the picker on screen while the picked item's card is still gathering its fields", async () => {
+    mocks.attributesPending = true;
+    const u = user();
+    render(dialog());
+    await u.click(screen.getByText("Schlage Lever"));
+
+    expect(screen.queryByTestId("job-item-dialog")).toBeNull();
+    expect(screen.getByPlaceholderText(/search catalog/i)).toBeInTheDocument();
   });
 });
 
