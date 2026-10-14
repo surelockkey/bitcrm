@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { CalendarDays } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -64,10 +65,79 @@ export function slotTimes(slot: string): [string, string] {
   return [start, end];
 }
 
-/** A new start keeps the end; with no end yet the job ends when it starts. */
-export function withStartTime(v: ScheduledValue, t: string): ScheduledValue {
-  const [, end] = slotTimes(v.slot);
-  return { ...v, slot: t && (end || t) ? `${t}-${end || t}` : "" };
+const DAY_MINUTES = 24 * 60;
+const DAY_MS = 86_400_000;
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** "HH:MM" → minutes into its day; no time reads as the day's first minute. */
+function minutesOf(time: string): number {
+  if (!time) return 0;
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
+
+/**
+ * A moment on the visit's own wall clock, as minutes since day 0 — so a
+ * date and a time compare and subtract as one number, across midnight too.
+ */
+function moment(date: string, time: string): number {
+  return Math.round(Date.parse(`${date}T00:00:00.000Z`) / DAY_MS) * DAY_MINUTES + minutesOf(time);
+}
+function splitMoment(m: number): { date: string; time: string } {
+  const days = Math.floor(m / DAY_MINUTES);
+  const rest = m - days * DAY_MINUTES;
+  return { date: new Date(days * DAY_MS).toISOString().slice(0, 10), time: `${pad(Math.floor(rest / 60))}:${pad(rest % 60)}` };
+}
+
+/** Said with a start move: Ends was set by hand since, so it stays where it was put. */
+export interface StartMoveOptions {
+  endEdited?: boolean;
+}
+
+/**
+ * Workiz: moving Starts carries Ends with it — the visit keeps its length,
+ * so 10:00–12:00 moved to 14:00 ends at 16:00, and a start typed a day
+ * later ends a day later (QA 2026-10-14 #11: ours left Ends behind, and the
+ * job ended before it began). An end already before its start is not
+ * carried along: the moved visit ends when it starts. Once Ends was set by
+ * hand it stays put, and a start moved past it only drags it up to itself.
+ */
+export function withStart(
+  v: ScheduledValue,
+  next: { date?: string; time?: string },
+  { endEdited = false }: StartMoveOptions = {},
+): ScheduledValue {
+  const date = next.date ?? v.date;
+  const [wasStart, wasEnd] = slotTimes(v.slot);
+  const start = next.time ?? wasStart;
+  // Unscheduled: no day to move anything on. A time typed here still reads as a slot.
+  if (!date) return { ...v, date, slot: start ? `${start}-${wasEnd || start}` : "" };
+  const timed = Boolean(start);
+  const from = moment(date, start);
+  const wasFrom = v.date ? moment(v.date, timed ? wasStart : "") : from;
+  const wasTo = v.date ? moment(v.endDate || v.date, timed ? wasEnd : "") : from;
+  const to = endEdited ? Math.max(from, wasTo) : from + Math.max(0, wasTo - wasFrom);
+  const end = splitMoment(to);
+  return { ...v, date, endDate: end.date, slot: timed ? `${start}-${end.time}` : "" };
+}
+
+/** A new start time — see `withStart`. Clearing it clears the times. */
+export function withStartTime(v: ScheduledValue, t: string, opts?: StartMoveOptions): ScheduledValue {
+  return withStart(v, { time: t }, opts);
+}
+
+/** A new start date — see `withStart`. */
+export function withStartDate(v: ScheduledValue, date: string, opts?: StartMoveOptions): ScheduledValue {
+  return withStart(v, { date }, opts);
+}
+
+/**
+ * The end as one string. A block remembers the end the user set by hand and
+ * treats it as theirs only while the value still carries it — the moment a
+ * job type's duration or a zone default moves the end, the rules own it again.
+ */
+export function endOf(v: ScheduledValue): string {
+  return `${v.endDate || v.date}|${slotTimes(v.slot)[1]}`;
 }
 
 /** A new end needs a start; without one the slot is left as it was. */
@@ -97,11 +167,9 @@ export function withScheduled(
   return { date: d.date, endDate: d.date, slot: `${d.start}-${d.end}`, allDay: false };
 }
 
-const DAY_MINUTES = 24 * 60;
-
 /** `YYYY-MM-DD` moved by `days`. */
 function shiftDay(day: string, days: number): string {
-  return new Date(Date.parse(`${day}T00:00:00.000Z`) + days * 86_400_000).toISOString().slice(0, 10);
+  return new Date(Date.parse(`${day}T00:00:00.000Z`) + days * DAY_MS).toISOString().slice(0, 10);
 }
 
 /**
@@ -148,10 +216,18 @@ export function ScheduledBlock({
   const value: ScheduledValue = { date, endDate, slot, allDay };
   const [start, end] = slotTimes(slot);
   const effEndDate = endDate || date;
-  const emit = (patch: Partial<ScheduledValue>) => onChange({ ...value, ...patch });
+  // The end the user set by hand, theirs while the value still carries it.
+  const [handEnd, setHandEnd] = useState<string | null>(null);
+  const endEdited = handEnd !== null && handEnd === endOf(value);
+  const setEnd = (next: ScheduledValue) => {
+    setHandEnd(endOf(next));
+    onChange(next);
+  };
 
-  const setStartTime = (t: string) => onChange(withStartTime(value, t));
-  const setEndTime = (t: string) => onChange(withEndTime(value, t));
+  const setStartDate = (d: string) => onChange(withStartDate(value, d, { endEdited }));
+  const setStartTime = (t: string) => onChange(withStartTime(value, t, { endEdited }));
+  const setEndDate = (d: string) => setEnd({ ...value, endDate: d });
+  const setEndTime = (t: string) => setEnd(withEndTime({ ...value, endDate: effEndDate }, t));
 
   return (
     <div className="space-y-3">
@@ -170,7 +246,7 @@ export function ScheduledBlock({
                 aria-label="Start date"
                 className="h-9 w-full rounded-md border bg-transparent pl-8 pr-2 text-sm"
                 value={date}
-                onChange={(e) => emit({ date: e.target.value })}
+                onChange={(e) => setStartDate(e.target.value)}
               />
             </div>
           </div>
@@ -193,7 +269,7 @@ export function ScheduledBlock({
                 min={date || undefined}
                 className="h-9 w-full rounded-md border bg-transparent pl-8 pr-2 text-sm"
                 value={effEndDate}
-                onChange={(e) => emit({ endDate: e.target.value })}
+                onChange={(e) => setEndDate(e.target.value)}
               />
             </div>
           </div>

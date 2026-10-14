@@ -1,9 +1,34 @@
+import { useState } from "react";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import type { ScheduledValue } from "../scheduled-block";
 import { WzScheduleBlock } from "./schedule-block";
 
 const value = { date: "2026-10-08", endDate: "", slot: "08:00-09:00", allDay: false };
+
+/** The block as the New Job form holds it: controlled, every change written back. */
+function Harness({ initial }: { initial: ScheduledValue }) {
+  const [v, setV] = useState(initial);
+  return (
+    <>
+      <WzScheduleBlock layout="card" value={v} onChange={setV} />
+      <output data-testid="value">{`${v.date} ${v.endDate} ${v.slot}`}</output>
+    </>
+  );
+}
+const held = () => screen.getByTestId("value").textContent;
+const pickTime = async (which: 0 | 1, label: string) => {
+  const at = screen.getAllByRole("combobox", { name: "At" })[which];
+  await userEvent.clear(at);
+  await userEvent.type(at, label);
+  await userEvent.keyboard("{Enter}");
+};
+const typeDate = async (name: "Starts" | "Ends", text: string) => {
+  const box = screen.getByRole("textbox", { name });
+  await userEvent.clear(box);
+  await userEvent.type(box, `${text}{Enter}`);
+};
 
 describe("WzScheduleBlock — card (New Job 'Scheduled')", () => {
   it("is a 'Scheduled' card with the switch on, Starts/At and Ends/At filled in", () => {
@@ -47,13 +72,37 @@ describe("WzScheduleBlock — card (New Job 'Scheduled')", () => {
     }
   });
 
-  it("changing a time goes through the shared schedule rules", async () => {
+  it("changing a time goes through the shared schedule rules: the visit keeps its length", async () => {
     const onChange = vi.fn();
     render(<WzScheduleBlock layout="card" value={value} onChange={onChange} />);
     const [startAt] = screen.getAllByRole("combobox", { name: "At" });
     await userEvent.type(startAt, "10:00 AM");
     await userEvent.keyboard("{Enter}");
-    expect(onChange).toHaveBeenCalledWith({ ...value, slot: "10:00-09:00" });
+    expect(onChange).toHaveBeenCalledWith({ ...value, endDate: "2026-10-08", slot: "10:00-11:00" });
+  });
+
+  /**
+   * Workiz: moving Starts carries Ends with it. QA 2026-10-14 #11 (flow 2.5):
+   * Starts typed a day later left Ends on the old day — a job that ended
+   * before it began unless the dispatcher noticed.
+   */
+  it("moving Starts carries Ends with it — a later time ends later, a later day ends a day later", async () => {
+    render(<Harness initial={{ ...value, slot: "10:00-12:00" }} />);
+    await pickTime(0, "02:00 PM");
+    expect(held()).toBe("2026-10-08 2026-10-08 14:00-16:00");
+    await typeDate("Starts", "Oct 15, 2026");
+    expect(held()).toBe("2026-10-15 2026-10-15 14:00-16:00");
+    expect(screen.getByRole("textbox", { name: "Ends" })).toHaveValue("Oct 15, 2026");
+  });
+
+  it("once Ends was set by hand it stays put when Starts moves — unless it would fall before the start", async () => {
+    render(<Harness initial={{ ...value, slot: "10:00-11:00" }} />);
+    await pickTime(1, "01:00 PM");
+    expect(held()).toBe("2026-10-08 2026-10-08 10:00-13:00");
+    await pickTime(0, "11:00 AM");
+    expect(held()).toBe("2026-10-08 2026-10-08 11:00-13:00");
+    await pickTime(0, "03:00 PM");
+    expect(held()).toBe("2026-10-08 2026-10-08 15:00-15:00");
   });
 
   it("all-day drops the times", async () => {

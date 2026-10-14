@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { useState } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import {
   ScheduledBlock,
@@ -7,6 +8,7 @@ import {
   withEndTime,
   withScheduled,
   withDuration,
+  withStartDate,
   withStartTime,
 } from "./scheduled-block";
 
@@ -53,14 +55,44 @@ describe("ScheduledBlock", () => {
     expect(screen.queryByLabelText("End time")).not.toBeInTheDocument();
   });
 
-  it("editing the start time keeps the end and reports the slot", () => {
+  it("editing the start time moves the end with it — the visit keeps its length", () => {
     const onChange = vi.fn();
     render(<ScheduledBlock {...base} onChange={onChange} />);
 
     fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "10:00" } });
     expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ slot: "10:00-09:00" }),
+      expect.objectContaining({ slot: "10:00-11:00", endDate: "2026-08-19" }),
     );
+  });
+
+  it("editing the start date moves the end date with it", () => {
+    const onChange = vi.fn();
+    render(<ScheduledBlock {...base} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-08-20" } });
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ date: "2026-08-20", endDate: "2026-08-20", slot: "08:00-09:00" }),
+    );
+  });
+
+  it("once the end was set by hand, a moved start keeps it — unless it would fall before the start", () => {
+    function Harness() {
+      const [v, setV] = useState({ date: base.date, endDate: base.endDate, slot: base.slot, allDay: false });
+      return (
+        <>
+          <ScheduledBlock {...v} onChange={setV} />
+          <output data-testid="value">{v.slot}</output>
+        </>
+      );
+    }
+    render(<Harness />);
+
+    fireEvent.change(screen.getByLabelText("End time"), { target: { value: "12:00" } });
+    expect(screen.getByTestId("value")).toHaveTextContent("08:00-12:00");
+    fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "10:00" } });
+    expect(screen.getByTestId("value")).toHaveTextContent("10:00-12:00");
+    fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "14:00" } });
+    expect(screen.getByTestId("value")).toHaveTextContent("14:00-14:00");
   });
 
   it("editing the end date reports it", () => {
@@ -91,10 +123,52 @@ describe("schedule value rules", () => {
     expect(slotTimes("")).toEqual(["", ""]);
   });
 
-  it("a new start keeps the end; a start with no end yet ends when it starts", () => {
-    expect(withStartTime(v, "10:00").slot).toBe("10:00-09:00");
+  /**
+   * Workiz: moving Starts carries Ends with it — the visit keeps its length.
+   * QA 2026-10-14 #11: ours left Ends where it was, so a start moved past it
+   * made a job that ended before it began.
+   */
+  it("a new start time moves the end the same way: the visit keeps its length", () => {
+    expect(withStartTime(v, "10:00")).toMatchObject({ slot: "10:00-11:00", endDate: "2026-08-19" });
+    expect(withStartTime({ ...v, slot: "10:00-12:00" }, "14:00").slot).toBe("14:00-16:00");
+    expect(withStartTime({ ...v, slot: "10:00-12:00" }, "09:00").slot).toBe("09:00-11:00");
+  });
+
+  it("a visit moved past midnight ends on the next day, as a job type's duration would put it", () => {
+    expect(withStartTime({ ...v, slot: "22:00-23:30" }, "23:00")).toMatchObject({ slot: "23:00-00:30", endDate: "2026-08-20" });
+    expect(withStartTime({ ...v, endDate: "2026-08-20", slot: "23:00-00:30" }, "08:00")).toMatchObject({
+      slot: "08:00-09:30",
+      endDate: "2026-08-19",
+    });
+  });
+
+  it("a new start date moves the end date the same way, keeping the time span", () => {
+    expect(withStartDate(v, "2026-08-20")).toEqual({ ...v, date: "2026-08-20", endDate: "2026-08-20" });
+    expect(withStartDate({ ...v, endDate: "2026-08-21" }, "2026-08-25")).toMatchObject({ date: "2026-08-25", endDate: "2026-08-27" });
+    const allDay = { date: "2026-08-19", endDate: "2026-08-20", slot: "", allDay: true };
+    expect(withStartDate(allDay, "2026-09-01")).toEqual({ ...allDay, date: "2026-09-01", endDate: "2026-09-02" });
+  });
+
+  it("a start with no end yet ends when it starts; clearing the start time clears the times", () => {
     expect(withStartTime({ ...v, slot: "" }, "10:00").slot).toBe("10:00-10:00");
     expect(withStartTime(v, "").slot).toBe("");
+    expect(withStartTime({ ...v, date: "" }, "10:00")).toMatchObject({ date: "", slot: "10:00-09:00" });
+  });
+
+  it("an end already before its start is not carried along: the moved visit ends when it starts", () => {
+    expect(withStartTime({ ...v, slot: "10:00-08:53" }, "12:00").slot).toBe("12:00-12:00");
+  });
+
+  it("once the end was set by hand, a moved start keeps it — and only drags it up to itself", () => {
+    const hand = { ...v, slot: "10:00-12:00" };
+    expect(withStartTime(hand, "11:00", { endEdited: true }).slot).toBe("11:00-12:00");
+    expect(withStartTime(hand, "14:00", { endEdited: true }).slot).toBe("14:00-14:00");
+    expect(withStartDate(hand, "2026-08-20", { endEdited: true })).toMatchObject({ date: "2026-08-20", endDate: "2026-08-20", slot: "10:00-10:00" });
+    expect(withStartDate({ ...hand, endDate: "2026-08-21" }, "2026-08-20", { endEdited: true })).toMatchObject({
+      date: "2026-08-20",
+      endDate: "2026-08-21",
+      slot: "10:00-12:00",
+    });
   });
 
   it("a new end needs a start; without one the slot is left alone", () => {

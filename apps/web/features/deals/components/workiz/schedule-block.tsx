@@ -13,10 +13,12 @@ import {
 import { cn } from "@/lib/utils";
 import { clockInTz, DEFAULT_TZ, withZone, zoneAbbr, zonedInstant } from "@/lib/timezone";
 import {
+  endOf,
   slotTimes,
   withAllDay,
   withEndTime,
   withScheduled,
+  withStartDate,
   withStartTime,
   type ScheduledValue,
 } from "../scheduled-block";
@@ -64,6 +66,16 @@ export function WzScheduleBlock({
   const title = card ? "Scheduled" : "Schedule";
   const scheduled = Boolean(value.date);
   const [start, end] = slotTimes(value.slot);
+  // The end the user set by hand, theirs while the value still carries it:
+  // Starts then moves without it, only never past it. Otherwise Starts
+  // carries Ends along and the visit keeps its length (Workiz).
+  const [handEnd, setHandEnd] = useState<string | null>(null);
+  const endEdited = handEnd !== null && handEnd === endOf(value);
+  const setEnd = (next: ScheduledValue) => {
+    setHandEnd(endOf(next));
+    onChange(next);
+  };
+  const shownEndDate = value.endDate || value.date;
 
   const toggle = (
     <WzSwitch
@@ -87,20 +99,20 @@ export function WzScheduleBlock({
           label="Starts"
           value={value.date}
           disabled={disabled}
-          onChange={(date) => onChange({ ...value, date })}
+          onChange={(date) => onChange(withStartDate(value, date, { endEdited }))}
         />
         {value.allDay ? <span /> : (
-          <WzTimeSelect label="At" value={start} disabled={disabled} onChange={(t) => onChange(withStartTime(value, t))} />
+          <WzTimeSelect label="At" value={start} disabled={disabled} onChange={(t) => onChange(withStartTime(value, t, { endEdited }))} />
         )}
         <WzDateField
           label="Ends"
           min={value.date || undefined}
-          value={value.endDate || value.date}
+          value={shownEndDate}
           disabled={disabled}
-          onChange={(endDate) => onChange({ ...value, endDate })}
+          onChange={(endDate) => setEnd({ ...value, endDate })}
         />
         {value.allDay ? <span /> : (
-          <WzTimeSelect label="At" value={end} disabled={disabled} onChange={(t) => onChange(withEndTime(value, t))} />
+          <WzTimeSelect label="At" value={end} disabled={disabled} onChange={(t) => setEnd(withEndTime({ ...value, endDate: shownEndDate }, t))} />
         )}
       </div>
       {/* The card's row sits 34px under the times (Workiz keeps "Set recurring
