@@ -1,4 +1,4 @@
-import { DynamicModule, Global, MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { DynamicModule, Global, MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
 import { LoggerModule as PinoLoggerModule } from 'nestjs-pino';
 import { REDACT_PATHS } from './logger.constants';
 import { CorrelationMiddleware } from './correlation.middleware';
@@ -19,6 +19,9 @@ export class LoggerModule implements NestModule {
       module: LoggerModule,
       imports: [
         PinoLoggerModule.forRoot({
+          // nestjs-pino defaults to path '*', which Nest 11 warns about on every boot;
+          // '{*splat}' matches the same requests (checked under the global prefix).
+          forRoutes: [{ path: '{*splat}', method: RequestMethod.ALL }],
           pinoHttp: {
             level: logLevel,
 
