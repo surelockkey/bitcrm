@@ -18,6 +18,13 @@ import { AutomationPeersClient } from './internal/peers.client';
 
 export type TechNoticeRule = 'on-my-way' | 'late';
 
+/** `GET /automations/tech-notices`: the templates the two sends render, as stored (`''` when unset). */
+export interface TechNoticeTexts {
+  onMyWayMsg: string;
+  lateMsg: string;
+  companyName: string;
+}
+
 /** Two taps inside this window count as one (a double tap, a retried request). */
 export const TECH_NOTICE_DEDUP_WINDOW_MS = 15 * 60_000;
 
@@ -58,6 +65,23 @@ export class TechNoticesService {
   /** `POST /automations/late`. */
   late(dto: LateDto, caller: SendCaller): Promise<Message> {
     return this.notice('late', dto.dealId, caller, dto.clientMessageId, { late_value: String(dto.minutes) });
+  }
+
+  /**
+   * `GET /automations/tech-notices` — the raw templates the two sends render,
+   * for the phone to show the technician the text the client will get. Read
+   * straight off the settings (the same fields `GET /settings` answers, which
+   * `settings.view` keeps from a technician); an unset field is `''`, never
+   * `undefined`, so the app renders "no text configured" rather than
+   * "undefined". Nothing here is job-scoped, so no roster check.
+   */
+  async texts(): Promise<TechNoticeTexts> {
+    const settings = await this.settings.get();
+    return {
+      onMyWayMsg: settings.onMyWayMsg ?? '',
+      lateMsg: settings.lateMsg ?? '',
+      companyName: settings.companyName ?? '',
+    };
   }
 
   private async notice(

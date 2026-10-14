@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
@@ -8,14 +8,33 @@ import { OnMyWayDto } from './dto/on-my-way.dto';
 import { TechNoticesService } from './tech-notices.service';
 
 /**
- * The technician-triggered texts (design §10 M21). POST-only under the
- * `automations` prefix, so nothing here shadows `GET /automations/:id`.
+ * The technician-triggered texts (design §10 M21) under the `automations`
+ * prefix: the two POST sends and ONE GET, the templates they render. That
+ * GET would be swallowed by `AutomationsController`'s `GET /automations/:id`
+ * (as `id = "tech-notices"`), so `AutomationsModule` registers this
+ * controller first — Nest mounts routes in controller order.
  */
 @ApiTags('Messaging Automations')
 @ApiBearerAuth()
 @Controller('automations')
 export class TechNoticesController {
   constructor(private readonly service: TechNoticesService) {}
+
+  @Get('tech-notices')
+  @RequirePermission('messages', 'send')
+  @ApiOperation({
+    summary: 'The "on my way" / "late" texts as configured',
+    description:
+      '**Guard:** `messages.send` — the same grant as the two sends below, so a technician can read what ' +
+      'they are about to send (`GET /settings` holds these behind `settings.view`, which a technician lacks). ' +
+      '`{ onMyWayMsg, lateMsg, companyName }` straight from the messaging settings, short codes unrendered ' +
+      '(`{{first_name}}`, `{{tech_assigned}}`, `{{eta_minutes}}`, `{{late_value}}`, `{{biz_name}}`); an unset ' +
+      'field is `""`. The phone renders its preview from these.',
+  })
+  async texts() {
+    const data = await this.service.texts();
+    return { success: true, data };
+  }
 
   @Post('on-my-way')
   @HttpCode(202)

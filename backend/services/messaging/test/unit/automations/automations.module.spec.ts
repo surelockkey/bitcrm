@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Global, Module } from '@nestjs/common';
+import { MODULE_METADATA } from '@nestjs/common/constants';
 import { Test } from '@nestjs/testing';
 import { DynamoDbService, PermissionCacheReader, RedisService, S3Service, SqsConsumerService } from '@bitcrm/shared';
 import { AUTOMATIONS_CONFIG } from '../../../src/automations/automations.config';
+import { AutomationsController } from '../../../src/automations/automations.controller';
 import { AutomationsService } from '../../../src/automations/automations.service';
 import {
   AutomationsModule,
@@ -24,6 +26,7 @@ import { AutomationDealEventsHandler } from '../../../src/automations/engine/dea
 import { AutomationRuleEngine } from '../../../src/automations/engine/rule-engine.service';
 import { NewJobSmsService } from '../../../src/automations/new-job-sms.service';
 import { SendToTechService } from '../../../src/automations/send-to-tech.service';
+import { TechNoticesController } from '../../../src/automations/tech-notices.controller';
 import { TechNoticesService } from '../../../src/automations/tech-notices.service';
 import { DealEventType } from '@bitcrm/types';
 
@@ -174,5 +177,15 @@ describe('AutomationsModule wiring', () => {
     expect(tick).toHaveBeenCalledTimes(2); // stopped with the module
     jest.useRealTimers();
     delete process.env.AUTOMATION_SCHEDULER_INTERVAL_MS;
+  });
+});
+
+describe('AutomationsModule route order', () => {
+  it('registers TechNoticesController before AutomationsController, so GET /automations/tech-notices is not swallowed by GET /automations/:id', () => {
+    // Nest mounts routes in controller order; an earlier `GET :id` would answer
+    // `/automations/tech-notices` with "automation tech-notices not found".
+    const controllers: unknown[] = Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, AutomationsModule);
+    expect(controllers.indexOf(TechNoticesController)).toBeGreaterThanOrEqual(0);
+    expect(controllers.indexOf(TechNoticesController)).toBeLessThan(controllers.indexOf(AutomationsController));
   });
 });
