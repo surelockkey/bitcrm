@@ -78,7 +78,7 @@ export interface DealsListPage extends PaginatedResponse<Deal> {
 /**
  * One page of the jobs list, as the server orders it. Every parameter is
  * optional and only the ones given travel; the server refuses a visit-date
- * window wider than 31 days.
+ * window wider than 42 days (a six-week month grid).
  */
 export function listDeals(params: DealsListParams = {}): Promise<DealsListPage> {
   const q = toSearchParams({ limit: PAGE, ...params });

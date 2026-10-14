@@ -193,6 +193,9 @@ export type DirectoryUser = Pick<User, "id" | "firstName" | "lastName" | "workiz
   email?: string;
   /** Same: present only when the viewer may list users. */
   department?: string;
+  /** Same — together they say whether the person goes out on jobs (`isFieldTeamMember`). */
+  roleId?: string;
+  fieldTeamMember?: boolean;
 };
 
 /**
