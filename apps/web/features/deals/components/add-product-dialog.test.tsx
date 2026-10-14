@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   catalog: [] as unknown[],
   groups: [] as unknown[],
   stock: new Map<string, number>(),
+  // Whether the viewer is a technician — the only role the ±15% band binds.
+  technician: true,
 }));
 
 vi.mock("../hooks", () => ({
@@ -22,6 +24,10 @@ vi.mock("../hooks", () => ({
     users: [],
     isLoading: false,
   }),
+}));
+
+vi.mock("@/features/auth/use-permissions", () => ({
+  usePermissions: () => ({ isTechnician: mocks.technician, can: () => true }),
 }));
 
 // The dialog reads the catalog and the tech's van stock through react-query;
@@ -77,6 +83,7 @@ beforeEach(() => {
   mocks.replace.mockClear();
   mocks.addGroup.mockClear();
   mocks.groups = [];
+  mocks.technician = true;
   mocks.catalog = [deadbolt, schlage];
   mocks.stock = new Map([
     ["p1", 5],
@@ -255,6 +262,45 @@ describe("AddProductDialog (imported line)", () => {
 
     expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+  });
+});
+
+// Story 5.05: the technician adjusts the price within ±15% and anything
+// beyond goes to a manager. The office *is* that manager, so for it there is
+// no band — the owner's own "I can't set the price I want" (2026-10-14).
+describe("AddProductDialog (who the ±15% band binds)", () => {
+  it("holds a technician to the band", async () => {
+    const u = user();
+    render(dialog());
+    await u.click(screen.getByText("Kwikset Deadbolt"));
+
+    fireEvent.change(screen.getByLabelText("Client price"), { target: { value: "360" } });
+
+    expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^add$/i })).toBeDisabled();
+  });
+
+  it("lets the office set any price", async () => {
+    mocks.technician = false;
+    const u = user();
+    render(dialog());
+    await u.click(screen.getByText("Kwikset Deadbolt"));
+
+    fireEvent.change(screen.getByLabelText("Client price"), { target: { value: "360" } });
+
+    expect(screen.queryByText(/allowed .*±15%/i)).toBeNull();
+    expect(screen.queryByText(/band/i)).toBeNull();
+    await u.click(screen.getByRole("button", { name: /^add$/i }));
+    expect(mocks.add).toHaveBeenCalledTimes(1);
+    expect(mocks.add.mock.calls[0][0]).toMatchObject({ productId: "p1", priceClient: 360 });
+  });
+
+  it("shows the office no Workiz exemption note either — nothing to be exempt from", () => {
+    mocks.technician = false;
+    render(dialog({ ...editingLine, priceClient: 5, fulfillment: "imported" }));
+
+    expect(screen.queryByText(/band/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
   });
 });
 

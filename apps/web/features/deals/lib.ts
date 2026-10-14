@@ -177,6 +177,20 @@ export function priceBandApplies(
   return !isImportedLine(line) && line?.priceSource !== "group";
 }
 
+/**
+ * Whether the ±15% band binds this viewer at all. Story 5.05 caps the
+ * *technician's* adjustment and sends anything beyond it to a manager; the
+ * office — owner, admin, department manager, dispatcher — is that manager,
+ * so it sets any price. Workiz has no band at all and 110 865 of the
+ * 156 612 matched historical lines sit outside ±15%, which is how the office
+ * actually prices. A technician adds items on the phone, where no band
+ * exists either, so in practice this binds only a technician on the web.
+ * The server never checks the band — it is a dialog rule, nothing more.
+ */
+export function priceBandBinds(viewer: Pick<{ isTechnician: boolean }, "isTechnician">): boolean {
+  return viewer.isTechnician;
+}
+
 /* ------------------------------------------------------- date/time basis */
 
 /** Which timestamp the day/hour filters read: the visit or the creation. */
