@@ -9,6 +9,9 @@ const m = vi.hoisted(() => ({
   requestContactUpload: vi.fn(),
   uploadBytes: vi.fn(),
   urls: new Map<string, string>(),
+  /** The job's files, as the Attachments tab lists them — a saved file is named from here. */
+  attachments: [] as unknown[],
+  refresh: vi.fn(),
 }));
 
 vi.mock("../hooks", () => ({ useCustomFields: () => ({ data: m.defs }) }));
@@ -26,9 +29,12 @@ vi.mock("../contact-file-urls", () => ({
 vi.mock("@/features/deals/attachments-hooks", () => ({
   useAttachmentUrls: (_deal: string, ids: string[]) =>
     ids.map((id) => ({ data: m.urls.has(id) ? { downloadUrl: m.urls.get(id) } : undefined })),
+  useAttachments: () => ({ data: m.attachments }),
+  useRefreshAttachments: () => m.refresh,
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
+import { toast } from "sonner";
 import { WzCustomFieldControl, WzCustomFields } from "./wz-custom-fields";
 
 function def(over: Partial<CustomFieldDefinition>): CustomFieldDefinition {
@@ -69,6 +75,9 @@ beforeEach(() => {
   m.uploadBytes.mockReset();
   m.requestContactUpload.mockReset();
   m.urls.clear();
+  m.attachments = [];
+  m.refresh.mockReset();
+  vi.mocked(toast.success).mockReset();
 });
 
 describe("WzCustomFields — card layout (New Job)", () => {
@@ -196,6 +205,51 @@ describe("WzCustomFields — card layout (New Job)", () => {
     });
     await waitFor(() => expect(onChange).toHaveBeenCalledWith({ "cf-img": ["att-1", "att-2"] }));
     expect(m.requestUpload).toHaveBeenCalledWith("d1", expect.objectContaining({ fileName: "b.jpg" }));
+  });
+
+  it("names a saved file as the job's files know it, not 'File 1'", () => {
+    m.attachments = [{ id: "att-1", fileName: "front-door.jpg" }];
+    m.urls.set("att-1", "https://s3/att-1.jpg");
+    render(
+      <WzCustomFields layout="card" jobTypeId="jt-1" value={{ "cf-img": ["att-1"] }} onChange={vi.fn()} dealId="d1" />,
+    );
+    const upload = screen.getByRole("group", { name: "Check Image Front" });
+    expect(within(upload).getByRole("button", { name: "Open front-door.jpg" })).toBeInTheDocument();
+    expect(within(upload).getByRole("img")).toHaveAttribute("alt", "front-door.jpg");
+  });
+
+  it("an upload says so while it runs, then tells the Attachments tab, confirms, and names the new file", async () => {
+    let finish!: () => void;
+    m.requestUpload.mockResolvedValue({ id: "att-2", uploadUrl: "u", headers: {} });
+    m.uploadBytes.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const { rerender } = render(
+      <WzCustomFields layout="card" jobTypeId="jt-1" value={{}} onChange={vi.fn()} dealId="d1" />,
+    );
+    const upload = screen.getByRole("group", { name: "Check Image Front" });
+    fireEvent.change(within(upload).getByLabelText("Add files to Check Image Front", { selector: "input" }), {
+      target: { files: [new File(["y"], "wo-photo.jpg", { type: "image/jpeg" })] },
+    });
+
+    // In flight: the field says so (the "+" tile alone going away said nothing).
+    expect(await screen.findByRole("status")).toHaveTextContent("Uploading…");
+    expect(m.refresh).not.toHaveBeenCalled();
+
+    finish();
+    // Done: the Attachments tab's list and count are read again, and a toast confirms.
+    await waitFor(() => expect(m.refresh).toHaveBeenCalledTimes(1));
+    expect(toast.success).toHaveBeenCalledWith("File uploaded");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    // The field names the file it just sent before the list has come back.
+    rerender(
+      <WzCustomFields layout="card" jobTypeId="jt-1" value={{ "cf-img": ["att-2"] }} onChange={vi.fn()} dealId="d1" />,
+    );
+    expect(within(upload).getByRole("button", { name: "Open wo-photo.jpg" })).toBeInTheDocument();
   });
 
   it("asks to save first when a file cannot be held or uploaded", () => {

@@ -111,6 +111,18 @@ vi.mock("@/features/external-companies/hooks", () => ({
 vi.mock("@/features/job-tags/hooks", () => ({
   useJobTags: () => ({ data: [{ id: "tag-vip", name: "VIP" }] }),
 }));
+// A file field's answer is attachment ids: the panel knows which fields are
+// file fields from the catalog and names the ids from the job's files.
+vi.mock("@/features/custom-fields/hooks", () => ({
+  useCustomFields: () => ({
+    data: [{ id: "cf-wo", name: "WO File", type: "file", group: "Extra Info", active: true, jobTypeIds: [] }],
+  }),
+}));
+vi.mock("../attachments-hooks", () => ({
+  useAttachments: () => ({
+    data: [{ id: "att-1", fileName: "qa-photo.jpg", contentType: "image/jpeg", uploadedBy: "u1", uploadedAt: "" }],
+  }),
+}));
 
 // Radix confirm dialog; render children directly.
 vi.mock("@/components/ui/alert-dialog", () => ({
@@ -351,6 +363,17 @@ describe("DealTimelinePanel — Connecticut time, labelled", () => {
     openPanel();
 
     expect(screen.getByText(/followUpAt: — → Sep 30, 2026, 10:00 AM EDT/)).toBeInTheDocument();
+  });
+
+  it("a file field's change names the file, not its attachment id", () => {
+    timeline.entries = [
+      entry({ eventType: TimelineEventType.FIELD_UPDATED, details: { field: "WO File", oldValue: null, newValue: ["att-1"] } }),
+    ];
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+    openPanel();
+
+    expect(screen.getByText(/WO File: — → qa-photo\.jpg/)).toBeInTheDocument();
+    expect(screen.queryByText(/att-1/)).not.toBeInTheDocument();
   });
 
   it("a Texas job's reschedule is written on Connecticut's clock", () => {
