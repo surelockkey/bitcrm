@@ -401,6 +401,16 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     expect(screen.getByRole("tab", { name: /^Jobs/ })).toHaveTextContent("12+");
   });
 
+  it("the Addresses tab labels its money columns in words — Total, Due, Past due — never a raw key", async () => {
+    await renderPage();
+    await userEvent.click(screen.getByRole("tab", { name: /^Addresses/ }));
+
+    const table = screen.getByRole("table", { name: "Addresses" });
+    const headers = within(table).getAllByRole("columnheader").map((h) => h.textContent?.trim());
+    expect(headers).toEqual(["Name", "Address", "City", "State", "Zipcode", "Jobs", "Total", "Due", "Past due"]);
+    expect(within(table).queryByText("past_due")).toBeNull();
+  });
+
   it("the Addresses tab lists each distinct address once, with its job count and total", async () => {
     await renderPage();
     await userEvent.click(screen.getByRole("tab", { name: /^Addresses/ }));
