@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Deal } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
 import { useUpdateDeal } from "../../hooks";
+import { noteToText } from "../../note-html";
 import { JobNoteEditor } from "../job-note-editor";
 import { QvButtons, QvIconButton, QvTitle } from "./parts";
 
@@ -47,11 +48,12 @@ export function DescriptionBlock({ deal, canEdit }: { deal: Deal; canEdit: boole
         </div>
       ) : notes ? (
         <>
+          {/* Words, not the editor's frame: Workiz prints the description bare. */}
           <div
             ref={textRef}
-            className={cn("mt-2 overflow-hidden text-[14px] leading-4 text-[#404040]", !expanded && "max-h-24")}
+            className={cn("mt-2 overflow-hidden text-[14px] leading-4 whitespace-pre-wrap text-[#404040]", !expanded && "max-h-24")}
           >
-            <JobNoteEditor value={notes} onChange={() => {}} editable={false} ariaLabel="Description" />
+            {noteToText(notes)}
           </div>
           {overflows ? (
             <button
