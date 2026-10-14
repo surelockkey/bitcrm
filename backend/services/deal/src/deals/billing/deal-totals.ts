@@ -33,6 +33,34 @@ export function dealTotalsSnapshot(
   };
 }
 
+/**
+ * Finance "Total" typed by hand on a job with no line items (Workiz
+ * `job_total_price`): the whole snapshot is that amount — nothing to
+ * discount, tax or cost — and it says so, for `refreshTotals` to replace once
+ * a line exists.
+ */
+export function manualTotalSnapshot(total: number): DealTotalsSnapshot {
+  const amount = cents(total) / 100;
+  return { subtotal: amount, discount: 0, tax: 0, total: amount, cost: 0, taxableBase: 0, manual: true };
+}
+
+const dollars = (v: unknown): number | undefined => {
+  if (v === null || v === undefined || v === '') return undefined;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+/**
+ * The job's Tech Cost and Company Cost as stored: under our names, else under
+ * the Workiz names the importer wrote them with (`parts`, `companyParts`).
+ * Absent keys stay absent.
+ */
+export function jobCostsOf(item: Record<string, unknown>): Pick<Deal, 'techCost' | 'companyCost'> {
+  const techCost = dollars(item.techCost) ?? dollars(item.parts);
+  const companyCost = dollars(item.companyCost) ?? dollars(item.companyParts);
+  return { ...(techCost !== undefined && { techCost }), ...(companyCost !== undefined && { companyCost }) };
+}
+
 const TOTAL_KEYS: (keyof DealTotalsSnapshot)[] = ['subtotal', 'discount', 'tax', 'total', 'cost'];
 
 /** The backfill's write for one job, or null when what it stores is already right. */

@@ -1,6 +1,6 @@
 import {
   IsString, IsOptional, IsEnum, IsArray, IsBoolean,
-  ValidateNested, Matches, IsDateString, IsObject, MaxLength,
+  ValidateNested, Matches, IsDateString, IsObject, MaxLength, IsNumber, Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
@@ -135,6 +135,30 @@ export class UpdateDealDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({
+    example: 150,
+    nullable: true,
+    description:
+      'Finance "Total" typed by hand (Workiz job_total_price). Accepted only while the job has no line items — ' +
+      'with lines the items price it (400). Stored as the job\'s totals snapshot, flagged manual; null clears a typed total.',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  total?: number | null;
+
+  @ApiPropertyOptional({ example: 82.74, nullable: true, description: 'Workiz "Tech Cost" (parts): what the technician spent on the job. null clears it.' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  techCost?: number | null;
+
+  @ApiPropertyOptional({ example: 842.3, nullable: true, description: 'Workiz "Company Cost" (company_parts): what the company spent on the job. null clears it.' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  companyCost?: number | null;
 
   @ApiPropertyOptional({ example: 'Manager only notes' })
   @IsOptional()
