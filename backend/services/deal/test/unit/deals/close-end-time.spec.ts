@@ -4,7 +4,9 @@ import { closeEndPatch, closeEndApplied } from 'src/deals/close-end-time';
  * Workiz "Update Job End Time": a job marked Done or Canceled ends at that
  * moment. Its export shows the rule literally — HU142T started 2018-06-07
  * 15:01 and "ended" 2018-07-19 13:50:47, the second its status changed, and
- * 271 of 367k closed jobs even end before they start. The start never moves.
+ * 271 of 367k closed jobs even end before they start. The start never moves;
+ * here the end never lands before it either: a job closed before its visit
+ * began keeps its schedule (QA 2026-10-14 §3c).
  *
  * Our visit is a wall-clock day + slot in the job's zone, plus the instants
  * an imported job carries, so the patch is the end day, the slot's end, and
@@ -45,18 +47,30 @@ describe('closeEndPatch — where a closed job ends', () => {
     });
   });
 
-  it('closed before it started on the same day: the end day is the close day, the time is held at the start (a slot cannot run backwards)', () => {
+  it('closed before it started on the same day: the visit has not begun, so the schedule is left alone and no end instant is written', () => {
     // 11:30Z = 07:30 Connecticut, before the 09:00 start.
-    expect(closeEndPatch(visit, '2026-04-20T11:30:00.000Z', 'America/New_York')).toMatchObject({
-      scheduledEndDate: '2026-04-20',
-      scheduledTimeSlot: '09:00-09:00',
-    });
+    expect(closeEndPatch(visit, '2026-04-20T11:30:00.000Z', 'America/New_York')).toEqual({});
   });
 
-  it('closed the day before: the end day is the close day (as Workiz\'s reports show it), the time literal', () => {
-    expect(closeEndPatch(visit, '2026-04-19T20:00:00.000Z', 'America/New_York')).toMatchObject({
-      scheduledEndDate: '2026-04-19',
-      scheduledTimeSlot: '09:00-16:00',
+  it('closed the day before (Done on a job scheduled for tomorrow): the schedule is left alone — the end never lands before the start', () => {
+    // QA 2026-10-14: Oct 15 10:00–12:00 marked Done on Oct 14 08:53 ended up
+    // ending "Oct 14 08:53", 25 h before its own start.
+    expect(closeEndPatch(visit, '2026-04-19T20:00:00.000Z', 'America/New_York')).toEqual({});
+  });
+
+  it('a future all-day visit, and a future dated visit without times, are left alone too', () => {
+    expect(closeEndPatch({ scheduledDate: '2026-04-20', allDay: true }, '2026-04-18T18:30:00.000Z', 'America/New_York')).toEqual({});
+    expect(closeEndPatch({ scheduledDate: '2026-04-20' }, '2026-04-18T18:30:00.000Z', 'America/New_York')).toEqual({});
+  });
+
+  it('"before the start" is judged on the job\'s clock, and the end moves as soon as the visit has begun', () => {
+    // 01:30Z on the 20th is 21:30 on the 19th in Connecticut — still before the 09:00 start.
+    expect(closeEndPatch(visit, '2026-04-20T01:30:00.000Z', 'America/New_York')).toEqual({});
+    // 13:30Z = 09:30 Connecticut, half an hour into the visit: the end is now.
+    expect(closeEndPatch(visit, '2026-04-20T13:30:00.000Z', 'America/New_York')).toMatchObject({
+      scheduledEndDate: '2026-04-20',
+      scheduledTimeSlot: '09:00-09:30',
+      jobEndDateUtc: '2026-04-20T13:30:00.000Z',
     });
   });
 

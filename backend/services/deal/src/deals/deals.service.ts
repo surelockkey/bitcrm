@@ -1684,7 +1684,8 @@ export class DealsService {
       // Workiz "Update Job End Time" (Account → Preferences): the job ends at
       // this moment — the end day and time on its clock, and the end instant
       // the EndIndex (the "Job end date" reports) is restamped from. The
-      // start stays. Reopening does not put the old end back, as in Workiz.
+      // start stays, and a visit that has not begun yet keeps its schedule
+      // (closeEndPatch). Reopening does not put the old end back, as in Workiz.
       if (await this.updatesEndTimeOnClose()) {
         Object.assign(updates as Record<string, unknown>, closeEndPatch(deal, closedAt, await this.areaTimezoneOf(deal)));
       }
