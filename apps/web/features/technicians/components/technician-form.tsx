@@ -126,7 +126,12 @@ export function TechnicianForm({
   }
   return (
     <Form
-      key={profile.updatedAt}
+      // A fresh form per technician AND per saved version: the id, because
+      // the same page stays mounted from one card to the next and 89 of 93
+      // imported profiles share one updatedAt (the import's clock) — keyed by
+      // that alone, the next technician's card opened on the previous one's
+      // values and Save sent his phone ("… is already on X's profile").
+      key={`${technicianId}:${profile.updatedAt}`}
       technicianId={technicianId}
       profile={profile}
       user={user}
