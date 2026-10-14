@@ -18,7 +18,7 @@ import { useJobType } from "@/features/job-types/hooks";
 import { useActiveJobSources } from "@/features/job-sources/active-hooks";
 import { useJobSource } from "@/features/job-sources/hooks";
 import { activeJobSources } from "@/features/job-sources/lib";
-import { useDeal, useDealAssignments, useDealTimeline, useSuggestedTechs, useUserMap } from "./hooks";
+import { suggestedTechsQuestion, useDeal, useDealAssignments, useDealTimeline, useSuggestedTechs, useUserMap } from "./hooks";
 import { useJobPageCatalogs } from "./job-page-catalogs";
 
 const NO_IDS: string[] = [];
@@ -89,10 +89,9 @@ export function useJobPageData(dealId: string): { ready: boolean } {
   const users = useUserMap(techIds);
   const assignments = useDealAssignments(dealId, techIds.length > 0);
   // Only an editor sees the suggestions (and only an editor may ask for them).
-  const suggestions = useSuggestedTechs(
-    { jobTypeId: deal?.jobTypeId || undefined, lat, lng },
-    !!deal && can("deals", "edit") && lat !== undefined && lng !== undefined,
-  );
+  // The team select's own question: by the point, else by the job's area.
+  const question = suggestedTechsQuestion({ jobTypeId: deal?.jobTypeId, serviceAreaId: deal?.serviceAreaId, lat, lng });
+  const suggestions = useSuggestedTechs(question.params, !!deal && can("deals", "edit") && question.enabled);
   const files = useAttachmentUrls(dealId, customFieldFileIds(deal, customFieldDefs));
   // "Service" under the Details tab names the job type; an archived one is
   // not in the active list and is asked for by itself (as the picker does).

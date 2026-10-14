@@ -159,11 +159,36 @@ export function useQualifiedTechs(id: string, enabled: boolean) {
   });
 }
 
-/** Suggested techs for a New Job — by job type, resolved area and address point. */
-export function useSuggestedTechs(
-  params: { jobTypeId?: string; serviceAreaId?: string; lat?: number; lng?: number },
-  enabled: boolean,
-) {
+/** What `useSuggestedTechs` asks: a job type and an area, with a point to measure distance from when there is one. */
+export interface SuggestedTechsParams {
+  jobTypeId?: string;
+  serviceAreaId?: string;
+  lat?: number;
+  lng?: number;
+}
+
+/**
+ * The one question a job's team is asked with — the same for the team select
+ * and the page loaders, so the answer is fetched once and found in the cache.
+ *
+ * With coordinates (a directory client's address, an autocomplete pick) the
+ * point is the question: the backend resolves the area from it, the way a new
+ * job's is. A typed address has none — a new client on New Job, an
+ * unverified import — so the hand-picked area is the question then; the
+ * backend ranks by an area alone, without distances. Neither → nothing to
+ * ask, and the select says to pick an area.
+ */
+export function suggestedTechsQuestion(input: SuggestedTechsParams): { params: SuggestedTechsParams; enabled: boolean } {
+  const jobTypeId = input.jobTypeId || undefined;
+  if (input.lat !== undefined && input.lng !== undefined) {
+    return { params: { jobTypeId, lat: input.lat, lng: input.lng }, enabled: true };
+  }
+  const serviceAreaId = input.serviceAreaId || undefined;
+  return { params: { jobTypeId, serviceAreaId }, enabled: serviceAreaId !== undefined };
+}
+
+/** Suggested techs for a job — by job type, service area (or the area of a point) and that point. */
+export function useSuggestedTechs(params: SuggestedTechsParams, enabled: boolean) {
   return useQuery({
     queryKey: ["deals", "suggested-techs", params],
     queryFn: () => api.suggestQualifiedTechs(params),

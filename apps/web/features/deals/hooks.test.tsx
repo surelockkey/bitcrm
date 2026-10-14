@@ -7,7 +7,15 @@ import { JobSuperStatus } from "@bitcrm/types";
 import type { Deal } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { queryKeys } from "@/lib/query-keys";
-import { DEALS_POLL_MS, useDealsWindow, useMarkSeenOnOpen, useMoveStatus, useSendToTech, useSetDealTags } from "./hooks";
+import {
+  DEALS_POLL_MS,
+  suggestedTechsQuestion,
+  useDealsWindow,
+  useMarkSeenOnOpen,
+  useMoveStatus,
+  useSendToTech,
+  useSetDealTags,
+} from "./hooks";
 import { useDealsStreamStore } from "./stream-store";
 
 // Capture toast calls so we can assert exactly what the user is shown.
@@ -276,5 +284,25 @@ describe("useDealsWindow — polling only while the live stream is down", () => 
     renderHook(() => useDealsWindow(window, { poll: true }), { wrapper: wrapper(client) });
 
     expect(pollOf(client)).toBe(false);
+  });
+});
+
+describe("suggestedTechsQuestion — one question for the team select and the page loaders", () => {
+  it("asks by the point when the address has coordinates; the area is the backend's to resolve", () => {
+    const q = suggestedTechsQuestion({ jobTypeId: "jt-1", serviceAreaId: "sa-1", lat: 33, lng: -96 });
+    expect(q).toEqual({ params: { jobTypeId: "jt-1", lat: 33, lng: -96 }, enabled: true });
+    expect(q.params).not.toHaveProperty("serviceAreaId");
+  });
+
+  it("asks by the hand-picked area when a typed address has no coordinates (a new client on New Job)", () => {
+    expect(suggestedTechsQuestion({ jobTypeId: "", serviceAreaId: "sa-1" })).toEqual({
+      params: { jobTypeId: undefined, serviceAreaId: "sa-1" },
+      enabled: true,
+    });
+  });
+
+  it("has nothing to ask without a point or an area", () => {
+    expect(suggestedTechsQuestion({ jobTypeId: "jt-1" }).enabled).toBe(false);
+    expect(suggestedTechsQuestion({ lat: 33 }).enabled).toBe(false);
   });
 });
