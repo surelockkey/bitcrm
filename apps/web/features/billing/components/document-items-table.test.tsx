@@ -4,7 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { ProductType } from "@bitcrm/types";
 import { renderWithClient } from "@/test/render-with-client";
 
-vi.mock("@/features/inventory/warehouses/api", () => ({ fetchAllProducts: () => Promise.resolve([]) }));
+vi.mock("@/features/inventory/products/api", () => ({
+  listProducts: () => Promise.resolve({ success: true, data: [], pagination: { count: 0 } }),
+  getProduct: () => Promise.resolve(null),
+}));
 vi.mock("@/features/price-book/item-groups/api", () => ({
   listItemGroups: () =>
     Promise.resolve([
