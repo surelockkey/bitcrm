@@ -38,6 +38,11 @@ export interface CommissionDealItem {
   tipAmount?: number;
   parts?: number;
   companyParts?: number;
+  /** The quick view's Finance box: Tech Cost and Company Cost typed on a job done here. */
+  techCost?: number;
+  companyCost?: number;
+  /** Lines on the job; with any, `totals.cost` (Σ line cost × qty) is its Company Parts. */
+  itemCount?: number;
   customFields?: Record<string, unknown>;
   /** Workiz "Custom Tech Rate" (Override Rates). */
   useTechSpecialRate?: boolean;

@@ -60,6 +60,7 @@ import {
   assertFromOwnContainer,
   assertPriceInBand,
   catalogCosts,
+  lineCosts,
   editChangesStock,
   isStockManaged,
   isTechnicianScope,
@@ -226,6 +227,14 @@ interface CompanyRef {
   id: string;
   name?: string;
 }
+
+/** What a line write may do beyond the request: `mayCost` — the caller holds `financials.view`. */
+export interface LineWriteOptions {
+  mayCost?: boolean;
+}
+
+/** Workiz "Sold by" as stored: a user id, or nothing (an empty string clears it). */
+const soldByOf = (value: string | undefined): string | undefined => value?.trim() || undefined;
 
 @Injectable()
 export class DealsService {
@@ -1607,7 +1616,15 @@ export class DealsService {
       this.productsRepo.findByDeal(id, { consistent: true }),
     ]);
     if (!deal) return;
-    await this.repository.update(id, { itemCount: lines.length, totals: dealTotalsSnapshot(deal, lines) });
+    const totals = dealTotalsSnapshot(deal, lines);
+    await this.repository.update(id, {
+      itemCount: lines.length,
+      totals,
+      // Workiz: a job's Company Cost (`company_parts`) is Σ item cost × qty —
+      // while the job has lines the Finance box shows their sum (and the
+      // commissions report counts it); a typed amount stands only until then.
+      ...(lines.length > 0 && { companyCost: totals.cost }),
+    });
   }
 
   async softDelete(id: string, caller: JwtUser): Promise<void> {
@@ -2464,6 +2481,7 @@ export class DealsService {
     request: AddDealProductDto,
     caller: JwtUser,
     dealScope?: string,
+    opts: LineWriteOptions = {},
   ): Promise<void> {
     const deal = await this.findById(id);
     assertDealInScope(deal, caller, dealScope);
@@ -2508,6 +2526,7 @@ export class DealsService {
 
     // The line's own copy of the custom field values: the request's, else the product's.
     const customAttributes = lineCustomAttributes(dto.customAttributes ?? product.customAttributes);
+    const soldBy = soldByOf(dto.soldBy);
 
     this.businessMetrics?.dealProductsAdded.inc();
     await this.productsRepo.addProduct(id, {
@@ -2515,7 +2534,7 @@ export class DealsService {
       name: dto.name,
       sku: dto.sku,
       quantity: dto.quantity,
-      ...catalogCosts(product),
+      ...lineCosts(product, dto, { mayCost: !!opts.mayCost }),
       priceClient: dto.priceClient,
       fulfillment,
       // Only a sourced line records which technician supplied it.
@@ -2524,6 +2543,7 @@ export class DealsService {
       taxable: dto.taxable ?? product.taxable ?? true,
       ...(dto.description !== undefined && { description: dto.description }),
       ...(customAttributes && { customAttributes }),
+      ...(soldBy && { soldBy }),
       addedBy: caller.id,
       addedAt: new Date().toISOString(),
     });
@@ -2562,6 +2582,7 @@ export class DealsService {
     request: AddDealProductDto,
     caller: JwtUser,
     dealScope?: string,
+    opts: LineWriteOptions = {},
   ): Promise<void> {
     const deal = await this.findById(id);
     assertDealInScope(deal, caller, dealScope);
@@ -2642,8 +2663,14 @@ export class DealsService {
     const customAttributes = lineCustomAttributes(
       dto.customAttributes ?? (isSwap ? product.customAttributes : existing.customAttributes),
     );
+    // Sold by follows the same rule: kept unless the edit says otherwise.
+    const soldBy = dto.soldBy === undefined ? existing.soldBy : soldByOf(dto.soldBy);
     // The numbers the line ends up with — what the timeline diffs against.
-    const money = { quantity: dto.quantity, ...catalogCosts(product), priceClient: dto.priceClient };
+    const money = {
+      quantity: dto.quantity,
+      ...lineCosts(product, dto, { mayCost: !!opts.mayCost, existing }),
+      priceClient: dto.priceClient,
+    };
 
     await this.productsRepo.addProduct(id, {
       // The same line, rewritten: a swap changes what it names, not which
@@ -2669,6 +2696,7 @@ export class DealsService {
       ...(keepsGroupPrice(dto, existing) && { priceSource: 'group' as const }),
       ...(description !== undefined && { description }),
       ...(customAttributes && { customAttributes }),
+      ...(soldBy && { soldBy }),
       addedBy: existing.addedBy,
       addedAt: existing.addedAt,
       updatedBy: caller.id,

@@ -19,9 +19,34 @@ const amount = (value: unknown): number =>
  * client ever sent anything but the catalog's own two numbers.
  */
 export function catalogCosts(
-  product: Pick<Product, 'costCompany' | 'costTech'>,
+  product: Partial<Pick<Product, 'costCompany' | 'costTech'>>,
 ): { costCompany: number; costForTech: number } {
   return { costCompany: amount(product.costCompany), costForTech: amount(product.costTech) };
+}
+
+/**
+ * What a job line costs the company — Workiz's "Cost" box in "Add job item",
+ * prefilled from the price book and typed over by the office. Only a caller
+ * with `financials.view` (`mayCost`) may send one: the technician's phone never
+ * saw the number. Absent, a new line (or a swap to another item) takes the
+ * price book's, and an in-place edit keeps the line's own — Workiz freezes the
+ * cost on the line, so a quantity change does not pull the price book's again.
+ * `costForTech` is never typed: the price book's, or the line's on an edit.
+ */
+export function lineCosts(
+  product: Partial<Pick<Product, 'costCompany' | 'costTech'>>,
+  request: { productId?: string; costCompany?: unknown },
+  opts: { mayCost: boolean; existing?: Pick<DealProduct, 'productId' | 'costCompany' | 'costForTech'> | null },
+): { costCompany: number; costForTech: number } {
+  const inPlace = !!opts.existing && request.productId === opts.existing.productId;
+  const base = inPlace
+    ? { costCompany: amount(opts.existing!.costCompany), costForTech: amount(opts.existing!.costForTech) }
+    : catalogCosts(product);
+  const sent = request.costCompany;
+  if (opts.mayCost && typeof sent === 'number' && Number.isFinite(sent) && sent >= 0) {
+    return { ...base, costCompany: sent };
+  }
+  return base;
 }
 
 /**

@@ -136,7 +136,7 @@ describe('DealsService — a technician adds, edits and removes items on his own
       expect(written()).toMatchObject({ costCompany: 0, costForTech: 0 });
     });
 
-    it('edits a line without costs: the edited line carries the catalog costs', async () => {
+    it('edits a line without costs: the line keeps its own (Workiz freezes the cost on the line)', async () => {
       repo.findById.mockResolvedValue(onHisJob());
       products.findProduct.mockResolvedValue(
         createMockDealProduct({ sourceTechId: 'tech-1', costCompany: 10, costForTech: 12 }),
@@ -144,17 +144,18 @@ describe('DealsService — a technician adds, edits and removes items on his own
 
       await service.replaceProduct('deal-1', 'line-1', { ...phoneLine, quantity: 2 } as any, tech);
 
-      expect(written()).toMatchObject({ quantity: 2, costCompany: 15, costForTech: 20 });
+      expect(written()).toMatchObject({ quantity: 2, costCompany: 10, costForTech: 12 });
     });
 
-    it('logs the cost change the edit actually wrote, not what the request said', async () => {
+    it('a swap to another item takes that item’s catalog costs, and logs the change it wrote', async () => {
       repo.findById.mockResolvedValue(onHisJob());
       products.findProduct.mockResolvedValue(
-        createMockDealProduct({ sourceTechId: 'tech-1', costCompany: 10, costForTech: 12 }),
+        createMockDealProduct({ productId: 'product-0', sourceTechId: 'tech-1', costCompany: 10, costForTech: 12 }),
       );
 
-      await service.replaceProduct('deal-1', 'line-1', phoneLine as any, tech);
+      await service.replaceProduct('deal-1', 'line-1', { ...phoneLine, costCompany: 1 } as any, tech);
 
+      expect(written()).toMatchObject({ costCompany: 15, costForTech: 20 });
       const entry = timeline.addEntry.mock.calls
         .map(([e]: [any]) => e)
         .find((e: any) => e.eventType === TimelineEventType.PRODUCT_UPDATED);

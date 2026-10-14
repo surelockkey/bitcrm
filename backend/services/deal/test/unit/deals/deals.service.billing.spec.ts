@@ -260,6 +260,8 @@ describe('DealsService — billing', () => {
       expect(repo.update).toHaveBeenCalledWith('deal-1', {
         itemCount: 1,
         totals: { subtotal: 50, discount: 0, tax: 0, total: 50, cost: 1, taxableBase: 50 },
+        // Workiz: the job's Company Cost is Σ item cost × qty.
+        companyCost: 1,
       });
     });
 

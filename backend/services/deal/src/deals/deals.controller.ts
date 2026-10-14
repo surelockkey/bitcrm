@@ -568,7 +568,8 @@ export class DealsController {
       'tech; `to_order` records a part the tech does not carry (no deduction); ' +
       '`service` adds a non-stockable service line (no deduction, no tech). The ' +
       "product's inventory type must match — services only as `service` lines. " +
-      "The line's `costCompany` / `costForTech` are the price book's (any sent are ignored); " +
+      "The line's `costCompany` is the price book's unless the caller holds `financials.view` and sends one " +
+      "(Workiz's Cost box); `costForTech` is always the price book's; `soldBy` (Workiz \"Sold by\") is a user id. " +
       "`priceClient` must stay within ±15% of the price book's price (400 otherwise). " +
       '**Container rule** for a technician (`deals` scope `assigned_only`): a stock-managed product ' +
       "(type `product`, `manageStock` not false) only `sourced` from HIS OWN container — " +
@@ -582,7 +583,9 @@ export class DealsController {
     @CurrentUser() user: JwtUser,
     @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    await this.dealsService.addProduct(id, dto, user, perms?.dataScope?.deals);
+    await this.dealsService.addProduct(id, dto, user, perms?.dataScope?.deals, {
+      mayCost: hasPermission(perms, 'financials', 'view'),
+    });
     return { success: true, data: { added: true } };
   }
 
@@ -626,7 +629,9 @@ export class DealsController {
       'new line — same shape and validation as add. Stock is reconciled: the ' +
       "old sourced line is restored to its source technician's container " +
       'before the new sourced line is deducted from the chosen one, so raising ' +
-      'a quantity only needs the delta in the van. Costs come from the price book and ' +
+      "a quantity only needs the delta in the van. The line keeps its own `costCompany` unless the caller holds " +
+      "`financials.view` and sends one (a swap takes the new item's price book cost); `soldBy` absent keeps the " +
+      'line\'s own, `""` clears it. ' +
       'the ±15% band holds as on add, except for an imported Workiz line (or an item group line) edited in place ' +
       'at its recorded price. The container rule of add binds a technician whenever the edit changes the ' +
       'product, the quantity or the source; an edit of text, price, taxable or custom fields alone passes. ' +
@@ -639,7 +644,9 @@ export class DealsController {
     @CurrentUser() user: JwtUser,
     @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    await this.dealsService.replaceProduct(id, productId, dto, user, perms?.dataScope?.deals);
+    await this.dealsService.replaceProduct(id, productId, dto, user, perms?.dataScope?.deals, {
+      mayCost: hasPermission(perms, 'financials', 'view'),
+    });
     return { success: true, data: { updated: true } };
   }
 

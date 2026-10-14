@@ -298,7 +298,7 @@ describe('DealsController', () => {
       const result = await controller.addProduct('deal-1', dto as any, caller, perms);
 
       expect(result).toEqual({ success: true, data: { added: true } });
-      expect(service.addProduct).toHaveBeenCalledWith('deal-1', dto, caller, 'assigned_only');
+      expect(service.addProduct).toHaveBeenCalledWith('deal-1', dto, caller, 'assigned_only', { mayCost: false });
     });
 
     it('addItemGroup — 201 with the lines it wrote', async () => {
@@ -324,13 +324,27 @@ describe('DealsController', () => {
       expect(service.addItemGroup).toHaveBeenCalledWith('deal-1', 'group-1', {}, caller, 'assigned_only');
     });
 
+    it('hands the service whether the caller may set the line cost (financials.view)', async () => {
+      const caller = createMockJwtUser();
+      const office = { dataScope: { deals: 'all' }, permissions: { financials: { view: true } } } as any;
+      const dto = { productId: 'p1', costCompany: 12 };
+      service.addProduct.mockResolvedValue(undefined);
+      service.replaceProduct.mockResolvedValue(undefined);
+
+      await controller.addProduct('deal-1', dto as any, caller, office);
+      await controller.replaceProduct('deal-1', 'line-1', dto as any, caller, office);
+
+      expect(service.addProduct).toHaveBeenCalledWith('deal-1', dto, caller, 'all', { mayCost: true });
+      expect(service.replaceProduct).toHaveBeenCalledWith('deal-1', 'line-1', dto, caller, 'all', { mayCost: true });
+    });
+
     it('replaceProduct', async () => {
       const caller = createMockJwtUser();
 
       const result = await controller.replaceProduct('deal-1', 'line-1', dto as any, caller, perms);
 
       expect(result).toEqual({ success: true, data: { updated: true } });
-      expect(service.replaceProduct).toHaveBeenCalledWith('deal-1', 'line-1', dto, caller, 'assigned_only');
+      expect(service.replaceProduct).toHaveBeenCalledWith('deal-1', 'line-1', dto, caller, 'assigned_only', { mayCost: false });
     });
 
     it('markProductOrdered', async () => {

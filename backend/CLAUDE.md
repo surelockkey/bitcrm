@@ -858,6 +858,17 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   Amounts need `financials.view` on top of `commission.view`: without it every
   amount is 0, no rate is sent (`money: false`) and the CSV has no amount
   columns. The Tech mode without `techId` is every job (Workiz).
+- **A job line's cost is the line's own, and a job's Company Cost is the sum of
+  its lines (Workiz).** `POST`/`PUT /deals/:id/products` honour `costCompany` only
+  from a caller with `financials.view` (Workiz's Cost box in "Add job item");
+  otherwise a new line or a swap takes the price book's cost and an in-place
+  edit keeps the line's (`lineCosts` in `deal-line-rules.ts`). `refreshTotals`
+  writes `companyCost = totals.cost` (Σ qty × costCompany) whenever the job has
+  lines — Workiz's `company_parts` is exactly that on 560/560 dump jobs — so the
+  quick view's Finance box and the commissions report's Company Parts agree
+  (`partsOf` in `commission-report.rows.ts`: lines → typed Company Cost → the
+  import's `companyParts` → the "Company Parts cost" custom field). Tech Cost
+  stays typed. `soldBy` (Workiz "Sold by") is a user id on the line.
 - **Job Statistics reads the Jobs report's windows; `/deals/stats` is the
   dashboard's.** `GET /api/deals/report/statistics` (Workiz Job Statistics) reads
   a period with `DealsRepository.readReportWindow` — "Closed" is the EndIndex
