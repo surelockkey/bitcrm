@@ -50,7 +50,7 @@ function table(templates = [template()], usedBy = new Map([["t1", 3]])) {
   const utils = renderWithClient(
     <TemplatesTable templates={templates} usedBy={usedBy} onEdit={onEdit} onApply={onApply} />,
   );
-  const headers = () => [...utils.container.querySelectorAll("thead th")].map((th) => th.textContent);
+  const headers = () => [...utils.container.querySelectorAll("[data-slot=wz-report-grid-head] thead th")].map((th) => th.textContent);
   const cells = () => [...utils.container.querySelectorAll("tbody tr:first-child td")].map((td) => td.textContent);
   return { ...utils, onEdit, onApply, headers, cells };
 }
@@ -120,7 +120,7 @@ describe("TemplatesTable — a stable first frame", () => {
   it("is Workiz's grid: fixed layout, a drag handle on every header, the cells cut at their edge", () => {
     const { container } = table();
     expect(container.querySelector("table")?.className).toContain("table-fixed");
-    expect(container.querySelectorAll("colgroup col")).toHaveLength(6);
+    expect(container.querySelectorAll("[data-slot=wz-report-grid-head] colgroup col")).toHaveLength(6);
     for (const id of ["name", "description", "items", "units", "usedBy", "actions"]) {
       expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
     }

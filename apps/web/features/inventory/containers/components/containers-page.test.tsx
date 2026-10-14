@@ -324,7 +324,7 @@ describe("ContainersPage — a stable first frame", () => {
   it("draws its rows in Workiz's grid, the pager inside it under them", () => {
     renderWithClient(<ContainersPage />);
     const grid = document.querySelector("[data-slot=wz-report-grid]");
-    expect(grid).toContainElement(screen.getByRole("table"));
+    expect(grid).toContainElement(screen.getByRole("table", { name: "Containers" }));
     expect(grid).toContainElement(screen.getByTestId("list-pagination"));
   });
 
@@ -335,7 +335,7 @@ describe("ContainersPage — a stable first frame", () => {
     expect(screen.queryByTestId("my-van")).toBeNull();
     expect(mocks.listFilters).toEqual([]);
     expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
-    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("Users");
+    expect([...document.querySelectorAll("[data-slot=wz-report-grid-head] thead th")].map((th) => th.textContent)).toContain("Users");
     // No pager under the skeleton: the rows would move it when they land.
     expect(screen.queryByTestId("list-pagination")).toBeNull();
   });

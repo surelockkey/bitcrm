@@ -98,7 +98,7 @@ describe("WarehousesPage — the server filters, the page shows what it got", ()
   it("draws its rows in Workiz's grid, the pager inside it under them", () => {
     renderWithClient(<WarehousesPage />);
     const grid = document.querySelector("[data-slot=wz-report-grid]");
-    expect(grid).toContainElement(screen.getByRole("table"));
+    expect(grid).toContainElement(screen.getByRole("table", { name: "Warehouses" }));
     expect(grid).toContainElement(screen.getByTestId("list-pagination"));
   });
 
@@ -170,7 +170,7 @@ describe("WarehousesPage — popups are state, not the URL", () => {
  * nor push buttons into the toolbar.
  */
 describe("WarehousesPage — a stable first frame", () => {
-  const headers = () => [...document.querySelectorAll("thead th")].map((th) => th.textContent);
+  const headers = () => [...document.querySelectorAll("[data-slot=wz-report-grid-head] thead th")].map((th) => th.textContent);
 
   // Under a page of skeleton rows the pager sat below the fold, and three
   // warehouses pulled it up the screen: it comes with the rows instead.
@@ -197,7 +197,7 @@ describe("WarehousesPage — a stable first frame", () => {
     renderWithClient(<WarehousesPage />);
 
     expect(screen.queryByText("No access")).toBeNull();
-    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Warehouses" })).toBeInTheDocument();
   });
 
   it("says No access once it is known", () => {

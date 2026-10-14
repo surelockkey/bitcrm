@@ -34,7 +34,7 @@ const records = () => [...document.querySelectorAll("tbody tr:not([aria-hidden])
 describe("TechniciansTable — Workiz's Team grid", () => {
   it("has Workiz's columns, in Workiz's order, then ours: Department and Labor", () => {
     draw([row()]);
-    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+    expect(within(document.querySelector("[data-slot=wz-report-grid-head]") as HTMLElement).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
       "Name",
       "Phone",
       "Role",

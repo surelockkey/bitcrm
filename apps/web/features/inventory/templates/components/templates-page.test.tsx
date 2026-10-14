@@ -107,7 +107,7 @@ describe("TemplatesPage", () => {
   it("draws its rows in Workiz's grid, the pager inside it under them", () => {
     renderWithClient(<TemplatesPage />);
     const grid = document.querySelector("[data-slot=wz-report-grid]");
-    expect(grid).toContainElement(screen.getByRole("table"));
+    expect(grid).toContainElement(screen.getByRole("table", { name: "Templates" }));
     expect(grid).toContainElement(screen.getByTestId("list-pagination"));
   });
 
@@ -194,7 +194,7 @@ describe("TemplatesPage — nothing jumps, and it pages", () => {
   it("draws the real table while the templates load, and no pager for the rows to move", () => {
     mocks.templatesLoading = true;
     renderWithClient(<TemplatesPage />);
-    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("Used by");
+    expect([...document.querySelectorAll("[data-slot=wz-report-grid-head] thead th")].map((th) => th.textContent)).toContain("Used by");
     expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
     expect(screen.queryByTestId("list-pagination")).toBeNull();
   });

@@ -145,6 +145,8 @@ export function ClientsGrid({
 
   return (
     <div className={FRAME}>
+      {/* Dragged wider than the frame, the grid scrolls here, never the page (2026-10-14). */}
+      <div className="overflow-x-auto">
       <Table className={TABLE} contained={false}>
         <colgroup>
           {columns.map((id) => (
@@ -192,6 +194,7 @@ export function ClientsGrid({
           ))}
         </TableBody>
       </Table>
+      </div>
       {contacts.length === 0 ? <WzTableNoData /> : null}
     </div>
   );
@@ -203,6 +206,7 @@ export function ClientsGridSkeleton({ columns, rows = MIN_ROWS }: { columns: rea
   const cols = useMemo(() => [...columns], [columns]);
   return (
     <div className={FRAME} aria-busy role="status" aria-label="Loading clients">
+      <div className="overflow-x-auto">
       <Table className={TABLE} contained={false}>
         <colgroup>
           {cols.map((id) => (
@@ -230,6 +234,7 @@ export function ClientsGridSkeleton({ columns, rows = MIN_ROWS }: { columns: rea
           ))}
         </TableBody>
       </Table>
+      </div>
     </div>
   );
 }

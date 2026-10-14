@@ -55,7 +55,7 @@ function renderTable(users: User[], props: Partial<Parameters<typeof UsersTable>
 describe("UsersTable — Workiz's Team grid", () => {
   it("has the Team page's columns, then ours", () => {
     renderTable([alex]);
-    const heads = screen.getAllByRole("columnheader").map((h) => h.textContent?.trim());
+    const heads = within(document.querySelector("[data-slot=wz-report-grid-head]") as HTMLElement).getAllByRole("columnheader").map((h) => h.textContent?.trim());
     expect(heads).toEqual(["Name", "Phone", "Role", "Field team", "Department", "Created", "Last seen", "Actions"]);
   });
 
