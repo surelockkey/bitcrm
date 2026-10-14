@@ -1617,13 +1617,20 @@ export class DealsService {
     ]);
     if (!deal) return;
     const totals = dealTotalsSnapshot(deal, lines);
+    // Workiz: a job's Company Cost (`company_parts`) is Σ item cost × qty —
+    // while the job has lines the Finance box shows their sum (and the
+    // commissions report counts it); a typed amount stands only until then.
+    // When the last line goes, the sum the lines gave goes with it: a stored
+    // amount equal to the lines' last sum is theirs, anything else was typed.
+    const linesGaveIt =
+      lines.length === 0 &&
+      deal.companyCost !== undefined &&
+      deal.companyCost !== 0 &&
+      deal.companyCost === deal.totals?.cost;
     await this.repository.update(id, {
       itemCount: lines.length,
       totals,
-      // Workiz: a job's Company Cost (`company_parts`) is Σ item cost × qty —
-      // while the job has lines the Finance box shows their sum (and the
-      // commissions report counts it); a typed amount stands only until then.
-      ...(lines.length > 0 && { companyCost: totals.cost }),
+      ...(lines.length > 0 ? { companyCost: totals.cost } : linesGaveIt ? { companyCost: 0 } : {}),
     });
   }
 

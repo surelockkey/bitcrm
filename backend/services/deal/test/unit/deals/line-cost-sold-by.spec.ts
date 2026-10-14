@@ -95,6 +95,26 @@ describe('DealsService — the line’s own cost and Sold by', () => {
     });
 
     it('leaves a typed Company Cost alone while the job has no lines', async () => {
+      ctx.repo.findById.mockResolvedValue(createMockDeal({ companyCost: 25, totals: { subtotal: 0, discount: 0, tax: 0, total: 0, cost: 0 } }));
+      ctx.products.findByDeal.mockResolvedValue([]);
+
+      await ctx.service.refreshTotals('deal-1');
+
+      expect(ctx.repo.update).toHaveBeenCalledWith('deal-1', expect.not.objectContaining({ companyCost: expect.anything() }));
+    });
+
+    it('removing the last line takes the Company Cost the lines gave back to 0 (Workiz: no items, no company parts)', async () => {
+      // The stored Company Cost is exactly the lines' last sum — the lines gave it, nobody typed it.
+      ctx.repo.findById.mockResolvedValue(createMockDeal({ companyCost: 14, totals: { subtotal: 13, discount: 0, tax: 0, total: 13, cost: 14 } }));
+      ctx.products.findByDeal.mockResolvedValue([]);
+
+      await ctx.service.refreshTotals('deal-1');
+
+      expect(ctx.repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ itemCount: 0, companyCost: 0 }));
+    });
+
+    it('but keeps an amount typed over the lines’ sum when the last line goes', async () => {
+      ctx.repo.findById.mockResolvedValue(createMockDeal({ companyCost: 20, totals: { subtotal: 13, discount: 0, tax: 0, total: 13, cost: 14 } }));
       ctx.products.findByDeal.mockResolvedValue([]);
 
       await ctx.service.refreshTotals('deal-1');
