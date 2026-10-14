@@ -44,6 +44,12 @@ export interface DealTotalsSnapshot {
    * drops it). Read by `unpaid=true` until billing has asserted `amountPaid`.
    */
   amountDue?: number;
+  /**
+   * The total was typed by hand (the quick view's Finance box, Workiz
+   * `job_total_price`) on a job with no line items; the first line priced
+   * here replaces the snapshot.
+   */
+  manual?: boolean;
 }
 
 export interface Deal {
@@ -141,6 +147,14 @@ export interface Deal {
   invoiceId?: string;
   estimatedTotal?: number;
   actualTotal?: number;
+  /**
+   * Workiz "Tech Cost" (`parts`): what the technician spent on the job out
+   * of pocket, in dollars; and "Company Cost" (`company_parts`): what the
+   * company spent. Job-level amounts typed in the quick view's Finance box,
+   * read by the commissions figures. An imported job carries Workiz's.
+   */
+  techCost?: number;
+  companyCost?: number;
   /**
    * Billing's flag for the job board: `unpaid` | `partial` | `paid`, asserted
    * from the ledger on every payment change. An imported job carries Workiz's

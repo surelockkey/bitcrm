@@ -147,7 +147,7 @@ import { type RecordSentToTechDto } from './dto/record-sent-to-tech.dto';
 import { isDealNumberCode } from './deal-number.util';
 import { hasBalanceDue } from './deal-balance';
 import { DealsCacheService } from './deals-cache.service';
-import { dealTotalsSnapshot } from './billing/deal-totals';
+import { dealTotalsSnapshot, manualTotalSnapshot } from './billing/deal-totals';
 import { aggregateDealStats, type DealStatsWindow } from './stats/deal-stats';
 import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
@@ -1331,6 +1331,28 @@ export class DealsService {
       else updates.jobName = jobName;
     }
 
+    // Finance "Total" (Workiz job_total_price): typed by hand only while the
+    // job has no line items — from the first line on the items price it and
+    // `refreshTotals` replaces this snapshot. It is the same money snapshot
+    // the dashboards and reports sum, flagged `manual`.
+    let totalChange: { from: number | null; to: number | null } | undefined;
+    if (dto.total !== undefined) {
+      delete updates.total;
+      const previous = existing.totals?.total ?? null;
+      if (dto.total === null) {
+        if (existing.totals?.manual) {
+          updates.totals = null;
+          totalChange = { from: previous, to: null };
+        }
+      } else {
+        if ((existing.itemCount ?? 0) > 0) {
+          throw new BadRequestException('The total of a job with line items comes from its items');
+        }
+        if (!existing.totals?.manual || previous !== dto.total) updates.totals = manualTotalSnapshot(dto.total);
+        if (previous !== dto.total) totalChange = { from: previous, to: dto.total };
+      }
+    }
+
     // Archived types are allowed on update so an old deal stays editable; only
     // the id's existence is enforced.
     if (updates.jobTypeId) await this.jobTypes.findById(updates.jobTypeId);
@@ -1426,6 +1448,8 @@ export class DealsService {
       if (value === undefined) continue;
       // Custom fields are diffed per-answer below, labeled by their human name.
       if (key === 'customFields') continue;
+      // The money snapshot gets one `total` entry below, never a diff of the object.
+      if (key === 'totals') continue;
       // Tax snapshot changes get one TAX_CHANGED entry instead.
       if (TAX_KEYS.has(key)) continue;
       // The company gets one labeled entry below.
@@ -1460,6 +1484,14 @@ export class DealsService {
         field: 'schedule',
         oldValue: visitOf(existing, zoneBefore),
         newValue: visitOf(after, zoneAfter),
+      });
+    }
+
+    if (totalChange) {
+      await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
+        field: 'total',
+        oldValue: totalChange.from,
+        newValue: totalChange.to,
       });
     }
 
