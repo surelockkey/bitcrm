@@ -291,13 +291,14 @@ describe('DealsController', () => {
     const perms = { dataScope: { deals: 'assigned_only' } } as any;
     const dto = { productId: 'p-1', name: 'Bolt', sku: 'B-1', quantity: 1, priceClient: 30 };
 
-    it('addProduct', async () => {
+    it('addProduct — answers with the line it wrote, so the page can show it without a reread', async () => {
       const caller = createMockJwtUser();
-      service.addProduct.mockResolvedValue(undefined);
+      const line = createMockDealProduct({ lineId: 'l-9' });
+      service.addProduct.mockResolvedValue(line);
 
       const result = await controller.addProduct('deal-1', dto as any, caller, perms);
 
-      expect(result).toEqual({ success: true, data: { added: true } });
+      expect(result).toEqual({ success: true, data: { added: true, line } });
       expect(service.addProduct).toHaveBeenCalledWith('deal-1', dto, caller, 'assigned_only', { mayCost: false });
     });
 
@@ -338,12 +339,14 @@ describe('DealsController', () => {
       expect(service.replaceProduct).toHaveBeenCalledWith('deal-1', 'line-1', dto, caller, 'all', { mayCost: true });
     });
 
-    it('replaceProduct', async () => {
+    it('replaceProduct — answers with the rewritten line', async () => {
       const caller = createMockJwtUser();
+      const line = createMockDealProduct({ lineId: 'line-1', quantity: 2 });
+      service.replaceProduct.mockResolvedValue(line);
 
       const result = await controller.replaceProduct('deal-1', 'line-1', dto as any, caller, perms);
 
-      expect(result).toEqual({ success: true, data: { updated: true } });
+      expect(result).toEqual({ success: true, data: { updated: true, line } });
       expect(service.replaceProduct).toHaveBeenCalledWith('deal-1', 'line-1', dto, caller, 'assigned_only', { mayCost: false });
     });
 

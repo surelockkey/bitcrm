@@ -583,10 +583,11 @@ export class DealsController {
     @CurrentUser() user: JwtUser,
     @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    await this.dealsService.addProduct(id, dto, user, perms?.dataScope?.deals, {
+    const line = await this.dealsService.addProduct(id, dto, user, perms?.dataScope?.deals, {
       mayCost: hasPermission(perms, 'financials', 'view'),
     });
-    return { success: true, data: { added: true } };
+    // `line` is the row as written (id included): the page draws it at once.
+    return { success: true, data: { added: true, line } };
   }
 
   @Post(':id/item-groups/:groupId')
@@ -644,10 +645,10 @@ export class DealsController {
     @CurrentUser() user: JwtUser,
     @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    await this.dealsService.replaceProduct(id, productId, dto, user, perms?.dataScope?.deals, {
+    const line = await this.dealsService.replaceProduct(id, productId, dto, user, perms?.dataScope?.deals, {
       mayCost: hasPermission(perms, 'financials', 'view'),
     });
-    return { success: true, data: { updated: true } };
+    return { success: true, data: { updated: true, line } };
   }
 
   @Patch(':id/products/:productId/ordered')

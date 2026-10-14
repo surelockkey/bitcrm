@@ -2489,7 +2489,7 @@ export class DealsService {
     caller: JwtUser,
     dealScope?: string,
     opts: LineWriteOptions = {},
-  ): Promise<void> {
+  ): Promise<DealProduct> {
     const deal = await this.findById(id);
     assertDealInScope(deal, caller, dealScope);
     const fulfillment: DealProductFulfillment = request.fulfillment ?? 'sourced';
@@ -2536,7 +2536,10 @@ export class DealsService {
     const soldBy = soldByOf(dto.soldBy);
 
     this.businessMetrics?.dealProductsAdded.inc();
-    await this.productsRepo.addProduct(id, {
+    // The line as written, id included — the answer, so the page can draw it
+    // the moment the save returns instead of rereading the job.
+    const line: DealProduct = {
+      lineId: randomUUID(),
       productId: dto.productId,
       name: dto.name,
       sku: dto.sku,
@@ -2553,7 +2556,8 @@ export class DealsService {
       ...(soldBy && { soldBy }),
       addedBy: caller.id,
       addedAt: new Date().toISOString(),
-    });
+    };
+    await this.productsRepo.addProduct(id, line);
 
     await this.refreshTotals(id);
     await this.cache.invalidate(id);
@@ -2573,6 +2577,7 @@ export class DealsService {
       quantity: dto.quantity,
       fulfillment,
     });
+    return line;
   }
 
   /**
@@ -2590,7 +2595,7 @@ export class DealsService {
     caller: JwtUser,
     dealScope?: string,
     opts: LineWriteOptions = {},
-  ): Promise<void> {
+  ): Promise<DealProduct> {
     const deal = await this.findById(id);
     assertDealInScope(deal, caller, dealScope);
 
@@ -2679,7 +2684,7 @@ export class DealsService {
       priceClient: dto.priceClient,
     };
 
-    await this.productsRepo.addProduct(id, {
+    const line: DealProduct = {
       // The same line, rewritten: a swap changes what it names, not which
       // line it is, so every reference to it stays pointed at this row.
       lineId: existing.lineId,
@@ -2708,7 +2713,8 @@ export class DealsService {
       addedAt: existing.addedAt,
       updatedBy: caller.id,
       updatedAt: new Date().toISOString(),
-    });
+    };
+    await this.productsRepo.addProduct(id, line);
 
     await this.refreshTotals(id);
     await this.cache.invalidate(id);
@@ -2737,6 +2743,7 @@ export class DealsService {
       quantity: dto.quantity,
       fulfillment,
     });
+    return line;
   }
 
   /**

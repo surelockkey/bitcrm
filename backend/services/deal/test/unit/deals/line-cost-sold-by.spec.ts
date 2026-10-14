@@ -14,7 +14,8 @@ describe('DealsService — the line’s own cost and Sold by', () => {
   const tech = createMockJwtUser({ id: 'tech-1', roleId: 'role-technician' });
 
   const catalog = { id: 'product-1', name: 'Kwikset Deadbolt', sku: 'KW-DB-001', type: 'product', costCompany: 15, costTech: 20, priceClient: 45 };
-  const line = { fulfillment: 'to_order' as const, productId: 'product-1', name: 'Kwikset Deadbolt', sku: 'KW-DB-001', quantity: 1, priceClient: 45 };
+  const line0 = { fulfillment: 'to_order' as const, productId: 'product-1', name: 'Kwikset Deadbolt', sku: 'KW-DB-001', quantity: 1, priceClient: 45 };
+  const line = line0;
 
   beforeEach(async () => {
     ctx = await buildLineItemsService();
@@ -53,6 +54,21 @@ describe('DealsService — the line’s own cost and Sold by', () => {
       expect(written()).toMatchObject({ costCompany: 7 });
       const entry = ctx.timeline.addEntry.mock.calls.map(([e]: [any]) => e).find((e: any) => e.eventType === TimelineEventType.PRODUCT_UPDATED);
       expect(entry.details.changes).toEqual({ costCompany: { from: 10, to: 7 } });
+    });
+  });
+
+  describe('the write answers with the line (the page draws it without a reread)', () => {
+    it('addProduct returns the line it wrote, under a minted id', async () => {
+      const line = await ctx.service.addProduct('deal-1', { ...line0, soldBy: 'user-9' } as any, office, undefined, { mayCost: true });
+      expect(line.lineId).toEqual(expect.any(String));
+      expect(line).toMatchObject({ productId: 'product-1', quantity: 1, priceClient: 45, costCompany: 15, soldBy: 'user-9', fulfillment: 'to_order' });
+      expect(written()).toMatchObject({ lineId: line.lineId });
+    });
+
+    it('replaceProduct returns the rewritten line under the same id', async () => {
+      ctx.products.findProduct.mockResolvedValue(createMockDealProduct({ lineId: 'line-1', fulfillment: 'to_order', costCompany: 10 }));
+      const line = await ctx.service.replaceProduct('deal-1', 'line-1', { ...line0, quantity: 3 } as any, office);
+      expect(line).toMatchObject({ lineId: 'line-1', quantity: 3, costCompany: 10 });
     });
   });
 
