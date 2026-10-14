@@ -17,6 +17,8 @@ module "cognito" {
   source      = "../modules/cognito"
   project     = var.project
   environment = var.environment
+  # The invitation email's link: the web app on this environment.
+  app_url = "https://${var.domain_name}"
 }
 
 module "github_oidc" {
