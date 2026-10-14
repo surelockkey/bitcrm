@@ -16,6 +16,9 @@ import { getUserNames } from "@/features/users/api";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { fetchAllUsers } from "@/features/technicians/api";
 import * as api from "./api";
+import { applyLineWrite, restoreLineCache, snapshotLineCache, type LineCacheSnapshot } from "./line-cache";
+import { getProduct } from "@/features/inventory/products/api";
+import { CATALOG_STALE_MS } from "@/features/price-book/catalog-search";
 import { SEND_TO_TECH_CHANNEL_LABEL } from "./lib";
 import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./schemas";
 import type { DealCountsParams, DealsListParams } from "./query-params";
@@ -576,16 +579,40 @@ export function useDeleteNote(id: string) {
   });
 }
 
+/*
+ * A line write moves the job's lines, the job's money and the totals under
+ * the table in ONE frame (`line-cache.ts`): the server's answer goes into the
+ * cache as the card closes, a removal leaves the table as it is clicked, and
+ * the rereads that follow only confirm the same numbers. Before this, a save
+ * closed the card and the table, the totals and the tab strip each jumped a
+ * second or so later, one after another (three rereads of ~400 ms on dev).
+ */
+
 export function useAddProduct(id: string) {
+  const qc = useQueryClient();
   const invalidate = useInvalidateDealBilling(id);
   return useMutation({
     mutationFn: (body: AddProductValues) => api.addDealProduct(id, body),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      const line = data.line;
+      if (line) applyLineWrite(qc, id, (lines) => [...lines.filter((l) => l.lineId !== line.lineId), line]);
       invalidate();
       toast.success("Product added");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
+}
+
+/** Reads a catalog item ahead of the edit card (a row's hover), cached as the card's own read is. */
+export function usePrefetchCatalogProduct() {
+  const qc = useQueryClient();
+  return (productId: string) => {
+    void qc.prefetchQuery({
+      queryKey: queryKeys.inventory.products.detail(productId),
+      queryFn: () => getProduct(productId),
+      staleTime: CATALOG_STALE_MS,
+    });
+  };
 }
 
 /** Workiz "Add group": the group's items, each its own line, in one call. */
@@ -604,11 +631,18 @@ export function useAddItemGroup(id: string) {
 }
 
 export function useReplaceProduct(id: string) {
+  const qc = useQueryClient();
   const invalidate = useInvalidateDealBilling(id);
   return useMutation({
     mutationFn: ({ lineId, body }: { lineId: string; body: AddProductValues }) =>
       api.replaceDealProduct(id, lineId, body),
-    onSuccess: () => {
+    onSuccess: (data, { lineId }) => {
+      const line = data.line;
+      if (line) {
+        applyLineWrite(qc, id, (lines) =>
+          lines.some((l) => l.lineId === lineId) ? lines.map((l) => (l.lineId === lineId ? line : l)) : [...lines, line],
+        );
+      }
       invalidate();
       toast.success("Item updated");
     },
@@ -616,28 +650,56 @@ export function useReplaceProduct(id: string) {
   });
 }
 
+/** The three answers a line write moves, held still while the write is in flight. */
+async function holdLineCache(qc: ReturnType<typeof useQueryClient>, id: string): Promise<LineCacheSnapshot> {
+  await Promise.all([
+    qc.cancelQueries({ queryKey: queryKeys.deals.products(id) }),
+    qc.cancelQueries({ queryKey: queryKeys.deals.detail(id) }),
+    qc.cancelQueries({ queryKey: queryKeys.dealTotals(id) }),
+  ]);
+  return snapshotLineCache(qc, id);
+}
+
 export function useRemoveProduct(id: string) {
+  const qc = useQueryClient();
   const invalidate = useInvalidateDealBilling(id);
   return useMutation({
     mutationFn: (lineId: string) => api.removeDealProduct(id, lineId),
-    onSuccess: () => {
-      invalidate();
-      toast.success("Product removed");
+    // The row goes as it is clicked; a refusal puts it back.
+    onMutate: async (lineId) => {
+      const snapshot = await holdLineCache(qc, id);
+      applyLineWrite(qc, id, (lines) => lines.filter((l) => l.lineId !== lineId));
+      return snapshot;
     },
-    onError: (e) => toast.error(getApiErrorMessage(e)),
+    onSuccess: () => toast.success("Product removed"),
+    onError: (e, _lineId, snapshot) => {
+      if (snapshot) restoreLineCache(qc, id, snapshot);
+      toast.error(getApiErrorMessage(e));
+    },
+    onSettled: () => invalidate(),
   });
 }
 
 export function useMarkProductOrdered(id: string) {
+  const qc = useQueryClient();
   const invalidate = useInvalidateDeal(id);
   return useMutation({
     mutationFn: ({ lineId, ordered }: { lineId: string; ordered: boolean }) =>
       api.markDealProductOrdered(id, lineId, ordered),
-    onSuccess: (_data, { ordered }) => {
-      invalidate();
-      toast.success(ordered ? "Marked as ordered" : "Marked as not ordered");
+    // The stamp flips as it is clicked; the reread brings the server's time.
+    onMutate: async ({ lineId, ordered }) => {
+      const snapshot = await holdLineCache(qc, id);
+      applyLineWrite(qc, id, (lines) =>
+        lines.map((l) => (l.lineId === lineId ? { ...l, orderedAt: ordered ? new Date().toISOString() : undefined } : l)),
+      );
+      return snapshot;
     },
-    onError: (e) => toast.error(getApiErrorMessage(e)),
+    onSuccess: (_data, { ordered }) => toast.success(ordered ? "Marked as ordered" : "Marked as not ordered"),
+    onError: (e, _vars, snapshot) => {
+      if (snapshot) restoreLineCache(qc, id, snapshot);
+      toast.error(getApiErrorMessage(e));
+    },
+    onSettled: () => invalidate(),
   });
 }
 

@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   stock: new Map<string, number>(),
   // Whether the viewer is a technician — the only role the ±15% band binds.
   technician: true,
+  // The edited line's catalog item is still being read.
+  catalogPending: false,
 }));
 
 vi.mock("../hooks", () => ({
@@ -46,6 +48,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
     if (root === "deal-tech-stock") return { data: mocks.stock, isSuccess: true, isLoading: false, isError: false };
     if (root === "item-groups") return { data: mocks.groups, isLoading: false };
     if (root === "products" && kind === "detail") {
+      if (mocks.catalogPending) return { data: undefined, isPending: true, isError: false };
       return { data: (mocks.catalog as Product[]).find((p) => p.id === arg), isPending: false, isError: false };
     }
     // The search: the whole fixture, whatever was typed.
@@ -99,6 +102,7 @@ beforeEach(() => {
   mocks.addGroup.mockClear();
   mocks.groups = [];
   mocks.technician = true;
+  mocks.catalogPending = false;
   mocks.catalog = [deadbolt, schlage];
   mocks.stock = new Map([
     ["p1", 5],
@@ -128,6 +132,14 @@ describe("AddProductDialog (edit mode)", () => {
     expect(screen.queryByPlaceholderText(/search catalog/i)).toBeNull();
     expect(screen.getByLabelText("Quantity")).toHaveValue(2);
     expect(screen.getByLabelText("Price")).toHaveValue(40); // negotiated price
+  });
+
+  it("shows no window at all while the line's catalog item is still being read — the card, whole, or nothing", () => {
+    mocks.catalogPending = true;
+    render(dialog(editingLine));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByText(/loading the item/i)).toBeNull();
   });
 
   it("saves an in-place edit through replace, keyed by the line", async () => {

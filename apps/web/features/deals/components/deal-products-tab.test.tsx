@@ -11,6 +11,7 @@ import type { Deal, DealProduct } from "@bitcrm/types";
 
 const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
+  prefetch: vi.fn(),
   setTaxable: vi.fn(),
   setTax: vi.fn(),
   summaryProps: [] as Array<Record<string, unknown>>,
@@ -56,6 +57,7 @@ vi.mock("@/features/payments/components/payment-schedule", async (importOriginal
 
 vi.mock("../hooks", () => ({
   useDealProducts: () => ({ data: mocks.products, isLoading: false }),
+  usePrefetchCatalogProduct: () => mocks.prefetch,
   useRemoveProduct: () => ({ mutate: mocks.remove, isPending: false }),
   useMarkProductOrdered: () => ({ mutate: vi.fn(), isPending: false }),
   useDealTotals: () => ({ data: undefined, isFetching: false }),
@@ -164,6 +166,15 @@ describe("DealProductsTab (editable items)", () => {
 
     expect(lastDialog().open).toBe(true);
     expect(lastDialog().editing).toMatchObject({ productId: "p1" });
+  });
+
+  it("hovering a row reads its catalog item ahead, so the editor opens whole", async () => {
+    const u = userEvent.setup();
+    render(<DealProductsTab deal={deal} canEdit />);
+
+    await u.hover(screen.getByRole("button", { name: /edit kwikset deadbolt/i }));
+
+    expect(mocks.prefetch).toHaveBeenCalledWith("p1");
   });
 
   it("read-only users get no item editor", () => {

@@ -25,6 +25,7 @@ import {
   useDealProducts,
   useDealTotals,
   useMarkProductOrdered,
+  usePrefetchCatalogProduct,
   useRemoveProduct,
   useResetDealTax,
   useSetDealDiscount,
@@ -171,6 +172,7 @@ export function DealProductsTab({
   const [scheduling, setScheduling] = useState(false);
   const totalsQuery = useDealTotals(deal.id);
   const remove = useRemoveProduct(deal.id);
+  const prefetchItem = usePrefetchCatalogProduct();
   const markOrdered = useMarkProductOrdered(deal.id);
   const setTaxable = useSetProductTaxable(deal.id);
   const setTax = useSetDealTax(deal.id);
@@ -313,6 +315,9 @@ export function DealProductsTab({
                     key={p.lineId}
                     className={cn(canEdit && "cursor-pointer hover:bg-[#f8f8f8]")}
                     onClick={canEdit ? () => setEditing(p) : undefined}
+                    // The edit card needs the line's catalog item: read it while the
+                    // pointer is still on the row, so the click opens the card at once.
+                    onMouseEnter={canEdit ? () => prefetchItem(p.productId) : undefined}
                   >
                     <td aria-hidden className={wzTd} />
                     <td className={cn(wzTd, "h-[85px]")}>
@@ -491,6 +496,7 @@ export function DealProductsTab({
                   key={p.lineId}
                   className={cn(canEdit && "cursor-pointer hover:bg-accent/30")}
                   onClick={canEdit ? () => setEditing(p) : undefined}
+                  onMouseEnter={canEdit ? () => prefetchItem(p.productId) : undefined}
                 >
                   <td className={cn(td, "border-b border-dashed")}>
                     <div className="flex items-center gap-2">

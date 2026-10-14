@@ -121,6 +121,10 @@ function AddProductFlow({ dealId, techIds, editing, onClose }: AddProductProps &
 
   const matchedGroups = useMemo(() => pickableGroups(groups.data, search), [groups.data, search]);
 
+  // An edit opens on the card and nothing else: no "loading" window first that
+  // the card then replaces (the catalog item is usually prefetched on hover).
+  if (readingEdited) return null;
+
   if (current) {
     const sameLine = !!editing && current.id === editing.productId;
     // The vans the line can come from: the assigned technicians'. The count
@@ -196,8 +200,6 @@ function AddProductFlow({ dealId, techIds, editing, onClose }: AddProductProps &
             addGroup.mutate({ groupId: pickedGroup.id, sourceTechId: techId }, { onSuccess: onClose })
           }
         />
-      ) : readingEdited ? (
-        <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading the item…</div>
       ) : (
         <>
           {techIds.length > 1 ? (
