@@ -245,9 +245,10 @@ describe("ContactDetailPage — the client card, laid out as Workiz's", () => {
     const panel = screen.getByRole("complementary", { name: "Client" });
 
     expect(await within(panel).findByRole("link", { name: "CBRE Facilities Management" })).toHaveAttribute("href", "/companies/co1");
-    // Workiz's phones: plain lines, the dash spaced out.
-    expect(within(panel).getByText("(855) 783 - 6342")).toBeInTheDocument();
-    expect(within(panel).getByText("(475) 329 - 6229")).toBeInTheDocument();
+    // The phones as plain lines, written as everywhere else in the app
+    // (QA 2026-10-14 #23: the card alone spaced the dash out).
+    expect(within(panel).getByText("(855) 783-6342")).toBeInTheDocument();
+    expect(within(panel).getByText("(475) 329-6229")).toBeInTheDocument();
     expect(within(panel).getByText("pendingvendorinvoice@cbre.com")).toBeInTheDocument();
     // Workiz's tags, as chips with a way off and a way to add.
     expect(await within(panel).findByText("PLATINUM")).toBeInTheDocument();
