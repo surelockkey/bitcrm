@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ClientType, ContactSource, ContactType, CrmStatus, type ClientTag, type Company, type Contact } from "@bitcrm/types";
-import { ClientsGrid } from "./clients-grid";
+import { ClientsGrid, ClientsGridSkeleton } from "./clients-grid";
 
 vi.mock("@/features/job-sources/lib", () => ({ useJobSourceName: () => (id?: string) => (id ? `Source ${id}` : "—") }));
 
@@ -126,5 +126,23 @@ describe("ClientsGrid — Workiz's Clients grid", () => {
     expect(cells[2]).toHaveTextContent("a@b.co");
     expect(cells[3]).toHaveTextContent("Source s1");
     expect(cells[4]).toHaveTextContent("Residential");
+  });
+});
+
+// 2026-10-14: a Name column dragged out made the table wider than its frame,
+// and with nothing to hold it the whole Contacts page scrolled sideways.
+describe("ClientsGrid — a wide grid scrolls in its own box, never the page", () => {
+  it("holds the table in a sideways scroller inside the frame", () => {
+    setup([contact()]);
+    const table = screen.getByRole("table");
+    const box = table.parentElement as HTMLElement;
+    expect(box.className).toContain("overflow-x-auto");
+    expect(box.parentElement!.className).toContain("border-wz-frame");
+  });
+
+  it("the loading grid sits in the same scroller, so nothing moves when the rows arrive", () => {
+    render(<ClientsGridSkeleton columns={["name", "address", "phone", "created"]} />);
+    const table = screen.getByRole("status", { name: "Loading clients" }).querySelector("table") as HTMLElement;
+    expect(table.parentElement!.className).toContain("overflow-x-auto");
   });
 });

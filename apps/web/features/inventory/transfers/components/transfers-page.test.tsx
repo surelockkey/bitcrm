@@ -216,7 +216,7 @@ describe("TransfersPage — nothing jumps", () => {
   it("draws its rows in Workiz's grid, the pager inside it under them", () => {
     render(<TransfersPage />);
     const grid = document.querySelector("[data-slot=wz-report-grid]");
-    expect(grid).toContainElement(screen.getByRole("table"));
+    expect(grid).toContainElement(screen.getByRole("table", { name: "Transfers" }));
     expect(grid).toContainElement(screen.getByTestId("list-pagination"));
   });
 
@@ -224,7 +224,7 @@ describe("TransfersPage — nothing jumps", () => {
     mocks.list = { isLoading: true, isPlaceholderData: false, noData: true };
     render(<TransfersPage />);
 
-    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toEqual([
+    expect([...document.querySelectorAll("[data-slot=wz-report-grid-head] thead th")].map((th) => th.textContent)).toEqual([
       "Type",
       "Route",
       "Items",

@@ -209,15 +209,65 @@ describe("WzReportGrid", () => {
         resize={{ widthOf: (id) => widths[id], setWidth, reset: () => {} }}
       />,
     );
-    const cols = [...document.querySelectorAll("colgroup col")] as HTMLElement[];
+    // A resizable grid is the pinned header over the rows' box (see below).
+    const head = document.querySelector("[data-slot=wz-report-grid-head]") as HTMLElement;
+    const cols = [...head.querySelectorAll("colgroup col")] as HTMLElement[];
     expect(cols.map((c) => c.style.width)).toEqual(["180px", "120px"]);
     expect(screen.getByTestId("resize-time")).toHaveAttribute("aria-valuenow", "180");
     expect(screen.getByTestId("resize-who")).toBeInTheDocument();
     // The sorted column keeps its bar and its name.
-    expect(screen.getByRole("columnheader", { name: "Time" })).toHaveAttribute("aria-sort", "descending");
+    expect(within(head).getByRole("columnheader", { name: "Time" })).toHaveAttribute("aria-sort", "descending");
     screen.getByTestId("resize-who").focus();
     await userEvent.keyboard("{ArrowRight}");
     expect(setWidth).toHaveBeenCalledWith("who", 136);
+  });
+});
+
+describe("WzReportGrid resizable columns never widen the page (2026-10-14)", () => {
+  // Dragging Users' Name column out made the one fixed-layout table wider than
+  // its frame, which had nothing to hold it: the PAGE scrolled sideways and
+  // white space opened beside the header. A grid whose columns can be dragged
+  // is at least as wide as they are, and scrolls them in its own box.
+  const resizable = (widths: Record<string, number>) => (
+    <WzReportGrid
+      aria-label="Activity"
+      columns={columns}
+      rows={rows}
+      rowKey={(r) => r.id}
+      resize={{ widthOf: (id) => widths[id], setWidth: () => {}, reset: () => {} }}
+    />
+  );
+
+  it("holds the rows at the columns' total width in a box that scrolls sideways", () => {
+    render(resizable({ time: 900, who: 700 }));
+    const table = screen.getByRole("table", { name: "Activity" });
+    expect(table.style.minWidth).toBe("1600px");
+    expect(table.closest("[data-slot=wz-report-grid-body]")!.className).toContain("overflow-x-auto");
+    expect(table.closest("[data-slot=wz-report-grid]")!.className).not.toContain("overflow-x-auto");
+  });
+
+  it("moves the pinned header with the rows, on the same widths", () => {
+    const { container } = render(resizable({ time: 900, who: 700 }));
+    const head = container.querySelector("[data-slot=wz-report-grid-head]") as HTMLElement;
+    const body = container.querySelector("[data-slot=wz-report-grid-body]") as HTMLElement;
+    expect((head.querySelector("table") as HTMLElement).style.minWidth).toBe("1600px");
+    body.scrollLeft = 250;
+    fireEvent.scroll(body);
+    expect(head.scrollLeft).toBe(250);
+  });
+
+  it("takes the wider of a given minTableWidth and the columns' total", () => {
+    render(
+      <WzReportGrid
+        aria-label="Activity"
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        minTableWidth={2030}
+        resize={{ widthOf: () => 300, setWidth: () => {}, reset: () => {} }}
+      />,
+    );
+    expect(screen.getByRole("table", { name: "Activity" }).style.minWidth).toBe("2030px");
   });
 });
 
