@@ -1,9 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Loader2, Package, Search, Wrench } from "lucide-react";
-import { InventoryStatus, ProductType, type ItemGroup, type Product } from "@bitcrm/types";
+import { ProductType, type ItemGroup, type Product } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,11 +17,10 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
-import { queryKeys } from "@/lib/query-keys";
-import { fetchAllProducts } from "@/features/inventory/warehouses/api";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { formatMoney, isPriceInBand, priceBandBinds, priceRange } from "@/features/deals/lib";
 import { estimateItemSchema, type EstimateItemBody } from "@/features/estimates/schemas";
+import { CATALOG_PAGE_SIZE, useCatalogProduct, useCatalogProducts, useCatalogSearch } from "@/features/price-book/catalog-search";
 import { useItemGroups } from "@/features/price-book/item-groups/hooks";
 import { groupEstimateLines, pickableGroups } from "@/features/price-book/item-groups/lib";
 import { ItemGroupChoices, ItemGroupConfirm } from "@/features/price-book/item-groups/item-group-picker";
@@ -41,22 +39,7 @@ export interface PickerLine {
   taxable: boolean;
 }
 
-/**
- * Catalog picker for document lines (estimates). Same catalog cache and
- * price band (a technician's, see priceBandBinds) as the job's Add item
- * dialog, without the van-stock sourcing — an estimate reserves nothing
- * until it is synced to the job.
- */
-export function ProductPickerDialog({
-  open,
-  onOpenChange,
-  onSubmit,
-  editing,
-  pending,
-  onAddGroup,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+interface PickerProps {
   onSubmit: (body: EstimateItemBody) => void;
   editing?: PickerLine;
   pending?: boolean;
@@ -66,145 +49,162 @@ export function ProductPickerDialog({
    * ready to add one by one.
    */
   onAddGroup?: (lines: EstimateItemBody[]) => void;
+}
+
+/**
+ * Catalog picker for document lines (estimates). Same catalog search and
+ * price band (a technician's, see priceBandBinds) as the job's Add item
+ * dialog, without the van-stock sourcing — an estimate reserves nothing
+ * until it is synced to the job.
+ *
+ * What was typed and what was picked live in the body, which the dialog
+ * mounts afresh on every open: a page that closes the picker by its own
+ * state (the estimate's, once a line is added) never went through
+ * onOpenChange, and a reset hung on it left the next open on the previous
+ * product's step (QA 2026-10-14, web-flows 4.6).
+ */
+export function ProductPickerDialog({
+  open,
+  onOpenChange,
+  ...picker
+}: PickerProps & {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const catalog = useQuery({
-    queryKey: queryKeys.inventory.products.map(),
-    queryFn: fetchAllProducts,
-    enabled: open,
-  });
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
+        <PickerBody {...picker} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PickerBody({ onSubmit, editing, pending, onAddGroup }: PickerProps) {
   // Only a technician is held to the ±15% band; the office sets any price.
   const { isTechnician } = usePermissions();
   const bandBinds = priceBandBinds({ isTechnician });
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<Product | null>(null);
   const [changing, setChanging] = useState(false);
-  const groups = useItemGroups(open && !!onAddGroup && !editing);
   const [pickedGroup, setPickedGroup] = useState<ItemGroup | null>(null);
+  // Editing opens on the line itself (even if its product left the catalog).
+  const showConfigure = picked !== null || (editing !== undefined && !changing);
+  // The search runs only while it is on screen — not behind a line's own step.
+  const catalog = useCatalogSearch(search, !showConfigure && !pickedGroup);
+  // The item behind the line being edited: its catalog price and type.
+  const editingQuery = useCatalogProduct(editing?.productId);
+  const editingProduct: Product | null | undefined = editingQuery.isError ? null : editingQuery.data;
+  const groups = useItemGroups(!!onAddGroup && !editing);
   const matchedGroups = useMemo(
     () => (onAddGroup && !editing ? pickableGroups(groups.data, search) : []),
     [onAddGroup, editing, groups.data, search],
   );
-
-  const reset = () => {
-    setSearch("");
-    setPicked(null);
-    setPickedGroup(null);
-    setChanging(false);
-  };
-
-  const products = useMemo(() => {
-    const active = (catalog.data ?? []).filter((p) => p.status === InventoryStatus.ACTIVE);
-    const s = search.trim().toLowerCase();
-    return s ? active.filter((p) => `${p.name} ${p.sku}`.toLowerCase().includes(s)) : active;
-  }, [catalog.data, search]);
-
-  const editingProduct = editing
-    ? ((catalog.data ?? []).find((p) => p.id === editing.productId) ?? null)
-    : null;
-  // Editing opens on the line itself (even if its product left the catalog).
-  const showConfigure = picked !== null || (editing !== undefined && !changing);
+  // A picked group's items, for the SKU, type and costs its lines carry.
+  const memberIds = useMemo(() => pickedGroup?.members.map((m) => m.productId) ?? [], [pickedGroup]);
+  const members = useCatalogProducts(memberIds);
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(v) => {
-        onOpenChange(v);
-        if (!v) reset();
-      }}
-    >
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{editing ? "Edit item" : picked || pickedGroup ? "Add to estimate" : "Add an item"}</DialogTitle>
-          <DialogDescription className="sr-only">Pick a catalog product or service</DialogDescription>
-        </DialogHeader>
+    <>
+      <DialogHeader>
+        <DialogTitle>{editing ? "Edit item" : picked || pickedGroup ? "Add to estimate" : "Add an item"}</DialogTitle>
+        <DialogDescription className="sr-only">Pick a catalog product or service</DialogDescription>
+      </DialogHeader>
 
-        {pickedGroup && onAddGroup ? (
-          <ItemGroupConfirm
-            group={pickedGroup}
-            submitLabel="Add group"
-            pending={pending}
-            onBack={() => setPickedGroup(null)}
-            onSubmit={() =>
-              onAddGroup(groupEstimateLines(pickedGroup, new Map((catalog.data ?? []).map((p) => [p.id, p]))))
-            }
-          />
-        ) : showConfigure ? (
-          <Configure
-            key={picked?.id ?? editing?.productId}
-            product={picked ?? editingProduct}
-            line={picked ? undefined : editing}
-            bandBinds={bandBinds}
-            pending={pending}
-            submitLabel={editing ? "Save" : "Add item"}
-            backLabel={editing && !picked ? "Change item" : "← Back"}
-            onBack={() => {
-              setPicked(null);
-              setChanging(true);
-            }}
-            onSubmit={(body) => {
-              onSubmit(body);
-            }}
-          />
-        ) : (
-          <>
-            <div className="relative">
-              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="h-9 pl-8"
-                placeholder="Search catalog by name or SKU"
-                aria-label="Search catalog"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="max-h-80 space-y-1.5 overflow-y-auto">
-              <ItemGroupChoices groups={matchedGroups} limit={search.trim() ? undefined : 3} onPick={setPickedGroup} />
-              {catalog.isLoading ? (
-                <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" /> Loading catalog…
-                </div>
-              ) : catalog.isError ? (
-                <div className="py-3 text-sm text-destructive">
-                  <p>Couldn&apos;t load the catalog.</p>
-                  <p className="text-xs text-muted-foreground">{getApiErrorMessage(catalog.error)}</p>
-                </div>
-              ) : products.length === 0 ? (
-                <p className="py-3 text-sm text-muted-foreground">No products found.</p>
-              ) : (
-                products.map((p) => {
-                  const isService = p.type === ProductType.SERVICE;
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setPicked(p)}
-                      className="flex w-full items-center gap-2.5 rounded-lg border p-2 text-left hover:bg-accent/50"
-                    >
-                      <span
-                        className={cn(
-                          "grid size-7 flex-none place-items-center rounded-md border",
-                          isService
-                            ? "bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300"
-                            : "bg-muted text-muted-foreground",
-                        )}
+      {pickedGroup && onAddGroup ? (
+        <ItemGroupConfirm
+          group={pickedGroup}
+          submitLabel="Add group"
+          pending={pending || members.isPending}
+          onBack={() => setPickedGroup(null)}
+          onSubmit={() => onAddGroup(groupEstimateLines(pickedGroup, members.map))}
+        />
+      ) : showConfigure ? (
+        <Configure
+          key={picked?.id ?? editing?.productId}
+          product={picked ?? editingProduct}
+          line={picked ? undefined : editing}
+          bandBinds={bandBinds}
+          pending={pending}
+          submitLabel={editing ? "Save" : "Add item"}
+          backLabel={editing && !picked ? "Change item" : "← Back"}
+          onBack={() => {
+            setPicked(null);
+            setChanging(true);
+          }}
+          onSubmit={(body) => {
+            onSubmit(body);
+          }}
+        />
+      ) : (
+        <>
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="h-9 pl-8"
+              placeholder="Search catalog by name or SKU"
+              aria-label="Search catalog"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="max-h-80 space-y-1.5 overflow-y-auto">
+            <ItemGroupChoices groups={matchedGroups} limit={search.trim() ? undefined : 3} onPick={setPickedGroup} />
+            {catalog.isLoading ? (
+              <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" /> Loading catalog…
+              </div>
+            ) : catalog.isError ? (
+              <div className="py-3 text-sm text-destructive">
+                <p>Couldn&apos;t load the catalog.</p>
+                <p className="text-xs text-muted-foreground">{getApiErrorMessage(catalog.error)}</p>
+              </div>
+            ) : catalog.products.length === 0 ? (
+              <p className="py-3 text-sm text-muted-foreground">No products found.</p>
+            ) : (
+              <>
+                {/* The last answer stays, dimmed, while the next search runs. */}
+                <div className={cn("space-y-1.5", catalog.isStale && "opacity-70")}>
+                  {catalog.products.map((p) => {
+                    const isService = p.type === ProductType.SERVICE;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setPicked(p)}
+                        className="flex w-full items-center gap-2.5 rounded-lg border p-2 text-left hover:bg-accent/50"
                       >
-                        {isService ? <Wrench className="size-3.5" /> : <Package className="size-3.5" />}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium">{p.name}</div>
-                        <div className="truncate font-mono text-[11px] text-muted-foreground">{p.sku}</div>
-                      </div>
-                      <span className="flex-none font-mono text-sm tabular-nums">{formatMoney(p.priceClient)}</span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+                        <span
+                          className={cn(
+                            "grid size-7 flex-none place-items-center rounded-md border",
+                            isService
+                              ? "bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300"
+                              : "bg-muted text-muted-foreground",
+                          )}
+                        >
+                          {isService ? <Wrench className="size-3.5" /> : <Package className="size-3.5" />}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium">{p.name}</div>
+                          <div className="truncate font-mono text-[11px] text-muted-foreground">{p.sku}</div>
+                        </div>
+                        <span className="flex-none font-mono text-sm tabular-nums">{formatMoney(p.priceClient)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {catalog.hasMore ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    Showing the first {CATALOG_PAGE_SIZE} — type to narrow it down.
+                  </p>
+                ) : null}
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </>
   );
 }
 
@@ -218,8 +218,11 @@ function Configure({
   onBack,
   onSubmit,
 }: {
-  /** Catalog entry (null when an edited line's product left the catalog). */
-  product: Product | null;
+  /**
+   * Catalog entry: `undefined` while an edited line's item is still being
+   * read, `null` when it left the catalog.
+   */
+  product: Product | null | undefined;
   line?: PickerLine;
   /** Whether the viewer is held to the ±15% band at all (see priceBandBinds). */
   bandBinds: boolean;
@@ -253,7 +256,8 @@ function Configure({
   });
   const qtyError = !parsed.success && parsed.error.issues.find((i) => i.path[0] === "quantity")?.message;
   const priceError = !parsed.success && parsed.error.issues.find((i) => i.path[0] === "priceClient")?.message;
-  const valid = parsed.success && inBand;
+  // Not before the catalog item is known: the band judges the price against it.
+  const valid = parsed.success && inBand && product !== undefined;
 
   return (
     <form
@@ -261,14 +265,18 @@ function Configure({
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        if (parsed.success && inBand) onSubmit(parsed.data);
+        if (valid) onSubmit(parsed.data);
       }}
     >
       <div className="rounded-lg border p-3">
         <div className="text-sm font-medium">{product?.name ?? line?.name}</div>
         <div className="font-mono text-[11px] text-muted-foreground">
           {product?.sku ?? line?.sku}
-          {catalogPrice !== undefined ? ` · catalog ${formatMoney(catalogPrice)}` : " · no longer in the catalog"}
+          {product === undefined
+            ? ""
+            : catalogPrice !== undefined
+              ? ` · catalog ${formatMoney(catalogPrice)}`
+              : " · no longer in the catalog"}
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">

@@ -30,15 +30,25 @@ vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => ({ isTechnician: mocks.technician, can: () => true }),
 }));
 
-// The dialog reads the catalog and the tech's van stock through react-query;
-// both resolve synchronously here.
-vi.mock("@tanstack/react-query", () => ({
-  useQuery: (opts: { queryKey: readonly unknown[] }) =>
-    opts.queryKey[0] === "deal-tech-stock"
-      ? { data: mocks.stock, isSuccess: true, isLoading: false, isError: false }
-      : opts.queryKey[0] === "item-groups"
-        ? { data: mocks.groups, isLoading: false }
-        : { data: mocks.catalog, isLoading: false },
+// The dialog reads the catalog (one page of a search, one item by id), the
+// item groups and the tech's van stock through react-query; all resolve
+// synchronously here. What the dialog asks the server for, and when, is
+// add-product-dialog.catalog.test.tsx's.
+vi.mock("@tanstack/react-query", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tanstack/react-query")>()),
+  useQuery: (opts: { queryKey: readonly unknown[] }) => {
+    const [root, kind, arg] = opts.queryKey;
+    if (root === "deal-tech-stock") return { data: mocks.stock, isSuccess: true, isLoading: false, isError: false };
+    if (root === "item-groups") return { data: mocks.groups, isLoading: false };
+    if (root === "products" && kind === "detail") {
+      return { data: (mocks.catalog as Product[]).find((p) => p.id === arg), isPending: false, isError: false };
+    }
+    // The search: the whole fixture, whatever was typed.
+    return {
+      data: { success: true, data: mocks.catalog, pagination: { count: mocks.catalog.length } },
+      isLoading: false, isPlaceholderData: false, isError: false,
+    };
+  },
 }));
 
 import { AddProductDialog } from "./add-product-dialog";
