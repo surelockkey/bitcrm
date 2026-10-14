@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { markupPct, priceFromMarkup, amountOf, money2 } from "./line-item-math";
+import { markupPct, priceFromMarkup, amountOf, signedAmountOf, money2 } from "./line-item-math";
 
 /**
  * Workiz "Add job item": Quantity · Price · Markup % · Cost in one row. The
@@ -42,6 +42,14 @@ describe("amountOf / money2", () => {
     expect(amountOf("")).toBeNull();
     expect(amountOf("abc")).toBeNull();
     expect(amountOf("-3")).toBeNull();
+  });
+
+  it("reads a price that may go below zero (a credit line), else null", () => {
+    expect(signedAmountOf("-25")).toBe(-25);
+    expect(signedAmountOf("-0.01")).toBe(-0.01);
+    expect(signedAmountOf("12.5")).toBe(12.5);
+    expect(signedAmountOf("")).toBeNull();
+    expect(signedAmountOf("abc")).toBeNull();
   });
 
   it("prints a number with two decimals, as Workiz fills its boxes (330.00, 35.18)", () => {

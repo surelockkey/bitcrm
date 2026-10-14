@@ -143,10 +143,15 @@ export const dealTotal = (products: DealProduct[]): number =>
 
 /** Client-price adjustment band off catalog (story 5.05: ±15%). */
 export const PRICE_BAND = 0.15;
-export const priceRange = (catalog: number) => ({
-  min: catalog * (1 - PRICE_BAND),
-  max: catalog * (1 + PRICE_BAND),
-});
+/**
+ * 15 % of the catalog price's SIZE either side, so a price book price below
+ * zero (Workiz's "Approved Discount" −100 and 61 more) brackets itself:
+ * −115 … −85, never a min above the max.
+ */
+export const priceRange = (catalog: number) => {
+  const span = Math.abs(catalog) * PRICE_BAND;
+  return { min: catalog - span, max: catalog + span };
+};
 export function isPriceInBand(price: number, catalog: number): boolean {
   const { min, max } = priceRange(catalog);
   // small epsilon for float edges

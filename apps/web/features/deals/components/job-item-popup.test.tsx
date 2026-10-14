@@ -184,6 +184,35 @@ describe("JobItemPopup — Workiz's \"Add job item\" card", () => {
     expect(screen.getByText(/only has 1/i)).toBeInTheDocument();
   });
 
+  // Workiz lets a line go below zero — "Approved Discount", "Approved Refund" (74 of
+  // 5 228 dump lines): the office types a minus, the band does not bind it.
+  it("the office saves a negative price on a line", async () => {
+    const u = user();
+    const { onSave } = renderPopup({ bandBinds: false });
+
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "-25" } });
+    expect(screen.getByLabelText("Markup")).toHaveValue(-171.06);
+    await u.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave.mock.calls[0][0]).toMatchObject({ priceClient: -25 });
+  });
+
+  it("a technician typing a minus on a priced item is outside the band", () => {
+    renderPopup({ bandBinds: true, mayCost: false });
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "-25" } });
+    expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("a negative catalog item's band is around its own price: −100 → −115 … −85", () => {
+    renderPopup({ bandBinds: true, mayCost: false, product: product({ priceClient: -100 }) });
+    expect(screen.getByLabelText("Price")).toHaveValue(-100);
+    expect(screen.getByText(/allowed .*±15%/i)).toHaveTextContent(/115\.00.*85\.00/);
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "-50" } });
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
   it("holds a technician to the ±15% band and disables Save outside it", () => {
     renderPopup({ bandBinds: true, mayCost: false });
     fireEvent.change(screen.getByLabelText("Price"), { target: { value: "500" } });

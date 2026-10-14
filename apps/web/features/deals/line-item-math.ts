@@ -29,6 +29,18 @@ export function amountOf(text: string): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
+/**
+ * What was typed in the Price box: any finite amount, below zero too — a
+ * credit line ("Approved Discount" −25), as Workiz allows; null when it is
+ * not a number.
+ */
+export function signedAmountOf(text: string): number | null {
+  const trimmed = text.trim();
+  if (trimmed === "") return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
 /** A number as Workiz fills its boxes: two decimals, no thousands separator. */
 export function money2(n: number): string {
   return round2(n).toFixed(2);

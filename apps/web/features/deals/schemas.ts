@@ -115,7 +115,8 @@ export const addProductSchema = z
     // caller with financials.view, and the catalog hides it from anyone else.
     costCompany: z.number().min(0).optional(),
     costForTech: z.number().optional(),
-    priceClient: z.coerce.number().min(0),
+    // May go below zero: a credit line (Workiz "Approved Discount"); a technician's band is the dialog's.
+    priceClient: z.coerce.number(),
     // Whether the job's tax applies to this line (absent ⇒ taxable).
     taxable: z.boolean().optional(),
     // Optional client-facing description shown on estimates/invoices.

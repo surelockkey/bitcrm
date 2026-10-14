@@ -150,6 +150,15 @@ describe("price band (±15%)", () => {
     expect(isPriceInBand(45, 45)).toBe(true);
     expect(isPriceInBand(50, 45)).toBe(true);
     expect(isPriceInBand(52, 45)).toBe(false);
+  });
+
+  // Workiz's price book holds 62 items priced below zero ("Approved Discount" −100):
+  // their band is 15 % of the price's size either side, not a min above the max.
+  it("brackets a negative catalog price by its size: −100 → −115 … −85", () => {
+    expect(priceRange(-100)).toEqual({ min: -115, max: -85 });
+    expect(isPriceInBand(-90, -100)).toBe(true);
+    expect(isPriceInBand(-50, -100)).toBe(false);
+    expect(isPriceInBand(-120, -100)).toBe(false);
     expect(isPriceInBand(38, 45)).toBe(false);
   });
 

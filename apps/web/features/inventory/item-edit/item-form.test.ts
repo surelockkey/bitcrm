@@ -127,6 +127,18 @@ describe("validateItem", () => {
     });
   });
 
+  // Workiz's price book holds 62 items priced below zero ("Approved Discount" −100):
+  // the price may go below zero, a cost never.
+  it("lets the price go below zero, but not the cost", () => {
+    const original = valuesFromProduct(chainGuard());
+    expect(
+      validateItem({ ...original, priceClient: "-100" }, { mode: "edit", original, showCost: true, variant: "price-book" }),
+    ).toEqual({});
+    expect(
+      validateItem({ ...original, cost: "-1" }, { mode: "edit", original, showCost: true, variant: "price-book" }),
+    ).toEqual({ cost: "Must be 0 or more" });
+  });
+
   it("Booking Price is required only while Add to booking items is on (Price Book)", () => {
     const original = valuesFromProduct(chainGuard());
     const on = { ...original, availableInBooking: true, bookingPrice: "" };

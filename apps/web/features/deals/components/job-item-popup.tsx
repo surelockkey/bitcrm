@@ -16,7 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { AddProductValues } from "../schemas";
 import { formatMoney, isPriceInBand, priceRange } from "../lib";
-import { amountOf, markupPct, money2, priceFromMarkup } from "../line-item-math";
+import { amountOf, markupPct, money2, priceFromMarkup, signedAmountOf } from "../line-item-math";
 import { personName } from "../person-name";
 
 /** A van the line can be pulled from: an assigned technician's, with what it holds of the item. */
@@ -133,13 +133,14 @@ export function JobItemPopup({
   );
 
   const quantity = Math.max(1, Math.floor(Number(qty) || 0) || 1);
-  const priceValue = amountOf(price) ?? 0;
+  // The price may go below zero (a credit line, as Workiz allows); a cost never does.
+  const priceValue = signedAmountOf(price) ?? 0;
   const costValue = amountOf(cost);
 
   // Two-way: a markup prices the line from its cost; a price or a cost re-marks it.
   const changePrice = (text: string) => {
     setPrice(text);
-    const p = amountOf(text);
+    const p = signedAmountOf(text);
     const m = p === null || costValue === null ? null : markupPct(p, costValue);
     setMarkup(m === null ? "" : money2(m));
   };
@@ -209,7 +210,7 @@ export function JobItemPopup({
     else onSave({ ...base, fulfillment: "sourced", sourceTechId: chosenTech });
   };
 
-  const canSave = !pending && inBand && quantity >= 1 && amountOf(price) !== null;
+  const canSave = !pending && inBand && quantity >= 1 && signedAmountOf(price) !== null;
 
   return (
     <div className="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col" data-testid="job-item-popup">
@@ -220,7 +221,7 @@ export function JobItemPopup({
 
         <div className={cn("mt-3 grid", mayCost ? "grid-cols-4" : "grid-cols-2", JOINED)}>
           <FloatingInput label="Quantity" alwaysFloat type="number" min={1} step={1} value={qty} onChange={setQty} />
-          <FloatingInput label="Price" alwaysFloat type="number" min={0} step={0.01} value={price} onChange={changePrice} />
+          <FloatingInput label="Price" alwaysFloat type="number" step={0.01} value={price} onChange={changePrice} />
           {mayCost ? (
             <>
               <div className="relative min-w-0">
