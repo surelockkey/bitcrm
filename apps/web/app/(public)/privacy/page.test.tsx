@@ -27,13 +27,18 @@ describe("Privacy Policy page", () => {
     expect(SECTIONS.length).toBeGreaterThanOrEqual(8);
   });
 
-  // What the page promises must match app.json's permission strings.
-  it("says location is taken only on Arrived and Tap to Pay, never in the background", () => {
+  // What the page promises must match app.json's permission string and what
+  // the app does: live position for dispatch while the app is open (stage 1,
+  // 2026-10-14), a switch in Settings, Tap to Pay, nothing in the background.
+  it("says the position is shared with dispatch while the app is open, can be switched off, and never in the background", () => {
     const { container } = render(<PrivacyPolicyPage />);
     const text = container.textContent ?? "";
-    expect(text).toMatch(/Arrived/);
+    expect(text).toMatch(/while the app is open/i);
+    expect(text).toMatch(/dispatch/);
+    expect(text).toMatch(/Settings/);
     expect(text).toMatch(/Tap to Pay/);
-    expect(text).toMatch(/never tracked in the background|never .{0,40}in the background/i);
+    expect(text).toMatch(/never .{0,40}in the background/i);
+    expect(text).not.toMatch(/Arrived/);
   });
 
   it("says card data goes to Stripe and is never stored by us, and that nothing is sold or used for ads", () => {
