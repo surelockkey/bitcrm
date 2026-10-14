@@ -52,12 +52,21 @@ export function formatAddress(address: GeocodableAddress): string {
 export class GeocodingService {
   private readonly logger = new Logger(GeocodingService.name);
 
+  /** Said once per process, not on every call (it was 480 warnings a week). */
+  private warnedNoKey = false;
+
   constructor(private readonly redis: RedisService) {}
+
+  /** False when no API key is configured: every lookup answers null. */
+  get enabled(): boolean {
+    return !!process.env.GOOGLE_MAPS_API_KEY;
+  }
 
   async geocode(address: GeocodableAddress): Promise<Coordinates | null> {
     const apiKey = process.env.GOOGLE_MAPS_API_KEY;
     if (!apiKey) {
-      this.logger.warn('GOOGLE_MAPS_API_KEY is not set — skipping geocoding');
+      if (!this.warnedNoKey) this.logger.warn('GOOGLE_MAPS_API_KEY is not set — geocoding is off');
+      this.warnedNoKey = true;
       return null;
     }
 

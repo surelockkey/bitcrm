@@ -133,4 +133,11 @@ describe('GeocodingService', () => {
     await expect(service.geocode(ADDRESS)).resolves.toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('says whether it can geocode at all', () => {
+    const redis = fakeRedis();
+    expect(new GeocodingService(redis.service).enabled).toBe(true);
+    delete process.env.GOOGLE_MAPS_API_KEY;
+    expect(new GeocodingService(redis.service).enabled).toBe(false);
+  });
 });

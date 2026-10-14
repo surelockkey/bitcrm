@@ -726,6 +726,17 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   once a minute while its tab is in view. `GET /users/presence` (`users.view`) answers every
   user's `lastSeenAt` and `online` (within `USER_ONLINE_WINDOW_SECONDS`, 5 min); stamps older
   than half a year are pruned on read. A Redis flush only forgets "Last seen".
+- **Caches fail open; Redis is never a reason to 500.** Wrap every cache read/write in
+  `failOpen` (`@bitcrm/shared`): a failed read is a miss, a failed write or invalidation is
+  dropped (the TTL bounds staleness). `PermissionCacheReader` does the same (a closed Redis
+  used to surface as "invalid token" 401). `installGracefulShutdown` keeps serving for
+  `SHUTDOWN_DRAIN_MS` (3 s in production) after SIGTERM, closes the HTTP listener, and only
+  then calls `app.close()` — Nest runs destroy hooks (Redis `quit()`) BEFORE closing HTTP, which
+  gave 1,095 × 500 on the outgoing task of deploys in the week of 7 Oct 2026.
+- **Geocoding needs `GOOGLE_MAPS_API_KEY` on deal** (GitHub secret → `render-taskdef.sh`, deal
+  only). Without it jobs saved with no coordinates get no map pin / automatic area, ZIP areas
+  never match, and the boot self-heal (`ServiceAreasBackfill`) is skipped. After adding it:
+  `backfill:service-areas` and `backfill-geo` in deal.
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
 - **Deal catalogs are cached in process for 60 s** (`common/cache/catalog-cache.ts`:
   job types, sources, tags, client tags, custom fields, statuses, service areas,

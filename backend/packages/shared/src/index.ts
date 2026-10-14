@@ -22,6 +22,7 @@ export type { CountCacheClient } from './dynamodb/count-cache';
 // Redis
 export { RedisModule } from './redis/redis.module';
 export { RedisService } from './redis/redis.service';
+export { failOpen } from './redis/fail-open';
 
 // Geocoding (address → coordinates, for the dispatch map + distance ranking)
 export { GeocodingModule } from './geocoding/geocoding.module';

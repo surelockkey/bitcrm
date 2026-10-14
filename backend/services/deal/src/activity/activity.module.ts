@@ -19,6 +19,6 @@ import { ActivitySourceMiddleware } from './activity-source';
 export class ActivityModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Where each request came from (web / mobile) — what a timeline event records.
-    consumer.apply(ActivitySourceMiddleware).forRoutes('*');
+    consumer.apply(ActivitySourceMiddleware).forRoutes('{*splat}');
   }
 }

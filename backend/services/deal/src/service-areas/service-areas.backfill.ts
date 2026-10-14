@@ -19,6 +19,8 @@ export class ServiceAreasBackfill implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    // No key, nothing to heal with: skip instead of failing every ZIP area on every boot.
+    if (!this.geocoding.enabled) return;
     try {
       const areas = await this.repository.listAll();
       const stale = areas.filter((a) => !a.coverage || a.coverage.length === 0);
