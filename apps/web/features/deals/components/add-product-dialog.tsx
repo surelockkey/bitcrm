@@ -2,23 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Package, PackageX, Search, TriangleAlert, Wrench } from "lucide-react";
+import { Loader2, Package, PackageX, Search, Wrench } from "lucide-react";
 import { ProductType } from "@bitcrm/types";
 import type { DealProduct, ItemGroup, Product } from "@bitcrm/types";
-import type { AddProductValues } from "../schemas";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
+import { WzDialogContent } from "@/features/inventory/item-edit/wz";
 import { useUserMap, useAddProduct, useReplaceProduct, useAddItemGroup } from "../hooks";
 import { CATALOG_PAGE_SIZE, useCatalogProduct, useCatalogSearch } from "@/features/price-book/catalog-search";
 import { useItemGroups } from "@/features/price-book/item-groups/hooks";
@@ -26,8 +18,9 @@ import { pickableGroups } from "@/features/price-book/item-groups/lib";
 import { ItemGroupChoices, ItemGroupConfirm } from "@/features/price-book/item-groups/item-group-picker";
 import { fetchTechStock } from "../tech-stock";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { formatMoney, isPriceInBand, priceBandApplies, priceBandBinds, priceRange } from "../lib";
+import { formatMoney, priceBandApplies, priceBandBinds } from "../lib";
 import { personName } from "../person-name";
+import { JobItemPopup, type JobItemInitial, type JobItemLocation } from "./job-item-popup";
 
 interface AddProductProps {
   dealId: string;
@@ -38,13 +31,15 @@ interface AddProductProps {
 }
 
 /**
- * The job's Add item window (also the job invoice's): a catalog product or
- * service, sourced from the chosen technician's van, or an item group.
+ * The job's Add item window (also the job invoice's): the catalog picker — a
+ * product or service, or an item group — and then Workiz's "Add job item"
+ * card for the chosen item (`JobItemPopup`). One dialog, two windows: the
+ * picker in the house dialog, the card in Workiz's.
  *
- * What was typed, picked and chosen lives in the body, which the dialog
- * mounts afresh on every open — so every open starts at the search, empty,
- * however the previous one ended (the estimate's picker once reopened on
- * the previous product's step: QA 2026-10-14, web-flows 4.6).
+ * What was typed, picked and chosen lives in the flow, which mounts afresh on
+ * every open — so every open starts at the search, empty, however the
+ * previous one ended (the estimate's picker once reopened on the previous
+ * product's step: QA 2026-10-14, web-flows 4.6).
  */
 export function AddProductDialog({
   open,
@@ -56,14 +51,12 @@ export function AddProductDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
-        <AddProductBody {...body} onClose={() => onOpenChange(false)} />
-      </DialogContent>
+      {open ? <AddProductFlow {...body} onClose={() => onOpenChange(false)} /> : null}
     </Dialog>
   );
 }
 
-function AddProductBody({ dealId, techIds, editing, onClose }: AddProductProps & { onClose: () => void }) {
+function AddProductFlow({ dealId, techIds, editing, onClose }: AddProductProps & { onClose: () => void }) {
   const isEdit = !!editing;
   // Which assigned tech supplies this product; an edited line keeps its source.
   const [techId, setTechId] = useState<string | undefined>(() =>
@@ -72,8 +65,8 @@ function AddProductBody({ dealId, techIds, editing, onClose }: AddProductProps &
   const [search, setSearch] = useState("");
   const [pickedGroup, setPickedGroup] = useState<ItemGroup | null>(null);
   const [picked, setPicked] = useState<Product | null>(null);
-  // Edit mode opens straight on the configure step for the line's catalog
-  // product; "Change item" clears this and drops back to the picker.
+  // Edit mode opens straight on the card for the line's catalog product;
+  // "Change item" clears this and drops back to the picker.
   const [changingItem, setChangingItem] = useState(false);
   // The item behind the line being edited: its catalog price and type.
   const editingQuery = useCatalogProduct(editing?.productId);
@@ -83,7 +76,7 @@ function AddProductBody({ dealId, techIds, editing, onClose }: AddProductProps &
   const current = picked ?? (isEdit && !changingItem ? editingProduct : null);
   // Neither step yet: the edited line's item is still being read.
   const readingEdited = isEdit && !changingItem && !picked && editingQuery.isPending;
-  // The search runs only while it is on screen — not behind a line's own step.
+  // The search runs only while it is on screen — not behind a line's own card.
   const catalog = useCatalogSearch(search, !current && !readingEdited && !pickedGroup);
   const stockQuery = useQuery({
     queryKey: ["deal-tech-stock", techId],
@@ -91,18 +84,20 @@ function AddProductBody({ dealId, techIds, editing, onClose }: AddProductProps &
     enabled: !!techId,
     retry: false,
   });
-  const { map: userMap } = useUserMap();
+  const { map: userMap, users } = useUserMap();
   // Only a technician is held to the ±15% band; the office sets any price.
-  const { isTechnician } = usePermissions();
+  // The Cost box is the office's too: inventory hides costCompany from anyone else.
+  const { isTechnician, can } = usePermissions();
   const bandBinds = priceBandBinds({ isTechnician });
+  const mayCost = can("financials", "view");
   const add = useAddProduct(dealId);
   // Workiz: Add item offers the item groups too — a group adds all its items at once.
   const groups = useItemGroups(!editing);
   const addGroup = useAddItemGroup(dealId);
   const replace = useReplaceProduct(dealId);
 
-  const tech = techId ? userMap.get(techId) : undefined;
-  const techName = tech ? `${tech.firstName} ${tech.lastName}` : "the assigned technician";
+  const nameOf = (id: string) => personName(userMap.get(id));
+  const techName = (techId && nameOf(techId)) || "the assigned technician";
   const stockMap = stockQuery.data;
   const stockKnown = stockQuery.isSuccess;
   const availOf = (id: string) => stockMap?.get(id) ?? 0;
@@ -126,10 +121,68 @@ function AddProductBody({ dealId, techIds, editing, onClose }: AddProductProps &
 
   const matchedGroups = useMemo(() => pickableGroups(groups.data, search), [groups.data, search]);
 
+  if (current) {
+    const sameLine = !!editing && current.id === editing.productId;
+    // The vans the line can come from: the assigned technicians'. The count
+    // is known for the chosen one (its stock is read); the others say none.
+    const locations: JobItemLocation[] = techIds.map((id) => ({
+      techId: id,
+      label: `${nameOf(id) ?? "Technician"}’s van`,
+      ...(id === techId && stockKnown ? { available: availOf(current.id) + stockCredit } : {}),
+    }));
+    const initial: JobItemInitial | undefined = sameLine
+      ? {
+          name: editing.name,
+          quantity: editing.quantity,
+          price: editing.priceClient,
+          cost: editing.costCompany,
+          taxable: editing.taxable,
+          description: editing.description,
+          soldBy: editing.soldBy,
+          customAttributes: editing.customAttributes,
+        }
+      : undefined;
+    return (
+      <WzDialogContent className="w-[620px]" testId="job-item-dialog">
+        <JobItemPopup
+          key={current.id}
+          product={current}
+          isEdit={isEdit}
+          mayCost={mayCost}
+          bandBinds={bandBinds}
+          // A line carried over from Workiz keeps whatever price Workiz
+          // recorded — 82% of the historical lines differ from today's
+          // catalog price, so the ±15% band must not block saving them.
+          bandExempt={sameLine && !priceBandApplies(editing)}
+          stockKnown={stockKnown}
+          available={availOf(current.id) + stockCredit}
+          stockCredit={stockCredit}
+          locations={locations}
+          techId={techId}
+          onLocationChange={setTechId}
+          users={users}
+          pending={isEdit ? replace.isPending : add.isPending}
+          initial={initial}
+          onClose={onClose}
+          // The unswapped line offers "Change item" (the Workiz flow); a
+          // swapped pick backs out to the picker it came from.
+          onChangeItem={isEdit ? () => { setPicked(null); setChangingItem(true); } : undefined}
+          onSave={(v) => {
+            if (editing) {
+              replace.mutate({ lineId: editing.lineId, body: v }, { onSuccess: onClose });
+            } else {
+              add.mutate(v, { onSuccess: onClose });
+            }
+          }}
+        />
+      </WzDialogContent>
+    );
+  }
+
   return (
-    <>
+    <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
       <DialogHeader>
-        <DialogTitle>{isEdit ? "Edit item" : current || pickedGroup ? "Add to job" : "Add a product"}</DialogTitle>
+        <DialogTitle>{pickedGroup ? "Add to job" : "Add a product"}</DialogTitle>
       </DialogHeader>
 
       {pickedGroup ? (
@@ -143,44 +196,6 @@ function AddProductBody({ dealId, techIds, editing, onClose }: AddProductProps &
             addGroup.mutate({ groupId: pickedGroup.id, sourceTechId: techId }, { onSuccess: onClose })
           }
         />
-      ) : current ? (
-        <Configure
-          key={current.id}
-          product={current}
-          available={availOf(current.id) + stockCredit}
-          stockCredit={stockCredit}
-          stockKnown={stockKnown}
-          techName={techName}
-          techId={techId}
-          pending={isEdit ? replace.isPending : add.isPending}
-          // The unswapped line offers "Change item" (the Workiz flow); a
-          // swapped pick backs out to the picker it came from.
-          backLabel={editing && current.id === editing.productId ? "Change item" : undefined}
-          submitLabel={isEdit ? "Save" : undefined}
-          // A line carried over from Workiz keeps whatever price Workiz
-          // recorded — 82% of the historical lines differ from today's
-          // catalog price, so the ±15% band must not block saving them.
-          bandBinds={bandBinds}
-          bandExempt={!!editing && current.id === editing.productId && !priceBandApplies(editing)}
-          initial={
-            editing && current.id === editing.productId
-              ? {
-                  quantity: editing.quantity,
-                  price: editing.priceClient,
-                  taxable: editing.taxable,
-                  description: editing.description,
-                }
-              : undefined
-          }
-          onBack={() => { setPicked(null); setChangingItem(true); }}
-          onAdd={(v) => {
-            if (editing) {
-              replace.mutate({ lineId: editing.lineId, body: v }, { onSuccess: onClose });
-            } else {
-              add.mutate(v, { onSuccess: onClose });
-            }
-          }}
-        />
       ) : readingEdited ? (
         <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading the item…</div>
       ) : (
@@ -190,8 +205,7 @@ function AddProductBody({ dealId, techIds, editing, onClose }: AddProductProps &
               <Label className="text-xs">Take from</Label>
               <div className="flex flex-wrap gap-1.5">
                 {techIds.map((id) => {
-                  const u = userMap.get(id);
-                  const label = personName(u) ?? "…";
+                  const label = nameOf(id) ?? "…";
                   return (
                     <button
                       key={id}
@@ -293,167 +307,6 @@ function AddProductBody({ dealId, techIds, editing, onClose }: AddProductProps &
           ) : null}
         </>
       )}
-    </>
-  );
-}
-
-function Configure({
-  product,
-  available,
-  stockCredit = 0,
-  stockKnown,
-  techName,
-  techId,
-  pending,
-  backLabel,
-  submitLabel,
-  bandBinds,
-  bandExempt = false,
-  initial,
-  onBack,
-  onAdd,
-}: {
-  product: Product;
-  /** Units the tech can source — van stock plus any credit from the edited line. */
-  available: number;
-  /** The share of `available` that is the edited line itself, for the copy. */
-  stockCredit?: number;
-  stockKnown: boolean;
-  techName: string;
-  techId: string | undefined;
-  pending: boolean;
-  backLabel?: string;
-  submitLabel?: string;
-  /** Whether the viewer is held to the ±15% band at all (see priceBandBinds). */
-  bandBinds: boolean;
-  /** Imported or item-group line: the ±15% band does not judge its price (see priceBandApplies). */
-  bandExempt?: boolean;
-  /** Prefill when reconfiguring an existing line (edit mode, same product). */
-  initial?: { quantity: number; price: number; taxable?: boolean; description?: string };
-  onBack: () => void;
-  onAdd: (v: AddProductValues) => void;
-}) {
-  const isService = product.type === ProductType.SERVICE;
-  const [qty, setQty] = useState(initial?.quantity ?? 1);
-  const storedPrice = initial?.price ?? product.priceClient;
-  const [price, setPrice] = useState(storedPrice);
-  // Absent flags mean taxable — on the line and on the catalog product alike.
-  const [taxable, setTaxable] = useState(initial ? initial.taxable !== false : product.taxable !== false);
-  const [description, setDescription] = useState(initial?.description ?? "");
-  const { min, max } = priceRange(product.priceClient);
-  // The exemption waives the band for the price Workiz recorded — not for
-  // whatever the user types next. Same rule the product editor uses for its
-  // own waived caps (`updateProductSchemaFor`: a value is only loose while it
-  // comes back unchanged). Without the `price === storedPrice` half, any of
-  // the 156 612 imported lines would be a permanent hole in the ±15% rule,
-  // which is the only client-price guard in the product.
-  const exempt = bandBinds && bandExempt && price === storedPrice;
-  const inBand = !bandBinds || exempt || isPriceInBand(price, product.priceClient);
-
-  // A stockable part the chosen tech is short on — or with no tech to source
-  // from — is added as a to-order line instead of a van deduction.
-  const shortStock = !isService && stockKnown && qty > available;
-  const mustOrder = !isService && (!techId || shortStock);
-
-  const base = {
-    productId: product.id,
-    name: product.name,
-    sku: product.sku,
-    quantity: qty,
-    costCompany: product.costCompany,
-    costForTech: product.costTech,
-    priceClient: price,
-    taxable,
-    description: description.trim() || undefined,
-  };
-
-  const submit = () => {
-    if (isService) {
-      onAdd({ ...base, fulfillment: "service" });
-    } else if (mustOrder) {
-      onAdd({ ...base, fulfillment: "to_order" });
-    } else {
-      onAdd({ ...base, fulfillment: "sourced", sourceTechId: techId });
-    }
-  };
-
-  const label = submitLabel ?? (isService ? "Add service" : mustOrder ? "Add to order" : "Add");
-
-  return (
-    <div className="space-y-4">
-      <div className="rounded-lg border p-3">
-        <div className="text-sm font-medium">{product.name}</div>
-        <div className="font-mono text-[11px] text-muted-foreground">{product.sku} · catalog {formatMoney(product.priceClient)}</div>
-        {isService ? (
-          <div className="mt-1 text-[11px] text-muted-foreground">Service — not stocked; added directly to the job.</div>
-        ) : stockKnown ? (
-          <div className={cn("mt-1 text-[11px]", available > 0 ? "text-muted-foreground" : "text-destructive")}>
-            {techName} has {available - stockCredit} in their van
-            {stockCredit > 0 ? ` (+${stockCredit} on this line)` : ""}
-          </div>
-        ) : null}
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label htmlFor="line-qty">Quantity</Label>
-          <Input id="line-qty" className="h-9" type="number" min={1} value={qty} onChange={(e) => setQty(Math.max(1, Number(e.target.value) || 1))} />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="line-price">Client price</Label>
-          <Input id="line-price" className="h-9" type="number" step="0.01" value={price} onChange={(e) => setPrice(Number(e.target.value))} />
-          {!bandBinds ? null : exempt ? (
-            <p className="text-[11px] text-muted-foreground">
-              Imported from Workiz — the ±15% band doesn&apos;t apply. Catalog{" "}
-              {formatMoney(product.priceClient)}.
-            </p>
-          ) : (
-            <p className={inBand ? "text-[11px] text-muted-foreground" : "text-[11px] text-destructive"}>
-              Allowed {formatMoney(min)}–{formatMoney(max)} (±15%)
-            </p>
-          )}
-        </div>
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="line-description">
-          Description <span className="text-xs font-normal text-muted-foreground">(optional)</span>
-        </Label>
-        <Textarea
-          id="line-description"
-          rows={2}
-          maxLength={1000}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Shown to the client on estimates and invoices"
-        />
-      </div>
-      <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-        <Label htmlFor="line-taxable" className="flex flex-col items-start gap-0.5">
-          <span>Taxable</span>
-          <span className="text-[11px] font-normal text-muted-foreground">Apply the job&apos;s tax rate to this item.</span>
-        </Label>
-        <Switch id="line-taxable" checked={taxable} onCheckedChange={setTaxable} />
-      </div>
-      {mustOrder ? (
-        <div className="flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-700 dark:text-amber-400">
-          <TriangleAlert className="mt-px size-3.5 flex-none" />
-          <span>
-            {techId
-              ? `${techName} ${available > 0 ? `only has ${available}` : "doesn’t carry this"} in their van`
-              : "No technician is assigned to source this from"}
-            . It will be added as an item to order (no stock deducted).
-          </span>
-        </div>
-      ) : null}
-      <div className="flex items-center justify-between border-t pt-3">
-        <Button variant="ghost" size="sm" onClick={onBack}>{backLabel ?? "← Back"}</Button>
-        <div className="flex items-center gap-3">
-          <span className="font-mono text-sm tabular-nums">{formatMoney(price * qty)}</span>
-          <Button variant="brand" size="sm" className="gap-1.5" disabled={pending || !inBand}
-            onClick={submit}>
-            {pending ? <Loader2 className="size-4 animate-spin" /> : null} {label}
-          </Button>
-        </div>
-      </div>
-    </div>
+    </DialogContent>
   );
 }

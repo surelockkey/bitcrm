@@ -30,6 +30,11 @@ vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => ({ isTechnician: mocks.technician, can: () => true }),
 }));
 
+// The card lists the item catalog's custom fields; none here.
+vi.mock("@/features/inventory/item-attributes/hooks", () => ({
+  useItemAttributes: () => ({ data: [], isLoading: false, isError: false }),
+}));
+
 // The dialog reads the catalog (one page of a search, one item by id), the
 // item groups and the tech's van stock through react-query; all resolve
 // synchronously here. What the dialog asks the server for, and when, is
@@ -118,18 +123,18 @@ describe("AddProductDialog (edit mode)", () => {
   it("opens on the configure step with the line's quantity and price prefilled", () => {
     render(dialog(editingLine));
 
-    expect(screen.getByText("Edit item")).toBeInTheDocument();
+    expect(screen.getByText("Edit job item")).toBeInTheDocument();
     // Straight to configure — no catalog search box.
     expect(screen.queryByPlaceholderText(/search catalog/i)).toBeNull();
-    expect(screen.getByDisplayValue("2")).toBeInTheDocument(); // quantity
-    expect(screen.getByDisplayValue("40")).toBeInTheDocument(); // negotiated price
+    expect(screen.getByLabelText("Quantity")).toHaveValue(2);
+    expect(screen.getByLabelText("Price")).toHaveValue(40); // negotiated price
   });
 
   it("saves an in-place edit through replace, keyed by the line", async () => {
     const u = user();
     render(dialog(editingLine));
 
-    fireEvent.change(screen.getByDisplayValue("2"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "3" } });
     await u.click(screen.getByRole("button", { name: /^save$/i }));
 
     expect(mocks.replace).toHaveBeenCalledTimes(1);
@@ -156,7 +161,7 @@ describe("AddProductDialog (edit mode)", () => {
     await u.click(screen.getByText("Schlage Lever"));
 
     // Configure again, now for the replacement at its own catalog price.
-    expect(screen.getByDisplayValue("60")).toBeInTheDocument();
+    expect(screen.getByLabelText("Price")).toHaveValue(60);
 
     await u.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -173,7 +178,7 @@ describe("AddProductDialog (edit mode)", () => {
     mocks.stock = new Map([["p1", 1]]);
     render(dialog(editingLine));
 
-    fireEvent.change(screen.getByDisplayValue("2"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "3" } });
 
     expect(screen.queryByText(/will be added as an item to order/i)).toBeNull();
     expect(screen.getByRole("button", { name: /^save$/i })).toBeInTheDocument();
@@ -192,7 +197,7 @@ describe("AddProductDialog (imported line)", () => {
   it("does not flag the price and keeps Save enabled", () => {
     render(dialog(importedLine));
 
-    expect(screen.getByDisplayValue("5")).toBeInTheDocument();
+    expect(screen.getByLabelText("Price")).toHaveValue(5);
     expect(screen.getByText(/the ±15% band doesn.t apply/i)).toBeInTheDocument();
     expect(screen.queryByText(/allowed .* ±15%/i)).toBeNull();
     expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
@@ -211,7 +216,7 @@ describe("AddProductDialog (imported line)", () => {
     const u = user();
     render(dialog(importedLine));
 
-    fireEvent.change(screen.getByDisplayValue("2"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "3" } });
     await u.click(screen.getByRole("button", { name: /^save$/i }));
 
     expect(mocks.replace).toHaveBeenCalledTimes(1);
@@ -227,7 +232,7 @@ describe("AddProductDialog (imported line)", () => {
 
     // The exemption covers the price Workiz recorded, not a new one typed on
     // top of it — otherwise any imported line is a permanent hole in the rule.
-    fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "999" } });
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "999" } });
 
     expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
     expect(screen.queryByText(/the ±15% band doesn.t apply/i)).toBeNull();
@@ -238,7 +243,7 @@ describe("AddProductDialog (imported line)", () => {
     const u = user();
     render(dialog(importedLine));
 
-    fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "45" } });
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "45" } });
     expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
 
     await u.click(screen.getByRole("button", { name: /^save$/i }));
@@ -248,8 +253,8 @@ describe("AddProductDialog (imported line)", () => {
   it("restores the exemption when the imported price is typed back", () => {
     render(dialog(importedLine));
 
-    fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "999" } });
-    fireEvent.change(screen.getByDisplayValue("999"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "999" } });
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "5" } });
 
     expect(screen.getByText(/the ±15% band doesn.t apply/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
@@ -263,7 +268,7 @@ describe("AddProductDialog (imported line)", () => {
     await u.click(screen.getByText("Schlage Lever"));
 
     expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
-    fireEvent.change(screen.getByDisplayValue("60"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "5" } });
     expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
   });
 
@@ -284,10 +289,10 @@ describe("AddProductDialog (who the ±15% band binds)", () => {
     render(dialog());
     await u.click(screen.getByText("Kwikset Deadbolt"));
 
-    fireEvent.change(screen.getByLabelText("Client price"), { target: { value: "360" } });
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "360" } });
 
     expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^add$/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
   });
 
   it("lets the office set any price", async () => {
@@ -296,11 +301,11 @@ describe("AddProductDialog (who the ±15% band binds)", () => {
     render(dialog());
     await u.click(screen.getByText("Kwikset Deadbolt"));
 
-    fireEvent.change(screen.getByLabelText("Client price"), { target: { value: "360" } });
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "360" } });
 
     expect(screen.queryByText(/allowed .*±15%/i)).toBeNull();
     expect(screen.queryByText(/band/i)).toBeNull();
-    await u.click(screen.getByRole("button", { name: /^add$/i }));
+    await u.click(screen.getByRole("button", { name: /^save$/i }));
     expect(mocks.add).toHaveBeenCalledTimes(1);
     expect(mocks.add.mock.calls[0][0]).toMatchObject({ productId: "p1", priceClient: 360 });
   });
@@ -320,7 +325,7 @@ describe("AddProductDialog (add mode regression)", () => {
     render(dialog());
 
     await u.click(screen.getByText("Schlage Lever"));
-    await u.click(screen.getByRole("button", { name: /^add$/i }));
+    await u.click(screen.getByRole("button", { name: /^save$/i }));
 
     expect(mocks.add).toHaveBeenCalledTimes(1);
     expect(mocks.add.mock.calls[0][0]).toMatchObject({

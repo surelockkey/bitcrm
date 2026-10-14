@@ -108,7 +108,7 @@ describe("AddProductDialog — the catalog it reads", () => {
     // A line goes on; the dialog closes itself.
     await u.type(screen.getByPlaceholderText(/search catalog/i), "kwik");
     await u.click(screen.getByText("Kwikset Deadbolt"));
-    await u.click(screen.getByRole("button", { name: /^add$/i }));
+    await u.click(screen.getByRole("button", { name: /^save$/i }));
     expect(mocks.add).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
@@ -152,8 +152,9 @@ describe("AddProductDialog — the catalog it reads", () => {
         }}
       />,
     );
-    expect(await screen.findByText(/catalog \$60\.00/)).toBeInTheDocument();
-    expect(screen.getByDisplayValue("55")).toBeInTheDocument();
+    // The card opens on the line's own price; the item behind it was read by id.
+    expect(await screen.findByText("Edit job item")).toBeInTheDocument();
+    expect(screen.getByLabelText("Price")).toHaveValue(55);
     await settle();
     expect(server.requests.filter((r) => r.includes("/inventory/products"))).toEqual([
       expect.stringMatching(/\/inventory\/products\/p2$/),

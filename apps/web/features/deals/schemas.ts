@@ -111,13 +111,19 @@ export const addProductSchema = z
     name: z.string(),
     sku: z.string(),
     quantity: z.coerce.number().int().min(1, "At least 1"),
-    costCompany: z.number(),
-    costForTech: z.number(),
+    // The line's cost (Workiz "Cost"): the server honours it only from a
+    // caller with financials.view, and the catalog hides it from anyone else.
+    costCompany: z.number().min(0).optional(),
+    costForTech: z.number().optional(),
     priceClient: z.coerce.number().min(0),
     // Whether the job's tax applies to this line (absent ⇒ taxable).
     taxable: z.boolean().optional(),
     // Optional client-facing description shown on estimates/invoices.
     description: z.string().trim().max(1000).optional(),
+    // Workiz "Sold by": a user id; "" clears it on an edit.
+    soldBy: z.string().optional(),
+    // The line's custom field values, by field name (the item catalog's).
+    customAttributes: z.record(z.string(), z.string()).optional(),
   })
   .refine((v) => v.fulfillment !== "sourced" || !!v.sourceTechId, {
     message: "Pick a technician",
