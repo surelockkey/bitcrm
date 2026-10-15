@@ -7,7 +7,7 @@ import type { Action, Resource } from "@bitcrm/types";
  * Workiz's sub-routes (`/root/callsReport/numbers` …); Blocked callers is
  * Workiz's `/root/callsReport/blocked-callers`.
  */
-export type PhoneTabId = "calls" | "numbers" | "flows" | "groups" | "blocked" | "devices" | "texting";
+export type PhoneTabId = "calls" | "numbers" | "flows" | "groups" | "blocked" | "devices" | "hold" | "texting";
 
 export interface PhoneTab {
   id: PhoneTabId;
@@ -29,6 +29,8 @@ const TABS: (PhoneTab & PhoneGrant)[] = [
 
   // Workiz: … Call groups, Blocked callers, Devices, Texting.
   { id: "devices", label: "Devices", href: "/calls/devices", resource: "settings" },
+  // Ours, not Workiz's: what a caller on hold hears (the dialer's Hold button).
+  { id: "hold", label: "Hold music", href: "/calls/hold-music", resource: "settings" },
   { id: "texting", label: "Texting", href: "/calls/texting", resource: "settings" },
 ];
 
