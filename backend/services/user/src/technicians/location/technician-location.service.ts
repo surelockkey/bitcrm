@@ -6,12 +6,14 @@ import { TechniciansService } from '../technicians.service';
 const PREFIX = 'tech:location:';
 
 /**
- * How long a fix outlives the last report. The dispatch map dims a pin after
- * 90 s and prints "Last seen" from the timestamp, so the expiry decides
- * nothing about online vs. away; it only makes sure yesterday's position is
- * gone by the next morning without anyone deleting anything.
+ * How long the last fix outlives the last report. The dispatch map dims a pin
+ * after 90 s and prints "Last seen" with where it was, so the expiry decides
+ * nothing about online vs. away: it keeps a technician's last known position
+ * through nights and weekends (owner, 2026-10-15 — "when and where he was
+ * last") and lets one who stopped working leave the map by themselves. Still
+ * one position per technician, never a history.
  */
-export const LOCATION_TTL_SECONDS = 12 * 60 * 60;
+export const LOCATION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /** Keys per SCAN round trip — a hint to Redis, not a cap. */
 const SCAN_COUNT = 200;
