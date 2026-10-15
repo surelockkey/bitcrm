@@ -290,6 +290,7 @@ export function InvoiceDetail({
         <RecordPaymentDialog
           invoiceId={invoice.id}
           dealId={deal?.id}
+          contactId={invoice.contactId}
           balanceDue={totals.balanceDue}
           open={paying}
           onOpenChange={setPaying}

@@ -474,6 +474,7 @@ export function DealProductsTab({
             <RecordPaymentDialog
               invoiceId={deal.id}
               dealId={deal.id}
+              contactId={deal.contactId}
               target="job"
               balanceDue={owedNow}
               open={paying}

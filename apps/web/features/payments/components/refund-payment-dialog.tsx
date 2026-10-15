@@ -21,7 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { formatMoney } from "@/features/billing/lib";
 import { useRefundPayment } from "../hooks";
-import { parseMoney, paymentMethodLabel, refundAmountError, remainingRefundable } from "../lib";
+import { parseMoney, paymentLabel, refundAmountError, remainingRefundable } from "../lib";
 import { refundSchema, type RefundValues } from "../schemas";
 
 /**
@@ -46,7 +46,7 @@ export function RefundPaymentDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            Refund the {formatMoney(payment.amount)} {paymentMethodLabel(payment.method).toLowerCase()} payment
+            Refund the {formatMoney(payment.amount)} {paymentLabel(payment).toLowerCase()} payment
           </DialogTitle>
           <DialogDescription>
             {payment.stripePaymentIntentId

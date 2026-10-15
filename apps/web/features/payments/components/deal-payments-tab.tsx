@@ -16,7 +16,7 @@ import { wzPill } from "@/components/workiz";
 import { formatMoney } from "@/features/billing/lib";
 import { formatYmd } from "@/features/billing/dates";
 import { useDealPayments, useResendReceipt } from "../hooks";
-import { CLEARING_NOTE, canDeletePayment, canRefund, isPartiallyPaid, paymentMethodLabel } from "../lib";
+import { CLEARING_NOTE, canDeletePayment, canRefund, isPartiallyPaid, paymentLabel } from "../lib";
 import { DeletePaymentDialog } from "./delete-payment-dialog";
 import { PaymentRowMenu } from "./payment-row-menu";
 import { PartiallyPaidBadge, PaymentStatusBadge } from "./payment-status-badge";
@@ -42,7 +42,7 @@ export function DealPaymentsTab({
   deal,
   onCreateInvoice,
 }: {
-  deal: Pick<Deal, "id">;
+  deal: Pick<Deal, "id"> & Partial<Pick<Deal, "contactId">>;
   /** Shown as "Create invoice" when set — the page passes it only while there is none to open. */
   onCreateInvoice?: () => void;
 }) {
@@ -167,13 +167,13 @@ export function DealPaymentsTab({
                     {/* Workiz's one line, "Cash By referral"; the reference or note on hover. */}
                     <td className={TD} title={p.reference || p.note || undefined}>
                       <span className="flex items-center gap-1.5 truncate whitespace-nowrap">
-                        <span>{paymentMethodLabel(p.method)}</span>
+                        <span>{paymentLabel(p)}</span>
                         {p.last4 ? (
                           <span className="text-[#666666]">
                             ·{p.cardBrand ? ` ${p.cardBrand}` : ""} ••••{p.last4}
                           </span>
                         ) : null}
-                        <span className="ml-1">By {collectedBy(p.takenBy)}</span>
+                        <span className="ml-1">By {p.chargedByReferral ? "referral" : collectedBy(p.takenBy)}</span>
                       </span>
                     </td>
                     <td className={cn(TD, "tabular-nums")}>
@@ -214,6 +214,7 @@ export function DealPaymentsTab({
         <RecordPaymentDialog
           invoiceId={deal.id}
           dealId={deal.id}
+          contactId={deal.contactId}
           balanceDue={balanceDue}
           target="job"
           open={recording}

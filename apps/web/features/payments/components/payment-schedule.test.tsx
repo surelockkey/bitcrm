@@ -81,7 +81,7 @@ describe("PaymentScheduleTable", () => {
   it("takes a payment for what is left of one scheduled payment", async () => {
     render();
     await user().click(screen.getByRole("button", { name: "Add payment for payment 1" }));
-    const dialog = await screen.findByRole("dialog", { name: /record a payment/i });
+    const dialog = await screen.findByRole("dialog", { name: "Add payment" });
     expect(within(dialog).getByLabelText(/amount/i)).toHaveValue("192.47");
   });
 
@@ -103,9 +103,9 @@ describe("PaymentScheduleTable", () => {
     render({ invoiceId: undefined });
     const u = user();
     await u.click(screen.getByRole("button", { name: "Add payment for payment 2" }));
-    const dialog = await screen.findByRole("dialog", { name: /record a payment/i });
-    expect(within(dialog).getByText(/off the job balance/i)).toBeInTheDocument();
-    await u.click(within(dialog).getByRole("button", { name: /record payment/i }));
+    const dialog = await screen.findByRole("dialog", { name: "Add payment" });
+    expect(within(dialog).getByText("Balance due: $292.46")).toBeInTheDocument();
+    await u.click(within(dialog).getByRole("button", { name: "Add payment" }));
     await waitFor(() => expect(body).toMatchObject({ amount: 292.46 }));
     expect(onInvoice).toBe(false);
   });

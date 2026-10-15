@@ -5,7 +5,10 @@ import {
   PAYMENT_METHOD_META,
   PAYMENT_STATUS_META,
   SURCHARGE_WARNING,
+  addPaymentTypes,
   applyAmountPaid,
+  canChargeCard,
+  paymentLabel,
   availableOnlineMethods,
   buildPaymentListQuery,
   canDeletePayment,
@@ -52,6 +55,38 @@ describe("labels", () => {
     expect(paymentMethodLabel("check")).toBe("Check");
     for (const meta of Object.values(PAYMENT_STATUS_META)) expect(meta.label).not.toBe("");
     for (const meta of Object.values(PAYMENT_METHOD_META)) expect(meta.icon).toBeTruthy();
+  });
+
+  it("names a payment by its Workiz type when it has one, else by its method", () => {
+    expect(paymentLabel(payment({ method: "other", methodDetail: "zelle", methodLabel: "Zelle" }))).toBe("Zelle");
+    // An imported row may carry the key without the label.
+    expect(paymentLabel(payment({ method: "bank", methodDetail: "bank_transfer_offline" }))).toBe("Bank transfer (offline)");
+    expect(paymentLabel(payment({ method: "card", methodDetail: "charge", methodLabel: "  " }))).toBe("Credit charge");
+    expect(paymentLabel(payment({ method: "check" }))).toBe("Check");
+  });
+
+  it("lists Add payment's types in Workiz's order — Credit charge only when a card can be charged", () => {
+    expect(addPaymentTypes({ canCharge: true }).map((t) => t.label)).toEqual([
+      "Credit charge",
+      "Cash",
+      "Credit offline",
+      "Check",
+      "Bank transfer (offline)",
+      "Cash app",
+      "Consumer financing",
+      "Venmo",
+      "Zelle",
+      "Debit offline",
+    ]);
+    expect(addPaymentTypes({ canCharge: false }).map((t) => t.value)).not.toContain("charge");
+    expect(addPaymentTypes({ canCharge: false })[0]).toEqual({ value: "cash", label: "Cash" });
+  });
+
+  it("can charge a card only when Stripe's publishable key is there", () => {
+    expect(canChargeCard({ publishableKey: "pk_test_1" })).toBe(true);
+    expect(canChargeCard({ publishableKey: null })).toBe(false);
+    expect(canChargeCard({})).toBe(false);
+    expect(canChargeCard(undefined)).toBe(false);
   });
 
   it("offers only the methods staff can record by hand, card last-but-one", () => {

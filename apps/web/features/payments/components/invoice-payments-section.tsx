@@ -29,7 +29,7 @@ import {
   canDeletePayment,
   canRefund,
   isPartiallyPaid,
-  paymentMethodLabel,
+  paymentLabel,
   paymentTakenAt,
 } from "../lib";
 import { DeletePaymentDialog } from "./delete-payment-dialog";
@@ -81,6 +81,7 @@ export function InvoicePaymentsSection({
         <RecordPaymentDialog
           invoiceId={invoice.id}
           dealId={dealId}
+          contactId={invoice.contactId}
           balanceDue={totals.balanceDue}
           open={recording}
           onOpenChange={setRecording}
@@ -300,7 +301,7 @@ function WorkizPayments({
                 return (
                   <tr key={p.id}>
                     <td className={WZ_TD} title={p.reference || p.note || undefined}>
-                      {paymentMethodLabel(p.method)}
+                      {paymentLabel(p)}
                       {p.last4 ? (
                         <span className="block text-wz-text">
                           {p.cardBrand ? `${p.cardBrand} ` : ""}••••{p.last4}
@@ -364,7 +365,7 @@ function PaymentRow({
   onDelete: () => void;
 }) {
   const Icon = PAYMENT_METHOD_META[payment.method]?.icon ?? Receipt;
-  const what = `the ${formatMoney(payment.amount)} ${paymentMethodLabel(payment.method).toLowerCase()} payment`;
+  const what = `the ${formatMoney(payment.amount)} ${paymentLabel(payment).toLowerCase()} payment`;
   // A receipt only means something once the money is the client's problem no more.
   const receiptable = payment.status === "settled" || payment.status === "refunded";
 
@@ -376,7 +377,7 @@ function PaymentRow({
       <TableCell>
         <span className="flex items-center gap-1.5">
           <Icon className="size-3.5 text-muted-foreground" aria-hidden />
-          {paymentMethodLabel(payment.method)}
+          {paymentLabel(payment)}
           {payment.last4 ? (
             <span className="text-muted-foreground">
               ·{payment.cardBrand ? ` ${payment.cardBrand}` : ""} ••••{payment.last4}
