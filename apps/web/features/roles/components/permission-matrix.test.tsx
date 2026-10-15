@@ -10,17 +10,46 @@ const schema = {
 };
 
 /**
- * Workiz's permission list (pg_admin_users_wz_10_role_dispatch): one green
- * switch per row, the title and its sentence beside it.
+ * The permission tree (owner, 2026-10-15: "an item and its CRUD switches, as
+ * before"): a caption per section, then ONE row per resource — its title and
+ * sentence at the left, every one of its switches at the right with its word
+ * (View / Create / Edit / Delete / Change status …) and the action's full
+ * Workiz sentence as the switch's tooltip.
  */
 describe("PermissionMatrixEditor", () => {
-  it("draws one Workiz switch per row, named, with the row's title and sentence", () => {
+  it("draws a row per resource with each of its switches and their words", () => {
     render(<PermissionMatrixEditor schema={schema} permissions={{ deals: { view: true } }} onChange={() => {}} />);
-    const row = screen.getByRole("heading", { level: 5, name: "Add Jobs" }).closest("[data-slot=wz-switch-row]") as HTMLElement;
-    expect(within(row).getByText("Schedule new jobs")).toBeInTheDocument();
-    expect(within(row).getAllByRole("switch")).toHaveLength(1);
+    const row = screen.getByRole("heading", { level: 5, name: "Jobs" }).closest("[data-slot=wz-switch-row]") as HTMLElement;
+    expect(within(row).getAllByRole("switch").map((s) => s.getAttribute("aria-label"))).toEqual([
+      "Jobs View",
+      "Jobs Create",
+      "Jobs Edit",
+      "Jobs Delete",
+      "Jobs Change status",
+    ]);
+    for (const word of ["View", "Create", "Edit", "Delete", "Change status"]) expect(within(row).getByText(word)).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Jobs View" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Jobs Create" })).not.toBeChecked();
+    // No row per action any more.
+    expect(screen.queryByRole("heading", { level: 5, name: "Add Jobs" })).not.toBeInTheDocument();
+  });
+
+  it("lines View / Create / Edit / Delete up in the same four columns on every row; an action a resource lacks leaves its slot empty, the rest follow", () => {
+    render(<PermissionMatrixEditor schema={schema} permissions={{}} onChange={() => {}} />);
+    const slots = (name: string) =>
+      Array.from(
+        (screen.getByRole("heading", { level: 5, name }).closest("[data-slot=wz-switch-row]") as HTMLElement).querySelectorAll(
+          "[data-slot=permission-slot]",
+        ),
+      ).map((el) => `${el.getAttribute("data-action")}:${el.querySelector("[role=switch]") ? "on" : "empty"}`);
+    expect(slots("Jobs")).toEqual(["view:on", "create:on", "edit:on", "delete:on", "move_status:on"]);
+    // Transfers' Edit and Delete are not offered (nothing reads them): their columns stay, empty.
+    expect(slots("Transfers")).toEqual(["view:on", "create:on", "edit:empty", "delete:empty"]);
+  });
+
+  it("keeps each action's Workiz sentence on its switch, as a tooltip", () => {
+    render(<PermissionMatrixEditor schema={schema} permissions={{}} onChange={() => {}} />);
+    expect(screen.getByRole("switch", { name: "Jobs Create" }).closest("[title]")).toHaveAttribute("title", "Add Jobs — Schedule new jobs");
   });
 
   it("does not offer switches nothing reads", () => {
@@ -62,7 +91,7 @@ describe("PermissionMatrixEditor", () => {
   it("draws a lead row first in its resource's block, before the resource's own rows", () => {
     render(<PermissionMatrixEditor schema={schema} permissions={{}} onChange={() => {}} lead={lead} />);
     const titles = screen.getAllByRole("heading", { level: 5 }).map((h) => h.textContent);
-    expect(titles.slice(0, 2)).toEqual(["Sees only jobs assigned to them", "View Jobs"]);
+    expect(titles.slice(0, 2)).toEqual(["Sees only jobs assigned to them", "Jobs"]);
   });
 
   it("Search keeps the lead row (and its block) when its words match, and drops it when they do not", () => {
