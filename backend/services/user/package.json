@@ -23,6 +23,7 @@
     "setup": "npm run db:setup && npm run setup:aws",
     "migrate:call-masking": "ts-node src/scripts/migrate-call-masking.ts",
     "backfill:user-type": "NODE_OPTIONS='--experimental-vm-modules' ts-node src/scripts/backfill-user-type.ts",
+    "backfill:gps-default-on": "NODE_OPTIONS='--experimental-vm-modules' ts-node src/scripts/backfill-gps-default-on.ts",
     "backfill:calendar-month-index": "NODE_OPTIONS='--experimental-vm-modules' ts-node src/scripts/backfill-calendar-month-index.ts",
     "backfill:users-all-index": "NODE_OPTIONS='--experimental-vm-modules' ts-node src/scripts/backfill-users-all-index.ts"
   },
