@@ -303,7 +303,10 @@ export class DealsController {
     description:
       '**Guard:** `deals.move_status`. Sets the fixed super-status and an optional custom ' +
       'sub-status (which must belong to that super-status). A cancellation reason is required ' +
-      'when moving to Canceled.',
+      'when moving to Canceled. The mobile app adds the phone\'s fix as `location` ' +
+      '({ lat, lng, accuracy? }); the `status_changed` timeline entry then carries it with ' +
+      '`distanceM` (whole metres from the job address, absent when the address has no ' +
+      'coordinates) and `farFromAddress` (over 500 m). The job itself is not changed by it.',
   })
   async moveStatus(
     @Param('id') id: string,
@@ -345,7 +348,8 @@ export class DealsController {
       '**Guard:** `deals.edit`, plus the same roster rule as confirm. Mirrors the old CRM\'s ' +
       '"Arrived at location": stamps `arrivedAt`/`arrivedBy` (and the phone\'s GPS fix when the body ' +
       'carries one), applies the catalog\'s In Progress arrival sub-status when the workspace has ' +
-      'one (or the `subStatusId` in the body), and writes a `tech_arrived` timeline entry. ' +
+      'one (or the `subStatusId` in the body), and writes a `tech_arrived` timeline entry — with ' +
+      'the fix, `distanceM` and `farFromAddress` as on a status change when the body carries one. ' +
       'Idempotent — the first arrival stands. 400 once the job is closed.',
   })
   async markArrived(
