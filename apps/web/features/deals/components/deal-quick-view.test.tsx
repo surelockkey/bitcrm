@@ -89,6 +89,11 @@ vi.mock("@/features/service-areas/hooks", async () => {
 });
 // Calling the client goes through the masked bridge, which queries telephony
 // for the workspace's numbers; the button has its own tests.
+// Texting the client opens the job page's own chat panel; it has its own tests.
+vi.mock("@/features/clients/components/client-chat-sheet", () => ({
+  ClientChatSheet: ({ open, contactId, name }: { open: boolean; contactId: string; name: string }) =>
+    open ? <div data-testid="client-chat" data-contact={contactId}>{name}</div> : null,
+}));
 vi.mock("@/features/telephony/components/call-client-button", () => ({
   CallClientButton: ({ to, variant }: { to: string; variant?: string }) => (
     <button type="button" aria-label={`Call ${to}`} data-variant={variant} />
@@ -167,6 +172,7 @@ const open = () => render(<DealQuickView dealId="d1" open onOpenChange={() => {}
 
 describe("DealQuickView", () => {
   beforeEach(() => {
+    perms.can.mockImplementation(() => true);
     qv.deal = null;
     qv.products = [];
     qv.totals = null;
@@ -184,6 +190,21 @@ describe("DealQuickView", () => {
   it("makes calling the client the card's obvious action", () => {
     open();
     expect(screen.getByRole("button", { name: /call \+14045551234/i })).toHaveAttribute("data-variant", "prominent");
+  });
+
+  // Workiz's quick view has call AND message at the client's right edge; ours
+  // had call and, only for a client with an email, mail — so most jobs gave
+  // no way to write to the client (owner, 2026-10-15).
+  it("offers to message the client on every job with one — no email needed — and opens the chat", async () => {
+    open();
+    await userEvent.click(screen.getByRole("button", { name: "Message client" }));
+    expect(screen.getByTestId("client-chat")).toHaveAttribute("data-contact", "c1");
+  });
+
+  it("offers no message button to someone who may not send messages", () => {
+    perms.can.mockImplementation((area: string, action?: string) => !(area === "messages" && action === "send"));
+    open();
+    expect(screen.queryByRole("button", { name: "Message client" })).toBeNull();
   });
 
   it("links the client name to the contact page so you can jump from the job to the client", () => {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Check, Mail, MapPin, SquareArrowOutUpRight, X } from "lucide-react";
+import { Check, Mail, MapPin, MessageSquareText, SquareArrowOutUpRight, X } from "lucide-react";
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import type { Contact, Deal } from "@bitcrm/types";
@@ -16,6 +16,7 @@ import {
   primaryEmail,
 } from "@/features/clients/lib";
 import { useContact } from "@/features/clients/hooks";
+import { ClientChatSheet } from "@/features/clients/components/client-chat-sheet";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
@@ -228,6 +229,10 @@ function DetailsTab({
   const assignTechs = useAssignTechs(deal.id);
   const phone = jobFirstPhone(deal, contact);
   const email = contact ? primaryEmail(contact) : undefined;
+  // Message the client — the job page's chat panel, for anyone who may send.
+  const { can } = usePermissions();
+  const canText = !!contact && can("messages", "send");
+  const [chatOpen, setChatOpen] = useState(false);
 
   return (
     <div className="pb-6">
@@ -267,10 +272,22 @@ function DetailsTab({
             ) : null}
           </div>
           {/* Workiz: call and message at the right edge. Ours: the masked
-              bridge's call button (the obvious action), mail beside it. */}
+              bridge's call button (the obvious action), then message — on
+              every job with a client, email or not — and mail when there is one. */}
           <div className="flex shrink-0 items-center gap-2">
             {contact ? (
               <CallClientButton to={phone ?? ""} partyId={contact.id} dealId={deal.id} contactId={contact.id} phoneIndex={0} variant="prominent" />
+            ) : null}
+            {canText ? (
+              <button
+                type="button"
+                aria-label="Message client"
+                title="Message"
+                onClick={() => setChatOpen(true)}
+                className="grid size-8 place-items-center rounded-[8px] text-[#6aa8ee] hover:bg-[#f3f6f7]"
+              >
+                <MessageSquareText className="size-[18px]" strokeWidth={1.5} />
+              </button>
             ) : null}
             {email ? (
               <a
@@ -284,6 +301,16 @@ function DetailsTab({
             ) : null}
           </div>
         </div>
+
+        {canText && contact ? (
+          <ClientChatSheet
+            contactId={contact.id}
+            name={contactName(contact)}
+            phone={phone}
+            open={chatOpen}
+            onOpenChange={setChatOpen}
+          />
+        ) : null}
 
         <QvLabel className="mt-[22px]">Job type</QvLabel>
         <QvValue className="mt-[2px]">{jobTypeName(deal.jobTypeId)}</QvValue>
