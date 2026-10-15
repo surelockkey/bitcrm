@@ -458,9 +458,10 @@ export class UsersService implements OnModuleInit {
     await this.cache.setUser(user);
     this.businessMetrics?.entityCreated.inc({ entity_type: 'user' });
     this.publishUserEvent('user.activated', user);
-    // Workiz's "Track Location" seeds the card; a subcontractor has no app to track.
+    // Workiz's "Track Location" seeds the card — on unless the request says no
+    // (owner, 2026-10-15); a subcontractor has no app to track.
     await this.ensureTechnicianProfile(user, {
-      gpsTrackingEnabled: !subcontractor && dto.gpsTrackingEnabled === true,
+      gpsTrackingEnabled: !subcontractor && dto.gpsTrackingEnabled !== false,
     });
     return user;
   }
@@ -1169,7 +1170,8 @@ export class UsersService implements OnModuleInit {
         userId,
         ...(isSubcontractor(user) ? { technicianType: 'subcontractor' as const } : {}),
         callMaskingEnabled: false,
-        gpsTrackingEnabled: seed.gpsTrackingEnabled === true,
+        // On by default (owner, 2026-10-15); never for a subcontractor.
+        gpsTrackingEnabled: !isSubcontractor(user) && seed.gpsTrackingEnabled !== false,
         mobileAppInstalled: false,
         status: 'pending',
         createdAt: now,
