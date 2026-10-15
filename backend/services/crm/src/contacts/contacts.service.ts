@@ -37,6 +37,7 @@ import { ClientCustomFieldsCatalog } from './client-custom-fields.catalog';
 import { type CreateContactDto } from './dto/create-contact.dto';
 import { type UpdateContactDto } from './dto/update-contact.dto';
 import { type FindOrCreateContactDto } from './dto/find-or-create-contact.dto';
+import { CompanyNumbersCatalog } from './company-numbers.catalog';
 import { type MergeContactsDto } from './dto/merge-contacts.dto';
 import {
   normalizePhone,
@@ -118,6 +119,8 @@ export class ContactsService {
     @Optional() private readonly contactNotes?: ContactNotesRepository,
     // The client custom fields a contact's answers are checked against (deal-service's catalog).
     @Optional() private readonly clientFields?: ClientCustomFieldsCatalog,
+    // The company's own Twilio numbers (telephony), never a client's phone.
+    @Optional() private readonly companyNumbers?: CompanyNumbersCatalog,
   ) {}
 
   /**
@@ -215,6 +218,7 @@ export class ContactsService {
     // De-duplicate: a repeated phone would write the same PHONE# index item
     // twice in one transaction, which DynamoDB rejects.
     const phones = [...new Set(normalizePhones(dto.phones))];
+    await this.rejectCompanyNumbers(phones);
 
     // A number belongs to one contact. Normally a clash is a mistake and we
     // say so — but when somebody knowingly creates a new client from a call,
@@ -372,6 +376,7 @@ export class ContactsService {
       // Reject a newly-added phone that already belongs to a different contact
       // (parity with create). Phones the contact already had are skipped.
       const added = normalizedPhones.filter((p) => !existing.phones.includes(p));
+      await this.rejectCompanyNumbers(added);
       for (const phone of added) {
         const owner = await this.repository.findByPhone(phone);
         if (owner && owner.id !== id) {
@@ -740,6 +745,8 @@ export class ContactsService {
 
   async findOrCreate(dto: FindOrCreateContactDto): Promise<{ contact: Contact; created: boolean }> {
     const normalized = normalizePhone(dto.phone);
+    // A call between two of our own lines must not mint a client for one of them.
+    await this.rejectCompanyNumbers([normalized]);
     const existing = await this.repository.findByPhone(normalized);
 
     if (existing) {
@@ -766,6 +773,18 @@ export class ContactsService {
     this.publishEvent('contact.created', { contactId: contact.id, firstName: contact.firstName, lastName: contact.lastName });
 
     return { contact, created: true };
+  }
+
+  /**
+   * 400 when one of `phones` (normalised) is one of the company's own numbers:
+   * a client carrying it would be texted from that same number, which Twilio
+   * refuses (21266). Telephony unreachable → nothing refused (fail-open).
+   */
+  private async rejectCompanyNumbers(phones: string[]): Promise<void> {
+    if (!this.companyNumbers || !phones.length) return;
+    const own = await this.companyNumbers.numbers();
+    const hit = phones.find((p) => own.has(p));
+    if (hit) throw new BadRequestException(`${hit} is one of the company's phone numbers`);
   }
 
   private async requireMergeableContact(id: string): Promise<Contact> {

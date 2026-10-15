@@ -113,7 +113,7 @@ describe('SendService.sendSystem', () => {
     });
     expect(message).not.toHaveProperty('attachments');
     expect(optOuts.isOptedOut).toHaveBeenCalledWith('sms', '+14045551234');
-    expect(sender.resolve).toHaveBeenCalledWith({ requested: undefined, conversation: expect.objectContaining({ id: 'c1' }), dealId: 'd1' });
+    expect(sender.resolve).toHaveBeenCalledWith({ requested: undefined, conversation: expect.objectContaining({ id: 'c1' }), dealId: 'd1', to: '+14045551234' });
     expect(messages.appendOutbound).toHaveBeenCalledWith(
       expect.objectContaining({ message, clientMessageId: 'automation:new-job-sms:d1:t1:2026-09-20', createdBy: 'system:automations', at: message.createdAt }),
     );

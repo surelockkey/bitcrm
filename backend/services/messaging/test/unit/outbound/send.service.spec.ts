@@ -126,7 +126,7 @@ describe('SendService.sendToConversation', () => {
     expect(m.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(m.createdAt).toBe(m.updatedAt);
     expect(optOuts.isOptedOut).toHaveBeenCalledWith('sms', '+14045551234');
-    expect(sender.resolve).toHaveBeenCalledWith({ requested: undefined, conversation: expect.objectContaining({ id: 'c1' }), dealId: CM });
+    expect(sender.resolve).toHaveBeenCalledWith({ requested: undefined, conversation: expect.objectContaining({ id: 'c1' }), dealId: CM, to: '+14045551234' });
     expect(messages.appendOutbound).toHaveBeenCalledWith(expect.objectContaining({ message: m, clientMessageId: CM, createdBy: 'u1', at: m.createdAt }));
     expect(queue.enqueue).toHaveBeenCalledWith({ conversationId: 'c1', createdAt: m.createdAt, messageId: m.id });
     expect(events.conversationUpdated).toHaveBeenCalledWith('c1');
@@ -549,7 +549,7 @@ describe('SendService — SMS to an employee', () => {
     expect(users!.find).toHaveBeenCalledWith('u2');
     expect(m).toMatchObject({ channel: 'sms', to: '+14045550002', from: '+15550001111', origin: 'user', status: 'queued', dealId: CM });
     expect(optOuts.isOptedOut).toHaveBeenCalledWith('sms', '+14045550002');
-    expect(sender.resolve).toHaveBeenCalledWith({ requested: undefined, conversation: expect.objectContaining({ id: 'c-u2' }), dealId: undefined });
+    expect(sender.resolve).toHaveBeenCalledWith({ requested: undefined, conversation: expect.objectContaining({ id: 'c-u2' }), dealId: undefined, to: '+14045550002' });
     // The number is adopted onto the thread and pointed at it, so the reply routes straight back.
     expect(conversations.putAddressPointer).toHaveBeenCalledWith(expect.objectContaining({ address: '+14045550002', conversationId: 'c-u2', partyKind: 'user', partyId: 'u2', source: 'crm' }));
     expect(conversations.update).toHaveBeenCalledWith(stale, { addresses: { phones: ['+14045550002', '+14045559999'], emails: [] } }, expect.anything());

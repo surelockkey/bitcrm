@@ -18,6 +18,8 @@ export interface ResolveSenderInput {
   conversation: Pick<Conversation, 'lastBusinessNumber'>;
   /** The job the message is about (`dto.dealId ?? conversation.lastDealId`). */
   dealId?: string;
+  /** The recipient: a candidate equal to it is skipped (Twilio 21266, "'To' and 'From' cannot be the same"). */
+  to?: string;
 }
 
 /** A plausible E.164 — the same sanity filter telephony's `CallerIdResolver` uses. */
@@ -42,6 +44,8 @@ const looksE164 = (v: string | undefined): v is string => !!v && /^\+\d{6,15}$/.
  * When telephony cannot be reached the owned list is empty, which means
  * "unknown", not "we own nothing": candidates then pass unchecked and
  * Twilio is the one to refuse (21606), which the worker maps to `failed`.
+ * A candidate equal to the recipient is skipped too (21266); the pool is
+ * safe because the send path never texts one of our own numbers.
  */
 @Injectable()
 export class SenderResolver {
@@ -71,6 +75,10 @@ export class SenderResolver {
     for (const [source, pick] of rungs) {
       const candidate = await pick();
       if (!looksE164(candidate)) continue;
+      if (input.to && candidate === input.to) {
+        this.logger.warn(`sender ${candidate} (${source}) is the recipient itself — skipping`);
+        continue;
+      }
       if (allowed && !allowed.has(candidate)) {
         this.logger.warn(`sender ${candidate} (${source}) is not an SMS-ready workspace number — skipping`);
         continue;

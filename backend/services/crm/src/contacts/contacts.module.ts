@@ -8,6 +8,7 @@ import { ContactNotesController } from './notes/contact-notes.controller';
 import { ContactNotesService } from './notes/contact-notes.service';
 import { ContactNotesRepository } from './notes/contact-notes.repository';
 import { ClientCustomFieldsCatalog } from './client-custom-fields.catalog';
+import { CompanyNumbersCatalog } from './company-numbers.catalog';
 
 @Module({
   // Notes controller before Contacts so nothing under `/contacts/:id/notes`
@@ -26,6 +27,8 @@ import { ClientCustomFieldsCatalog } from './client-custom-fields.catalog';
     ContactNotesRepository,
     // The client custom fields (deal-service's catalog) answers are checked against.
     ClientCustomFieldsCatalog,
+    // The company's own Twilio numbers (telephony's internal list) a client phone may not be.
+    CompanyNumbersCatalog,
   ],
   exports: [ContactsService],
 })

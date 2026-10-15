@@ -3,6 +3,7 @@ import { SqsConsumerService } from '@bitcrm/shared';
 import { TechScopeModule } from '../tech-scope/tech-scope.module';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { CrmContactsClient } from '../outbound/internal/crm-contacts.client';
+import { TelephonyNumbersClient } from '../outbound/internal/telephony-numbers.client';
 import { ContactEventsHandler } from './contact-events.handler';
 import { CONTACT_MERGED_EVENT, CONTACT_UPDATED_EVENT } from './contact-events.payloads';
 import { ContactPointersRepository } from './contact-pointers.repository';
@@ -20,7 +21,8 @@ import { ContactPointersRepository } from './contact-pointers.repository';
 @Module({
   // TechScopeModule: the technician inbox scope (C4) a merge renames the contact in.
   imports: [ConversationsModule, TechScopeModule],
-  providers: [ContactPointersRepository, CrmContactsClient, ContactEventsHandler],
+  // TelephonyNumbersClient: the workspace's own numbers, never copied into a client thread.
+  providers: [ContactPointersRepository, CrmContactsClient, TelephonyNumbersClient, ContactEventsHandler],
   exports: [ContactEventsHandler],
 })
 export class ContactEventsModule implements OnModuleInit {

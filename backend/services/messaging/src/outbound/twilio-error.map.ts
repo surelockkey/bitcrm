@@ -7,6 +7,7 @@ import { type MessageStatus } from '@bitcrm/types';
  */
 export const TWILIO_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   '21211': 'Invalid recipient phone number',
+  '21266': "The client's number is one of the company's own numbers — a text cannot be sent to and from the same number",
   '21408': 'Sending to this region is not enabled on the account',
   '21606': 'The sender number is not owned by the account or cannot send SMS',
   '21610': 'The recipient has opted out (STOP)',

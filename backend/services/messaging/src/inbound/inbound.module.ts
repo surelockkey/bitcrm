@@ -5,6 +5,7 @@ import { MessagesModule } from '../messages/messages.module';
 import { OptOutsModule } from '../opt-outs/opt-outs.module';
 import { MediaQueueModule } from '../media/media-queue.module';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { TelephonyNumbersClient } from '../outbound/internal/telephony-numbers.client';
 import { BlockedNumbersClient } from './blocked-numbers.client';
 import { FallbackCaptureService } from './fallback-capture.service';
 import { InboundReplayHandler } from './inbound-replay.handler';
@@ -20,7 +21,8 @@ import { PhoneDirectory } from './phone-directory';
  */
 @Module({
   imports: [TwilioModule, ConversationsModule, MessagesModule, OptOutsModule, MediaQueueModule, RealtimeModule],
-  providers: [PhoneDirectory, PartyResolver, BlockedNumbersClient, InboundService, FallbackCaptureService, InboundReplayHandler],
+  // TelephonyNumbersClient: our own numbers are never adopted into a party's thread.
+  providers: [PhoneDirectory, PartyResolver, BlockedNumbersClient, TelephonyNumbersClient, InboundService, FallbackCaptureService, InboundReplayHandler],
   exports: [InboundService, PartyResolver, FallbackCaptureService, InboundReplayHandler],
 })
 export class InboundModule {}

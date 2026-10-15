@@ -107,6 +107,16 @@ describe('TelephonyNumbersClient', () => {
     expect(await client.listOwned(OWNED_NUMBERS_STALE_MS + 1)).toEqual([OTHER]);
   });
 
+  it('ownedSet: every owned number (SMS-capable or not) as a set; empty while telephony is unknown', async () => {
+    const VOICE_ONLY = { ...NUMBER, phoneNumber: '+14045550009', sid: 'PN9', capabilities: { sms: false, mms: false, voice: true } };
+    const { fetchImpl } = fakeFetch([{ status: 200, body: { data: [NUMBER, VOICE_ONLY] } }]);
+    const client = new TelephonyNumbersClient(fetchImpl);
+    expect(await client.ownedSet(0)).toEqual(new Set(['+14045550001', '+14045550009']));
+
+    const down = new TelephonyNumbersClient(fakeFetch([new Error('ECONNREFUSED')]).fetchImpl);
+    expect(await down.ownedSet(0)).toEqual(new Set());
+  });
+
   it('single-flights a cold start', async () => {
     const { fetchImpl } = fakeFetch([{ status: 200, body: { data: [NUMBER] } }]);
     const client = new TelephonyNumbersClient(fetchImpl);

@@ -45,6 +45,8 @@ interface Fixture {
   queueEnabled?: boolean;
   queueError?: Error;
   accountSid?: string;
+  /** The workspace's own numbers (telephony); absent = no numbers client wired. */
+  owned?: string[];
 }
 
 function make(f: Fixture = {}) {
@@ -94,6 +96,10 @@ function make(f: Fixture = {}) {
     parties,
     mediaQueue as unknown as MediaQueueService,
     sns as never,
+    undefined,
+    undefined,
+    undefined,
+    (f.owned ? { ownedSet: jest.fn(async () => new Set(f.owned)) } : undefined) as never,
   );
   return { service, conversations, messages, optOuts, directory, mediaQueue, sns };
 }
@@ -287,6 +293,36 @@ describe('InboundService.ingest — routing', () => {
     expect(conversations.get).toHaveBeenCalledWith('c-gone');
     expect(directory.lookupContact).toHaveBeenCalled();
     expect(conversations.findOrCreate.mock.calls[0][0].pointer).toEqual({ kind: 'contact', id: 'ct1' });
+  });
+});
+
+describe('InboundService.locateConversation — one of our own numbers', () => {
+  it('is never adopted into a client thread, even when a CRM contact carries it', async () => {
+    const existing = createMockConversation({ id: 'c1', addresses: { phones: ['+14045550000'], emails: [] } });
+    const { service, conversations, directory } = make({
+      contact: { kind: 'contact', id: 'ct1' },
+      findOrCreate: { conversation: existing, created: false },
+      owned: [FROM],
+    });
+    await service.locateConversation(FROM, AT);
+
+    expect(directory.lookupContact).not.toHaveBeenCalled();
+    expect(conversations.findOrCreate.mock.calls[0][0].pointer).toEqual({ kind: 'address', id: FROM });
+    expect(conversations.putAddressPointer).not.toHaveBeenCalled();
+    expect(conversations.update).not.toHaveBeenCalled();
+  });
+
+  it('ignores a stale ADDR# pointing an own number at a client thread', async () => {
+    const { service, conversations } = make({
+      pointer: { address: FROM, conversationId: 'c1', partyKind: 'contact', partyId: 'ct1' },
+      pointed: createMockConversation({ id: 'c1' }),
+      owned: [FROM],
+    });
+    const located = await service.locateConversation(FROM, AT);
+
+    expect(located.conversation.id).not.toBe('c1');
+    expect(located.conversation.kind).toBe('unknown');
+    expect(conversations.findOrCreate.mock.calls[0][0].pointer).toEqual({ kind: 'address', id: FROM });
   });
 });
 

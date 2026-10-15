@@ -120,4 +120,24 @@ describe('SenderResolver', () => {
     });
     expect((await resolver.allowedNumbers()).map((n) => n.phoneNumber)).toEqual([A, C]);
   });
+
+  describe("never the recipient's own number (Twilio 21266: 'To' and 'From' cannot be the same)", () => {
+    it('skips any rung whose number is the recipient and keeps walking the chain', async () => {
+      const { resolver } = makeResolver({ owned: [owned({ phoneNumber: A }), owned({ phoneNumber: B })], defaultSender: B });
+      const r = await resolver.resolve({ requested: A, conversation: createMockConversation({ lastBusinessNumber: A }), to: A });
+      expect(r).toEqual({ from: B, source: 'default' });
+    });
+
+    it('falls to the pool when every candidate is the recipient', async () => {
+      const { resolver } = makeResolver({ owned: [owned({ phoneNumber: A })], defaultSender: A });
+      const r = await resolver.resolve({ conversation: createMockConversation({ lastBusinessNumber: A }), to: A });
+      expect(r).toEqual({ source: 'pool' });
+    });
+
+    it('compares the same way when the owned list is unknown', async () => {
+      const { resolver } = makeResolver({ owned: [], defaultSender: B });
+      const r = await resolver.resolve({ conversation: createMockConversation({ lastBusinessNumber: A }), to: A });
+      expect(r).toEqual({ from: B, source: 'default' });
+    });
+  });
 });
