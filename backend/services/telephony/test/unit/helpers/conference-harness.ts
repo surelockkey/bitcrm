@@ -136,7 +136,10 @@ export function makeHarness(opts: { queue?: unknown } = {}) {
   const redis = new FakeRedis();
   /** The per-user bridge claim is what stops a technician placing their next
    *  call, so tests need to see it dropped. */
-  const bridge = { release: jest.fn().mockResolvedValue(undefined) };
+  const bridge = {
+    release: jest.fn().mockResolvedValue(undefined),
+    advance: jest.fn().mockResolvedValue(null),
+  };
   const twilio = makeFakeTwilio();
   const applied: any[] = [];
   // Stateful mock: applyLifecycle merges into an in-memory record store so

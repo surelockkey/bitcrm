@@ -170,6 +170,7 @@ export class VoiceService {
       dealId: ctx.dealId,
       origin: 'bridge',
       callerIdSource: ctx.callerIdSource as never,
+      bridgeId,
     });
 
     const dial = twiml.dial();
@@ -468,10 +469,17 @@ export class VoiceService {
       return twiml.toString();
     }
 
+    // The key was pressed: the phone that asked for this call switches to
+    // "Connecting you to …". Not awaited — nothing in this TwiML depends on
+    // it, Twilio is waiting for it, and a failed write must not drop the call.
+    void this.bridge!.advance(bridgeId, () => ({ state: 'connecting_client' }))
+      .catch(() => undefined);
+
     await this.conference.initOutbound(callSid, ctx.technicianId, ctx.to, ctx.from, {
       dealId: ctx.dealId,
       origin: 'bridge',
       callerIdSource: ctx.callerIdSource as never,
+      bridgeId,
     });
 
     const dial = twiml.dial();
