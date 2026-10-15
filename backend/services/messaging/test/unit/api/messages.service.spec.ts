@@ -126,3 +126,70 @@ describe('MessagesService.listFlagged', () => {
     expect(page.items.map((m) => m.id)).toEqual(['m1']);
   });
 });
+
+/**
+ * Telephony's masked call ("call me about this job", 2026-10-15) shows the
+ * client the company number they have been talking to. For texts that is the
+ * company number on the client's newest SMS — and when, so telephony can weigh
+ * it against the client's last call.
+ */
+describe('MessagesService.lastBusinessNumberInternal', () => {
+  const OLD = '2026-09-01T09:00:00.000Z';
+
+  it('the newest SMS that carried a company number, and when — no scope, no caller', async () => {
+    const { svc, conversations, messages } = make();
+    conversations.getByParty.mockResolvedValue(
+      createMockConversation({ id: 'c7', lastBusinessNumber: '+15550002222', lastMessageAt: '2026-09-20T12:00:00.000Z' }),
+    );
+    messages.listByConversation.mockResolvedValue({
+      items: [
+        // Newer lines that never touched a company number: an email, a note, an in-app reply…
+        createMockMessage({ id: 'm5', channel: 'email', businessNumber: undefined, createdAt: '2026-09-20T12:00:00.000Z' }),
+        createMockMessage({ id: 'm4', channel: 'note', businessNumber: undefined, createdAt: '2026-09-19T12:00:00.000Z' }),
+        // …an SMS that never reached the client…
+        createMockMessage({ id: 'm3', direction: 'outbound', status: 'failed', businessNumber: '+15550003333', createdAt: '2026-09-18T12:00:00.000Z' }),
+        createMockMessage({ id: 'm2', direction: 'outbound', status: 'undelivered', businessNumber: '+15550003333', createdAt: '2026-09-17T12:00:00.000Z' }),
+        // …and the one that counts.
+        createMockMessage({ id: 'm1', businessNumber: '+15550002222', createdAt: '2026-09-16T12:00:00.000Z' }),
+      ],
+    });
+
+    await expect(svc.lastBusinessNumberInternal('contact', 'ct1')).resolves.toEqual({
+      businessNumber: '+15550002222',
+      at: '2026-09-16T12:00:00.000Z',
+    });
+    expect(conversations.getByParty).toHaveBeenCalledWith('contact', 'ct1');
+    expect(messages.listByConversation).toHaveBeenCalledWith('c7', { limit: 50 });
+  });
+
+  it('null when the party has no thread', async () => {
+    const { svc, messages } = make();
+
+    await expect(svc.lastBusinessNumberInternal('contact', 'ct-none')).resolves.toBeNull();
+    expect(messages.listByConversation).not.toHaveBeenCalled();
+  });
+
+  it('null without reading the feed when no message ever carried a company number (Workiz history, email only)', async () => {
+    const { svc, conversations, messages } = make();
+    conversations.getByParty.mockResolvedValue(createMockConversation({ lastMessageAt: OLD }));
+
+    await expect(svc.lastBusinessNumberInternal('contact', 'ct1')).resolves.toBeNull();
+    expect(messages.listByConversation).not.toHaveBeenCalled();
+  });
+
+  it('a company number older than the newest page: the number, with no time', async () => {
+    const { svc, conversations, messages } = make();
+    conversations.getByParty.mockResolvedValue(createMockConversation({ lastBusinessNumber: '+15550002222', lastMessageAt: OLD }));
+    messages.listByConversation.mockResolvedValue({
+      items: [createMockMessage({ channel: 'email', businessNumber: undefined })],
+      nextCursor: 'OLDER',
+    });
+
+    await expect(svc.lastBusinessNumberInternal('contact', 'ct1')).resolves.toEqual({ businessNumber: '+15550002222' });
+  });
+
+  it('400 on a party kind that has no threads', async () => {
+    const { svc } = make();
+    await expect(svc.lastBusinessNumberInternal('planet', 'p1')).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
