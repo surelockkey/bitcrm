@@ -77,13 +77,14 @@ describe('TechnicianLocationService', () => {
   });
 
   // The map dims a pin after 90 s and prints "Last seen" from the timestamp;
-  // the expiry only has to make sure yesterday's position is gone by the next
-  // morning without anyone deleting anything.
-  it('keeps a fix for 12 hours after the last report', async () => {
+  // The owner wants the map to say when and where a technician was last
+  // seen (2026-10-15) — yesterday's last position included, not the home
+  // address. One position per technician, kept a week after the last report.
+  it('keeps the last fix for 7 days after the last report, so "Last seen" survives the night', async () => {
     await service.setLocation('tech-1', { lat: 1, lng: 2 });
 
     const call = redis.service.client.set as jest.Mock;
-    expect(call.mock.calls[0].slice(2)).toEqual(['EX', 12 * 60 * 60]);
+    expect(call.mock.calls[0].slice(2)).toEqual(['EX', 7 * 24 * 60 * 60]);
   });
 
   it('returns null for a technician with no live location', async () => {

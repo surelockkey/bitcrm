@@ -31,9 +31,9 @@ export class TechnicianLocationController {
     description:
       '**Guard:** `technicians.edit` **and** self — a technician may only post ' +
       'their own location (from their own device). The newest fix replaces the ' +
-      'previous one and is kept for 12 hours after the last report, so a technician ' +
-      'who stops posting is off the map by the next morning; the map itself dims a ' +
-      'pin after 90 s and shows "Last seen" from `updatedAt`.\n\n' +
+      'previous one (one position per technician, no history) and is kept for 7 days ' +
+      'after the last report, so the map can say when and where a technician was last ' +
+      'seen; the map itself dims a pin after 90 s and shows "Last seen" from `updatedAt`.\n\n' +
       'Whether the fix is stored is the manager’s call: the card’s **Track location** ' +
       '(`gpsTrackingEnabled` on `GET /technicians/:id/profile`), and never for a ' +
       'subcontractor. When it is off the fix is **accepted and dropped** — `204`, no ' +
