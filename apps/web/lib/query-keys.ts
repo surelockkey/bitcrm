@@ -238,6 +238,8 @@ export const queryKeys = {
       list: () => ["user-containers", "list"] as const,
       /** The caller's own row. */
       mine: () => ["user-containers", "me"] as const,
+      /** The people to give vans to, for a viewer without the user directory. */
+      roster: () => ["user-containers", "roster"] as const,
     },
     /** A van's ideal loadout, and how a van compares with it. */
     containerTemplates: {

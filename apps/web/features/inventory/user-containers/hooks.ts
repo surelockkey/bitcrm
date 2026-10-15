@@ -23,6 +23,19 @@ export function useUserContainers(enabled = true) {
 }
 
 /**
+ * The people User locations lists for a viewer who may not open the user
+ * directory (Logistics): every active user by name and role, one request.
+ */
+export function useLocationRoster(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.inventory.userContainers.roster(),
+    queryFn: api.getLocationRoster,
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
  * Save one user's assignment. Who works from which van shows on this tab, on
  * Containers, in the pickers and on the technician's own van — all refreshed.
  */

@@ -25,6 +25,9 @@ const mocks = vi.hoisted(() => ({
   usersOptions: [] as unknown[],
   assign: vi.fn(),
   roles: [] as { id: string; name: string }[],
+  /** The van roster (GET /users/location-roster): what a viewer without users.view lists. */
+  roster: [] as { id: string; firstName: string; lastName: string; roleId: string }[],
+  rosterAsked: [] as boolean[],
 }));
 
 vi.mock("next/navigation", () => ({
@@ -70,6 +73,12 @@ vi.mock("../hooks", () => ({
     isError: false,
   }),
   useAssignUserContainer: () => ({ isPending: false, mutate: mocks.assign }),
+  useLocationRoster: (enabled: boolean) => {
+    mocks.rosterAsked.push(enabled);
+    return enabled
+      ? { data: mocks.roster, isPending: false, isError: false, fetchStatus: "idle" }
+      : { data: undefined, isPending: true, isError: false, fetchStatus: "idle" };
+  },
 }));
 vi.mock("@/features/roles/hooks", () => ({
   useRoles: (enabled: boolean) => ({
@@ -106,6 +115,8 @@ const GONE = user("u4", "Pavla", "Former", { status: UserStatus.INACTIVE });
 
 beforeEach(() => {
   mocks.denied = new Set();
+  mocks.roster = [];
+  mocks.rosterAsked = [];
   mocks.page = [TARAS, OLHA];
   mocks.directory = [TARAS, OLHA, PAVLO, GONE];
   mocks.directoryCalls = 0;
@@ -255,11 +266,40 @@ describe("UserContainersPage — access", () => {
     expect(screen.queryByRole("table")).toBeNull();
   });
 
-  it("explains that the list needs users.view", () => {
+  // The owner's Logistics: the inventory, but not the user directory. Whom to
+  // give a van to comes from the van roster (name and role, nothing else),
+  // opened by containers.view — never from GET /users.
+  it("without users.view lists the people from the van roster, and never asks the user directory", () => {
     mocks.denied.add("users.view");
+    mocks.roster = [
+      { id: "u1", firstName: "Taras", lastName: "Koval", roleId: "role-tech" },
+      { id: "u2", firstName: "Olha", lastName: "Melnyk", roleId: "role-tech" },
+    ];
     renderWithClient(<UserContainersPage />);
-    expect(screen.getByText(/permission to view users/i)).toBeInTheDocument();
-    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByText(/permission to view users/i)).toBeNull();
+    expect(rowOf("Taras Koval")).toHaveTextContent("technician");
+    expect(screen.getByText("Olha Melnyk")).toBeInTheDocument();
+    expect(box("Taras Koval")).toHaveTextContent("Van 1");
+    expect(mocks.rosterAsked.at(-1)).toBe(true);
+    expect(mocks.usersOptions.at(-1)).toMatchObject({ enabled: false });
+  });
+
+  it("without users.view searches the roster by name, with no directory download", async () => {
+    mocks.denied.add("users.view");
+    mocks.roster = [
+      { id: "u1", firstName: "Taras", lastName: "Koval", roleId: "role-tech" },
+      { id: "u2", firstName: "Olha", lastName: "Melnyk", roleId: "role-tech" },
+    ];
+    renderWithClient(<UserContainersPage />);
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search users" }), "olh");
+    await waitFor(() => expect(screen.queryByText("Taras Koval")).toBeNull());
+    expect(screen.getByText("Olha Melnyk")).toBeInTheDocument();
+    expect(mocks.directoryCalls).toBe(0);
+  });
+
+  it("with users.view keeps the directory's server pages and leaves the roster alone", () => {
+    renderWithClient(<UserContainersPage />);
+    expect(mocks.rosterAsked.every((asked) => asked === false)).toBe(true);
   });
 });
 
