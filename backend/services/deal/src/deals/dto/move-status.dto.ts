@@ -1,6 +1,8 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { JobSuperStatus } from '@bitcrm/types';
+import { LocationFixDto } from './location-fix.dto';
 
 /**
  * Moving a deal's status = setting its fixed super-status, plus optionally a
@@ -24,4 +26,16 @@ export class MoveStatusDto {
   @IsOptional()
   @IsString()
   cancellationReason?: string;
+
+  @ApiPropertyOptional({
+    type: LocationFixDto,
+    description:
+      'Where the phone was when the technician changed the status (the mobile app sends it; the web ' +
+      'does not). Recorded on the `status_changed` timeline entry with its distance from the job ' +
+      'address; the job itself is not changed by it.',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LocationFixDto)
+  location?: LocationFixDto;
 }

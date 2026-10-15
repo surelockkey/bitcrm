@@ -164,6 +164,7 @@ import { JobStatusesService } from '../job-statuses/job-statuses.service';
 import { CustomFieldsService } from '../custom-fields/custom-fields.service';
 import { TechnicianEligibilityRepository } from '../technician-eligibility/technician-eligibility.repository';
 import { distanceMiles } from '../common/utils/haversine';
+import { timelineLocationDetails } from './location-details';
 import { type CreateDealDto } from './dto/create-deal.dto';
 import { type UpdateDealDto } from './dto/update-deal.dto';
 import { type MoveStatusDto } from './dto/move-status.dto';
@@ -1746,6 +1747,9 @@ export class DealsService {
       // Workiz's Activity line names them ("Status Updated - Canceled - Cant Do - tech said cant do").
       ...(sub && { subStatusName: sub.name }),
       ...(dto.superStatus === JobSuperStatus.CANCELED && cancellationReason && { cancellationReason }),
+      // Where the phone was (the app sends it, the web does not) and how far
+      // that is from the job — on the entry only, never on the job.
+      ...timelineLocationDetails(dto.location, deal.address),
     });
 
     this.publishEvent('deal.status_changed', {
@@ -2357,7 +2361,8 @@ export class DealsService {
     await this.addTimelineEntry(id, TimelineEventType.TECH_ARRIVED, caller, {
       techId: caller.id,
       arrivedAt: at,
-      ...(updates.arrivedLocation ? { location: updates.arrivedLocation } : {}),
+      // The fix, and how far it was from the job — as a status change records it.
+      ...timelineLocationDetails(updates.arrivedLocation, deal.address),
       ...(updates.subStatusId ? { subStatusId: updates.subStatusId } : {}),
     });
     this.publishEvent('deal.tech_arrived', { dealId: id, techId: caller.id, arrivedAt: at });

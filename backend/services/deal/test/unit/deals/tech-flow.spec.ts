@@ -17,6 +17,7 @@ import { JobStatusesService } from 'src/job-statuses/job-statuses.service';
 import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
 import { CustomFieldsService } from 'src/custom-fields/custom-fields.service';
 import {
+  createMockAddress,
   createMockDeal,
   createMockJwtUser,
   createMockDealsRepository,
@@ -327,6 +328,130 @@ describe('DealsService — technician flow', () => {
       await expect(
         service.markArrived('deal-1', {}, tech, DataScope.ASSIGNED_ONLY),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  /* ------------------------------------------------- where the phone was */
+
+  /**
+   * Owner, 2026-10-15: every status change from the phone carries where it
+   * was, and the job's timeline says how far that was from the address —
+   * a close made far away stands out to the office.
+   */
+  describe('where the phone was', () => {
+    // The mock job's address: 33.749, -84.388 (Atlanta).
+    /** ~111 m north of the job — at the door. */
+    const atTheDoor = { lat: 33.75, lng: -84.388, accuracy: 9 };
+    /** Marietta, ~26 km away. */
+    const acrossTown = { lat: 33.953, lng: -84.55 };
+
+    const statusDetails = () => entryOf(TimelineEventType.STATUS_CHANGED).details;
+
+    describe('moveStatus', () => {
+      beforeEach(() => {
+        repo.findById.mockResolvedValue(assigned());
+        repo.update.mockImplementation(async (_id: string, u: object) => ({ ...assigned(), ...u }));
+      });
+
+      it('records the fix, its distance from the address, and that it was close', async () => {
+        await service.moveStatus('deal-1', { superStatus: JobSuperStatus.DONE, location: atTheDoor }, tech);
+
+        expect(statusDetails()).toMatchObject({
+          fromStatus: JobSuperStatus.IN_PROGRESS,
+          toStatus: JobSuperStatus.DONE,
+          location: { lat: 33.75, lng: -84.388, accuracy: 9 },
+          farFromAddress: false,
+        });
+        expect(statusDetails().distanceM).toBeGreaterThan(100);
+        expect(statusDetails().distanceM).toBeLessThan(125);
+        expect(Number.isInteger(statusDetails().distanceM)).toBe(true);
+      });
+
+      it('marks a close made more than 500 m from the address as far', async () => {
+        await service.moveStatus('deal-1', { superStatus: JobSuperStatus.DONE, location: acrossTown }, tech);
+
+        expect(statusDetails().farFromAddress).toBe(true);
+        expect(statusDetails().distanceM).toBeGreaterThan(20_000);
+        expect(statusDetails().location).toEqual(acrossTown);
+      });
+
+      it('keeps the fix without a distance when the job’s address has no coordinates', async () => {
+        const unplaced = assigned({ address: createMockAddress({ lat: undefined, lng: undefined }) });
+        repo.findById.mockResolvedValue(unplaced);
+
+        await service.moveStatus('deal-1', { superStatus: JobSuperStatus.DONE, location: atTheDoor }, tech);
+
+        expect(statusDetails().location).toEqual(atTheDoor);
+        expect(statusDetails()).not.toHaveProperty('distanceM');
+        expect(statusDetails()).not.toHaveProperty('farFromAddress');
+      });
+
+      it('writes the entry exactly as before when no fix came (the web)', async () => {
+        await service.moveStatus('deal-1', { superStatus: JobSuperStatus.PENDING }, tech);
+
+        expect(statusDetails()).toEqual({
+          fromStatus: JobSuperStatus.IN_PROGRESS,
+          toStatus: JobSuperStatus.PENDING,
+          fromSubStatusId: null,
+          subStatusId: null,
+        });
+      });
+
+      it('changes nothing on the job itself and nothing in the event', async () => {
+        await service.moveStatus('deal-1', { superStatus: JobSuperStatus.DONE, location: acrossTown }, tech);
+
+        const [, update] = repo.update.mock.calls[0];
+        expect(update).not.toHaveProperty('location');
+        expect(update).not.toHaveProperty('arrivedLocation');
+        const [, , payload] = sns.publish.mock.calls.find(
+          ([, type]: [string, string]) => type === 'deal.status_changed',
+        );
+        expect(payload).toEqual({
+          dealId: 'deal-1',
+          oldStatus: JobSuperStatus.IN_PROGRESS,
+          newStatus: JobSuperStatus.DONE,
+          changedBy: 'tech-1',
+        });
+      });
+    });
+
+    describe('markArrived', () => {
+      const arrivedDetails = () => entryOf(TimelineEventType.TECH_ARRIVED).details;
+
+      it('gives the arrival the same distance and far flag', async () => {
+        const deal = assigned();
+        repo.findById.mockResolvedValue(deal);
+        repo.update.mockResolvedValue(deal);
+
+        await service.markArrived('deal-1', acrossTown, tech, DataScope.ASSIGNED_ONLY);
+
+        expect(arrivedDetails()).toMatchObject({ techId: 'tech-1', location: acrossTown, farFromAddress: true });
+        expect(arrivedDetails().distanceM).toBeGreaterThan(20_000);
+        // The job keeps the fix it always kept, and nothing more.
+        expect(repo.update.mock.calls[0][1].arrivedLocation).toEqual(acrossTown);
+        expect(repo.update.mock.calls[0][1]).not.toHaveProperty('distanceM');
+      });
+
+      it('keeps the fix without a distance when the job’s address has no coordinates', async () => {
+        const deal = assigned({ address: createMockAddress({ lat: undefined, lng: undefined }) });
+        repo.findById.mockResolvedValue(deal);
+        repo.update.mockResolvedValue(deal);
+
+        await service.markArrived('deal-1', atTheDoor, tech, DataScope.ASSIGNED_ONLY);
+
+        expect(arrivedDetails().location).toEqual(atTheDoor);
+        expect(arrivedDetails()).not.toHaveProperty('distanceM');
+      });
+
+      it('records no location when the phone offered none', async () => {
+        const deal = assigned();
+        repo.findById.mockResolvedValue(deal);
+        repo.update.mockResolvedValue(deal);
+
+        await service.markArrived('deal-1', {}, tech, DataScope.ASSIGNED_ONLY);
+
+        expect(arrivedDetails()).toEqual({ techId: 'tech-1', arrivedAt: expect.any(String) });
+      });
     });
   });
 });
