@@ -50,6 +50,8 @@ import { ListUsersQueryDto } from './dto/list-users-query.dto';
 import { RolesService } from '../roles/roles.service';
 import { RolesCacheService } from '../roles/roles-cache.service';
 import { PermissionResolverService } from '../roles/permission-resolver.service';
+import { AdminAuditService, type AdminAuditTarget } from '../audit/admin-audit.service';
+import { diffFields } from '../audit/audit-diff';
 
 /**
  * A technician's eligibility as deal-service projects it. Identity and approved
@@ -107,6 +109,15 @@ function isRename(
   );
 }
 
+/** How the admin trail names a person: as they are at the moment of the action. */
+export function auditTargetOf(user: Pick<User, 'id' | 'firstName' | 'lastName' | 'email'>): AdminAuditTarget {
+  const name = [user.firstName, user.lastName].filter(Boolean).join(' ');
+  return { type: 'user', id: user.id, label: name ? `${name} <${user.email}>` : user.email };
+}
+
+/** What a new person's audit line records about them. */
+const CREATED_FIELDS = ['email', 'firstName', 'lastName', 'roleId', 'department', 'phone', 'userType', 'fieldTeamMember'] as const;
+
 /** Page sizes for draining the whole directory: the Scan filters most rows away, the index does not. */
 const DRAIN_PAGE_SCAN = 200;
 const DRAIN_PAGE_INDEX = 1000;
@@ -133,6 +144,7 @@ export class UsersService implements OnModuleInit {
     private readonly assignmentsRepository?: TechnicianAssignmentsRepository,
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly techniciansCache?: TechniciansCacheService,
+    @Optional() private readonly audit?: AdminAuditService,
   ) {}
 
   /**
@@ -462,6 +474,7 @@ export class UsersService implements OnModuleInit {
     await this.ensureTechnicianProfile(user, {
       gpsTrackingEnabled: !subcontractor && dto.gpsTrackingEnabled === true,
     });
+    await this.audit?.record(caller, 'user.created', auditTargetOf(user), diffFields({}, user, CREATED_FIELDS));
     return user;
   }
 
@@ -837,6 +850,8 @@ export class UsersService implements OnModuleInit {
     }
 
     const updatedUser = await this.repository.update(id, attrs);
+    const changes = diffFields(existingUser, attrs, Object.keys(attrs));
+    if (changes) await this.audit?.record(caller, 'user.updated', auditTargetOf(existingUser), changes);
 
     // Sync department to Cognito if changed
     if (dto.department) {
@@ -901,6 +916,9 @@ export class UsersService implements OnModuleInit {
     }
     await this.cache.invalidateUser(id);
     await this.mirrorTypeOnCard(id, type);
+    await this.audit?.record(caller, 'user.type_changed', auditTargetOf(user), {
+      userType: { from: user.userType ?? 'regular', to: type },
+    });
     this.logger.log(`User ${id} is now ${type === 'subcontractor' ? 'a subcontractor' : 'a User'}`);
     return updated;
   }
@@ -918,6 +936,7 @@ export class UsersService implements OnModuleInit {
     await this.cognitoAdmin.disableUser(user.cognitoSub);
     await this.permissionCacheReader.setUserDisabled(id);
     await this.cache.invalidateUser(id);
+    await this.audit?.record(caller, 'user.deactivated', auditTargetOf(user));
     // Nobody who cannot log in should still be offered for tomorrow's work.
     this.publishTechUpdated(id, TechChangedField.STATUS);
   }
@@ -934,11 +953,12 @@ export class UsersService implements OnModuleInit {
       await this.permissionCacheReader.removeUserDisabled(id);
     }
     await this.cache.invalidateUser(id);
+    await this.audit?.record(caller, 'user.reactivated', auditTargetOf(user));
     this.publishUserEvent('user.activated', user);
     this.publishTechUpdated(id, TechChangedField.STATUS);
   }
 
-  async resendInvite(id: string): Promise<void> {
+  async resendInvite(id: string, caller?: JwtUser): Promise<void> {
     const user = await this.findById(id);
     if (isSubcontractor(user)) {
       throw new BadRequestException(
@@ -965,6 +985,7 @@ export class UsersService implements OnModuleInit {
       await this.createSignInAccount(user);
     }
     this.logger.log(`Re-sent invitation email to ${user.email} (${id})`);
+    if (caller) await this.audit?.record(caller, 'user.invite_resent', auditTargetOf(user));
     this.publishUserEvent('user.invite-resent', user);
   }
 
@@ -1047,6 +1068,10 @@ export class UsersService implements OnModuleInit {
 
     await this.cache.invalidateUser(userId);
     await this.rolesCache.invalidateUserPermissions(userId);
+    await this.audit?.record(caller, 'user.role_changed', auditTargetOf(targetUser), {
+      roleId: { from: targetUser.roleId, to: roleId },
+      ...diffFields(targetUser, { permissionOverrides: carried }, ['permissionOverrides']),
+    });
 
     this.publishUserEvent('user.role-changed', updatedUser);
     // `user.role-changed` is a user-shaped event nobody joins to dispatch. A
@@ -1076,6 +1101,12 @@ export class UsersService implements OnModuleInit {
 
     await this.cache.invalidateUser(userId);
     await this.rolesCache.invalidateUserPermissions(userId);
+    await this.audit?.record(
+      caller,
+      'user.permissions_set',
+      auditTargetOf(targetUser),
+      diffFields(targetUser, { permissionOverrides: plainOverrides }, ['permissionOverrides']),
+    );
 
     return updatedUser;
   }
@@ -1093,6 +1124,12 @@ export class UsersService implements OnModuleInit {
 
     await this.cache.invalidateUser(userId);
     await this.rolesCache.invalidateUserPermissions(userId);
+    await this.audit?.record(
+      caller,
+      'user.permissions_cleared',
+      auditTargetOf(targetUser),
+      diffFields(targetUser, { permissionOverrides: undefined }, ['permissionOverrides']),
+    );
 
     return updatedUser;
   }

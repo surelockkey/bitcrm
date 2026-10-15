@@ -277,8 +277,8 @@ export class UsersController {
       "**Guard:** `users.create` permission required (Admin+). " +
       "Re-sends the Cognito invitation email to a user who hasn't accepted yet.",
   })
-  async resendInvite(@Param("id") id: string) {
-    await this.usersService.resendInvite(id);
+  async resendInvite(@Param("id") id: string, @CurrentUser() user: JwtUser) {
+    await this.usersService.resendInvite(id, user);
     return { success: true, data: null };
   }
 

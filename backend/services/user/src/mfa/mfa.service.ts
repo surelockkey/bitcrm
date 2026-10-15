@@ -11,6 +11,7 @@ import {
 import { RedisService, normalizePhone } from '@bitcrm/shared';
 import {
   isSubcontractor,
+  type JwtUser,
   type LoginResponse,
   type MfaSetupChallenge,
   type SmsMfaChallenge,
@@ -18,7 +19,8 @@ import {
 } from '@bitcrm/types';
 import { UsersRepository } from '../users/users.repository';
 import { UsersCacheService } from '../users/users-cache.service';
-import { UsersService } from '../users/users.service';
+import { UsersService, auditTargetOf } from '../users/users.service';
+import { AdminAuditService } from '../audit/admin-audit.service';
 import { EmailCodeSender } from '../security/email-code.sender';
 import { SecurityService } from '../security/security.service';
 import { TwilioVerifyClient } from './twilio-verify.client';
@@ -103,6 +105,7 @@ export class MfaService {
     private readonly security: SecurityService,
     private readonly usersService: UsersService,
     @Optional() private readonly emailCodes?: EmailCodeSender,
+    @Optional() private readonly audit?: AdminAuditService,
   ) {}
 
   /** After the password: the tokens themselves, or a challenge that holds them back. */
@@ -259,7 +262,7 @@ export class MfaService {
   }
 
   /** An admin's switch: off for anyone (unless the account requires it), on for anyone with a phone to text. */
-  async setByAdmin(userId: string, enabled: boolean): Promise<User> {
+  async setByAdmin(userId: string, enabled: boolean, caller?: JwtUser): Promise<User> {
     const user = await this.find(userId);
     if (enabled) {
       if (isSubcontractor(user)) throw new BadRequestException('A subcontractor cannot sign in, so there is no sign-in to protect.');
@@ -269,7 +272,13 @@ export class MfaService {
         "Two-factor authentication is required by the account. For a lost phone, change the person's phone instead.",
       );
     }
-    return this.write(userId, enabled);
+    const updated = await this.write(userId, enabled);
+    if (caller) {
+      await this.audit?.record(caller, 'user.mfa_changed', auditTargetOf(user), {
+        smsMfaEnabled: { from: user.smsMfaEnabled === true, to: enabled },
+      });
+    }
+    return updated;
   }
 
   /** Whether the account's requirement reaches this person: everyone but a subcontractor. */

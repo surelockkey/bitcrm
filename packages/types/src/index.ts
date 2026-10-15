@@ -51,6 +51,13 @@ export {
   UpdateSecuritySettingsRequest,
   DEFAULT_SECURITY_SETTINGS,
 } from './entities/security-settings.entity';
+export { ADMIN_AUDIT_ACTIONS } from './entities/admin-audit.entity';
+export type {
+  AdminAuditAction,
+  AdminAuditTargetType,
+  AdminAuditChange,
+  AdminAuditEntry,
+} from './entities/admin-audit.entity';
 export { Role } from './entities/role.entity';
 export { Contact } from './entities/contact.entity';
 export { ContactNote, CONTACT_NOTE_MAX_LENGTH } from './entities/contact-note.entity';

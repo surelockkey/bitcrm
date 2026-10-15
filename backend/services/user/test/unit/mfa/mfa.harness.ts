@@ -79,6 +79,7 @@ export function make(stored: User = user(), options: HarnessOptions = {}) {
     available: options.emailAvailable ?? true,
     send: jest.fn(async () => undefined),
   };
+  const audit = { record: jest.fn(async () => undefined) };
   const svc = new MfaService(
     { client: redis } as never,
     repository as never,
@@ -87,6 +88,7 @@ export function make(stored: User = user(), options: HarnessOptions = {}) {
     security as never,
     usersService as never,
     emailCodes as never,
+    audit as never,
   );
-  return { svc, redis, repository, cache, verify, security, usersService, emailCodes, current: () => current };
+  return { svc, redis, repository, cache, verify, security, usersService, emailCodes, audit, current: () => current };
 }

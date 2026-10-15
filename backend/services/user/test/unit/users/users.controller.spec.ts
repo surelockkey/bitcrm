@@ -263,4 +263,12 @@ describe('UsersController', () => {
     expect(result).toEqual(resolved);
     expect(service.getResolvedPermissions).toHaveBeenCalledWith('user-1');
   });
+
+  it('POST /:id/invite passes the caller on — the re-send goes in the admin trail', async () => {
+    const caller = createMockJwtUser();
+    service.resendInvite = jest.fn(async () => undefined);
+
+    await expect(controller.resendInvite('user-1', caller)).resolves.toEqual({ success: true, data: null });
+    expect(service.resendInvite).toHaveBeenCalledWith('user-1', caller);
+  });
 });

@@ -41,9 +41,11 @@ describe('MfaController', () => {
   it('PUT /:id/mfa is an admin\'s switch for someone else', async () => {
     const { controller, mfa } = make();
 
-    const res = await controller.setForUser('u-9', { enabled: false });
+    const admin = { id: 'u-admin', cognitoSub: 's', email: 'a@x.y', roleId: 'role-admin', department: 'office' };
+    const res = await controller.setForUser('u-9', { enabled: false }, admin);
 
-    expect(mfa.setByAdmin).toHaveBeenCalledWith('u-9', false);
+    // The admin goes along: the service records who switched it.
+    expect(mfa.setByAdmin).toHaveBeenCalledWith('u-9', false, admin);
     expect(res.data).toEqual({ id: 'u-9', smsMfaEnabled: false });
   });
 

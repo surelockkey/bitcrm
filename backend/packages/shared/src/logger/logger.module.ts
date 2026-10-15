@@ -3,6 +3,7 @@ import { LoggerModule as PinoLoggerModule } from 'nestjs-pino';
 import { REDACT_PATHS } from './logger.constants';
 import { CorrelationMiddleware } from './correlation.middleware';
 import { buildLogTransport } from './log-transport';
+import { requestLogProps } from './request-log-props';
 
 export interface LoggerModuleConfig {
   serviceName: string;
@@ -31,8 +32,9 @@ export class LoggerModule implements NestModule {
             // Use the trace ID set by CorrelationMiddleware
             genReqId: (req) => (req as any).id,
 
-            // Rename pino-http's default 'reqId' to 'traceId'
-            customProps: (req) => ({ traceId: (req as any).id }),
+            // 'traceId' (pino-http's 'reqId', renamed) and, on the completed
+            // line, who made the request — see requestLogProps.
+            customProps: requestLogProps,
 
             // Redact sensitive values
             redact: {
@@ -45,8 +47,6 @@ export class LoggerModule implements NestModule {
               req: (req) => ({
                 method: req.method,
                 url: req.url,
-                userId: req.raw?.user?.id,
-                roleId: req.raw?.user?.roleId,
               }),
               res: (res) => ({
                 statusCode: res.statusCode,
