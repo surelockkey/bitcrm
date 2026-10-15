@@ -290,6 +290,19 @@ describe('BridgeService — progress', () => {
     await expect(service.statusFor('b-1', 'tech-1')).resolves.toEqual({ state: 'ringing_you' });
   });
 
+  // Progress is a courtesy to the polling phone, never a dependency of the
+  // call: ringTechnician writes it around calls.create, and a Redis blip there
+  // must not fail the POST — after calls.create that would release the bridge
+  // while the technician's phone is already ringing.
+  it('never fails the call over a progress write: track and rememberLeg swallow a Redis error', async () => {
+    const { service, redis } = makeService();
+    (redis.client.hset as jest.Mock).mockRejectedValueOnce(new Error('ECONNRESET'));
+    await expect(service.track('b-1', 'tech-1')).resolves.toBeUndefined();
+
+    (redis.client.hset as jest.Mock).mockRejectedValueOnce(new Error('ECONNRESET'));
+    await expect(service.rememberLeg('b-1', 'CA-1')).resolves.toBeUndefined();
+  });
+
   it('answers only the user who started the bridge', async () => {
     const { service } = makeService();
     await service.track('b-1', 'tech-1');

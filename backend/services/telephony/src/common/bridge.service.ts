@@ -255,16 +255,28 @@ export class BridgeService {
    * would leave the phone ringing for nobody.
    */
   async track(bridgeId: string, ownerId: string): Promise<void> {
-    await this.redis.client.hset(bridgeStateKey(bridgeId), {
-      state: 'ringing_you',
-      ownerId,
-    });
-    await this.redis.client.expire(bridgeStateKey(bridgeId), CONTEXT_TTL_SECONDS);
+    try {
+      await this.redis.client.hset(bridgeStateKey(bridgeId), {
+        state: 'ringing_you',
+        ownerId,
+      });
+      await this.redis.client.expire(bridgeStateKey(bridgeId), CONTEXT_TTL_SECONDS);
+    } catch (error) {
+      // A courtesy to the polling phone, never a reason to fail the call.
+      this.logger.warn(`Bridge ${bridgeId}: progress not opened: ${error instanceof Error ? error.message : error}`);
+    }
   }
 
   /** The technician's leg, once Twilio has named it — what Cancel hangs up. */
   async rememberLeg(bridgeId: string, legSid: string): Promise<void> {
-    await this.redis.client.hset(bridgeStateKey(bridgeId), { legSid });
+    try {
+      await this.redis.client.hset(bridgeStateKey(bridgeId), { legSid });
+    } catch (error) {
+      // Called after calls.create: throwing here would release the bridge
+      // while the technician's phone already rings. Cancel then falls back to
+      // the answer claim, as it did before the leg was remembered.
+      this.logger.warn(`Bridge ${bridgeId}: ringing leg not remembered: ${error instanceof Error ? error.message : error}`);
+    }
   }
 
   /** The technician's leg on this bridge, or null. */
