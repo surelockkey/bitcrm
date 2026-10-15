@@ -4,6 +4,12 @@ import { type TechnicianLocation } from '@bitcrm/types';
 import { TechniciansService } from '../technicians.service';
 
 const PREFIX = 'tech:location:';
+/**
+ * The phone's location setting, beside the position. Not a sub-key of
+ * `tech:location:` on purpose: neither SCAN pattern may pick up the other's
+ * keys (`tech:location:*` does not match `tech:location-state:…`).
+ */
+const STATE_PREFIX = 'tech:location-state:';
 
 /**
  * How long the last fix outlives the last report. The dispatch map dims a pin
@@ -24,13 +30,45 @@ export interface LocationInput {
   accuracy?: number;
 }
 
+/** What the OS lets the app do with location: Expo's `PermissionStatus`. */
+export const LOCATION_PERMISSIONS = ['granted', 'denied', 'undetermined'] as const;
+export type LocationPermission = (typeof LOCATION_PERMISSIONS)[number];
+
+export interface LocationStateInput {
+  permission: LocationPermission;
+  /** False when the phone gives only an approximate position (iOS "Precise Location" off). */
+  precise?: boolean;
+  /** Whether the app may read the location in the background ("Always"). */
+  background?: boolean;
+}
+
 /**
- * Technician positions, self-reported while the app is open.
+ * Whether a technician's phone lets the app read its location (owner,
+ * 2026-10-15): the dispatch map says "Location off on the phone" instead of
+ * leaving a pin that simply stopped moving for the dispatcher to puzzle over.
+ */
+export interface TechnicianLocationState extends LocationStateInput {
+  userId: string;
+  /**
+   * When the phone's state last CHANGED — a phone repeating the same state on
+   * every launch keeps it, so "Location off · 25 min ago" counts from when it
+   * went off.
+   */
+  updatedAt: string;
+}
+
+function sameState(a: LocationStateInput, b: LocationStateInput): boolean {
+  return a.permission === b.permission && a.precise === b.precise && a.background === b.background;
+}
+
+/**
+ * Technician positions, self-reported while the app is open — and, beside
+ * them, whether the phone lets the app read its location at all.
  *
  * Every write and every read goes through one rule — the card's "Track
  * location", never a subcontractor (`TechniciansService.isLocationTracked`):
- * a fix from someone who is not tracked is accepted and dropped, and a key
- * that lingers for them is never listed.
+ * a fix (or a phone state) from someone who is not tracked is accepted and
+ * dropped, and a key that lingers for them is never listed.
  */
 @Injectable()
 export class TechnicianLocationService {
@@ -41,6 +79,10 @@ export class TechnicianLocationService {
 
   private key(userId: string): string {
     return `${PREFIX}${userId}`;
+  }
+
+  private stateKey(userId: string): string {
+    return `${STATE_PREFIX}${userId}`;
   }
 
   /**
@@ -81,39 +123,96 @@ export class TechnicianLocationService {
     return raw ? (JSON.parse(raw) as TechnicianLocation) : null;
   }
 
+  /**
+   * Go offline (sign-out): the position goes, and the phone's state with it —
+   * signed out, the phone shares nothing for a reason that is not its
+   * setting, and the map must not keep saying "Location off on the phone".
+   */
   async clearLocation(userId: string): Promise<void> {
-    await this.redis.client.del(this.key(userId));
+    await this.redis.client.del(this.key(userId), this.stateKey(userId));
   }
 
   /** Every tracked technician with a live fix, for the dispatch map. */
   async listLocations(): Promise<TechnicianLocation[]> {
-    const keys = await this.scanKeys();
+    return this.listTracked<TechnicianLocation>(PREFIX);
+  }
+
+  /**
+   * Store what the phone says about its location setting, kept as long as a
+   * position (`LOCATION_TTL_SECONDS` after the last report). `null` when the
+   * person is not tracked — a subcontractor, or Track location off: nothing
+   * is stored and an earlier state of theirs goes, as with a fix.
+   */
+  async setLocationState(
+    userId: string,
+    input: LocationStateInput,
+  ): Promise<TechnicianLocationState | null> {
+    if (!(await this.technicians.isLocationTracked(userId))) {
+      await this.redis.client.del(this.stateKey(userId));
+      return null;
+    }
+
+    const previousRaw = await this.redis.client.get(this.stateKey(userId));
+    const previous = previousRaw ? (JSON.parse(previousRaw) as TechnicianLocationState) : null;
+    // Built field by field: only what the contract names is stored.
+    const next: LocationStateInput = {
+      permission: input.permission,
+      ...(input.precise !== undefined && { precise: input.precise }),
+      ...(input.background !== undefined && { background: input.background }),
+    };
+    const state: TechnicianLocationState = {
+      userId,
+      ...next,
+      updatedAt:
+        previous && sameState(previous, next) ? previous.updatedAt : new Date().toISOString(),
+    };
+
+    await this.redis.client.set(
+      this.stateKey(userId),
+      JSON.stringify(state),
+      'EX',
+      LOCATION_TTL_SECONDS,
+    );
+
+    return state;
+  }
+
+  /** Every tracked technician's phone state, for the dispatch map. */
+  async listLocationStates(): Promise<TechnicianLocationState[]> {
+    return this.listTracked<TechnicianLocationState>(STATE_PREFIX);
+  }
+
+  /**
+   * Every value under a prefix whose owner is tracked: a key that lingers for
+   * someone who no longer is (Track location switched off, a subcontractor)
+   * is never listed.
+   */
+  private async listTracked<T extends { userId: string }>(prefix: string): Promise<T[]> {
+    const keys = await this.scanKeys(prefix);
     if (keys.length === 0) return [];
 
     const raw = await this.redis.client.mget(...keys);
-    const stored = raw
-      .filter((v): v is string => v !== null)
-      .map((v) => JSON.parse(v) as TechnicianLocation);
+    const stored = raw.filter((v): v is string => v !== null).map((v) => JSON.parse(v) as T);
 
     const tracked = await Promise.all(
-      stored.map((location) => this.technicians.isLocationTracked(location.userId)),
+      stored.map((value) => this.technicians.isLocationTracked(value.userId)),
     );
     return stored.filter((_, i) => tracked[i]);
   }
 
   /**
-   * Every live-location key, a page at a time. KEYS walks the whole keyspace
+   * Every key under a prefix, a page at a time. KEYS walks the whole keyspace
    * in one call and blocks Redis for everyone while it does; SCAN may hand a
    * key back twice across pages, so the result is a set.
    */
-  private async scanKeys(): Promise<string[]> {
+  private async scanKeys(prefix: string): Promise<string[]> {
     const found = new Set<string>();
     let cursor = '0';
     do {
       const [next, keys] = await this.redis.client.scan(
         cursor,
         'MATCH',
-        `${PREFIX}*`,
+        `${prefix}*`,
         'COUNT',
         SCAN_COUNT,
       );
