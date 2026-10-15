@@ -72,6 +72,19 @@ export interface TechnicianEligibilityInfo {
 }
 
 /**
+ * One person on Inventory → User locations: who they are and their role — no
+ * email, no phone. What a role that works the vans (`containers.view`) sees of
+ * the team without the user directory (`users.view`).
+ */
+export interface UserRosterEntry {
+  id: string;
+  firstName: string;
+  lastName: string;
+  workizName?: string;
+  roleId: string;
+}
+
+/**
  * A teammate reduced to what a name join needs. Deliberately NOT a `Partial<User>`
  * — the point is that nothing else can be added by accident.
  */
@@ -754,6 +767,22 @@ export class UsersService implements OnModuleInit {
    *    particular not a teammate's personal phone, which the call log treats
    *    as identifying.
    */
+  /** The active people for Inventory → User locations, by name — see `UserRosterEntry`. */
+  async locationRoster(): Promise<UserRosterEntry[]> {
+    const shown = (u: { workizName?: string; firstName?: string; lastName?: string }) =>
+      (u.workizName || `${u.firstName ?? ''} ${u.lastName ?? ''}`).trim().toLowerCase();
+    return (await this.listAllUsers())
+      .filter((u) => u.status === UserStatus.ACTIVE)
+      .sort((a, b) => shown(a).localeCompare(shown(b)))
+      .map((u) => ({
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        ...(u.workizName && { workizName: u.workizName }),
+        roleId: u.roleId,
+      }));
+  }
+
   async namesByIds(ids: string[]): Promise<UserName[]> {
     const wanted = [...new Set((ids ?? []).filter((id) => typeof id === 'string' && id))]
       .slice(0, MAX_NAME_LOOKUP);
