@@ -50,51 +50,11 @@ export function lineCosts(
 }
 
 /**
- * Client-price adjustment band off the price book (story 5.05: ±15%) — the
- * same number as the web's `PRICE_BAND` (apps/web/features/deals/lib.ts).
- */
-export const PRICE_BAND = 0.15;
-
-/** Float slack at the band's edges, as the web's `isPriceInBand` allows. */
-const BAND_EPSILON = 1e-6;
-
-const usd = (n: number): string =>
-  `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-/**
- * A line carried over from Workiz, by either marker the importer sets:
- * `fulfillment: 'imported'` on the product lines, `priceSource: 'imported'`
- * on the service lines (which keep `fulfillment: 'service'`).
- */
-export function isImportedLine(
-  line?: Pick<DealProduct, 'fulfillment' | 'priceSource'> | null,
-): boolean {
-  return line?.fulfillment === 'imported' || line?.priceSource === 'imported';
-}
-
-/**
- * Whether the band judges this write. Every added single line and every edit
- * is judged, except a line edited in place at the price it was given apart
- * from the price book: an imported Workiz line (most historical lines sit
- * outside today's band, and flagging them would make them unsavable) or an
- * item group's line (`keepsGroupPrice`). The exemption waives the band for
- * that price only: a new price typed on the line, or a swap to another item,
- * is judged. The web dialog's rule (`priceBandApplies` + `price === storedPrice`).
- */
-export function priceBandApplies(
-  line: { productId: string; priceClient: number },
-  existing?: Pick<DealProduct, 'productId' | 'priceClient' | 'fulfillment' | 'priceSource'> | null,
-): boolean {
-  if (!existing) return true;
-  const inPlace = line.productId === existing.productId && line.priceClient === existing.priceClient;
-  return !(inPlace && (isImportedLine(existing) || keepsGroupPrice(line, existing)));
-}
-
-/**
  * A line an item group added (`priceSource: 'group'`), edited in place at the
- * group's price. The group set that price apart from the price book, so the
- * band does not judge it — as long as the line keeps it. A new price, or a
- * swap to another item, is judged and ends the exemption.
+ * group's price: the line still carries the group's price, so it keeps the
+ * marker. A new price, or a swap to another item, makes it an ordinary line.
+ * Provenance only — no rule judges a line's price (owner, 2026-10-15: anyone
+ * may set any price, below zero too); the mobile app reads the marker.
  */
 export function keepsGroupPrice(
   line: { productId: string; priceClient: number },
@@ -104,25 +64,6 @@ export function keepsGroupPrice(
     existing.priceSource === 'group' &&
     line.productId === existing.productId &&
     line.priceClient === existing.priceClient
-  );
-}
-
-/**
- * The client price must stay within ±15% of the price book's `priceClient`
- * (400 otherwise) — for a TECHNICIAN; the office sets any price, below zero
- * too (Workiz: "Approved Discount" lines), and the callers decide who is who
- * (`isTechnicianScope`). An item the price book holds no price for is not
- * judged. The band is 15 % of the price's SIZE either side, so a price book
- * price below zero (62 Workiz items) brackets itself: −100 → −115 … −85.
- */
-export function assertPriceInBand(price: number, catalogPrice: unknown): void {
-  if (typeof catalogPrice !== 'number' || !Number.isFinite(catalogPrice)) return;
-  const span = Math.abs(catalogPrice) * PRICE_BAND;
-  const min = catalogPrice - span;
-  const max = catalogPrice + span;
-  if (price >= min - BAND_EPSILON && price <= max + BAND_EPSILON) return;
-  throw new BadRequestException(
-    `Price must be between ${usd(min)} and ${usd(max)} (±15% of the price book)`,
   );
 }
 

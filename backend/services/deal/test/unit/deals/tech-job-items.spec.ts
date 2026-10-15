@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, HttpException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, HttpException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { GeocodingService, SnsPublisherService } from '@bitcrm/shared';
 import { DataScope, TimelineEventType } from '@bitcrm/types';
@@ -243,185 +243,108 @@ describe('DealsService — a technician adds, edits and removes items on his own
     });
   });
 
-  /* ------------------------------------------------------ the ±15% band */
+  /* ------------------------------------------- any price, by anyone */
 
-  describe('the client price stays within ±15% of the price book (as the web dialog holds it)', () => {
-    // Catalog $45.00 → $38.25 … $51.75.
-    const BAND_45 = 'Price must be between $38.25 and $51.75 (±15% of the price book)';
+  describe('a line takes any price — the technician and the office alike (owner, 2026-10-15)', () => {
+    const dispatcher = createMockJwtUser({ id: 'dispatcher-1', roleId: 'role-dispatcher' });
+    const admin = createMockJwtUser({ id: 'admin-1', roleId: 'role-admin' });
 
-    const refusal = async (promise: Promise<unknown>) => {
-      const err = (await promise.then(() => undefined, (e: unknown) => e)) as Error;
-      expect(err).toBeInstanceOf(BadRequestException);
-      return err.message as string;
-    };
+    /** The prices the lines were written with, in order. */
+    const writtenPrices = () => products.addProduct.mock.calls.map(([, l]: [string, any]) => l.priceClient);
 
-    it('refuses an added line priced above the band — 400, nothing deducted or written', async () => {
+    it('a technician adds a line far above, far below, at zero and below zero the price book ($45)', async () => {
       repo.findById.mockResolvedValue(onHisJob());
 
-      expect(await refusal(service.addProduct('deal-1', { ...phoneLine, priceClient: 52 } as any, tech, DataScope.ASSIGNED_ONLY))).toBe(BAND_45);
-      expect(http.deductStock).not.toHaveBeenCalled();
-      expect(products.addProduct).not.toHaveBeenCalled();
+      for (const priceClient of [999, 1, 0, -25]) {
+        await service.addProduct('deal-1', { ...phoneLine, priceClient } as any, tech, DataScope.ASSIGNED_ONLY);
+      }
+
+      expect(writtenPrices()).toEqual([999, 1, 0, -25]);
     });
 
-    it('refuses an added line priced below the band', async () => {
-      repo.findById.mockResolvedValue(onHisJob());
-
-      expect(await refusal(service.addProduct('deal-1', { ...phoneLine, priceClient: 38 } as any, tech, DataScope.ASSIGNED_ONLY))).toBe(BAND_45);
-    });
-
-    it('accepts both edges of the band', async () => {
-      repo.findById.mockResolvedValue(onHisJob());
-
-      await service.addProduct('deal-1', { ...phoneLine, priceClient: 38.25 } as any, tech, DataScope.ASSIGNED_ONLY);
-      await service.addProduct('deal-1', { ...phoneLine, priceClient: 51.75 } as any, tech, DataScope.ASSIGNED_ONLY);
-
-      expect(products.addProduct).toHaveBeenCalledTimes(2);
-    });
-
-    it('holds for service and to-order lines too', async () => {
+    it('a technician prices a service line and a to-order line as he likes', async () => {
       repo.findById.mockResolvedValue(onHisJob());
       http.getProduct.mockResolvedValue({ ...catalog, type: 'service' });
+      await service.addProduct('deal-1', { ...phoneLine, fulfillment: 'service', priceClient: 90 } as any, tech, DataScope.ASSIGNED_ONLY);
 
-      await expect(
-        service.addProduct('deal-1', { ...phoneLine, fulfillment: 'service', priceClient: 90 } as any, tech, DataScope.ASSIGNED_ONLY),
-      ).rejects.toThrow(BadRequestException);
+      // A to-order line of a product his van does not count (the container rule is not the price's).
+      http.getProduct.mockResolvedValue({ ...catalog, manageStock: false });
+      await service.addProduct('deal-1', { ...phoneLine, fulfillment: 'to_order', priceClient: -40 } as any, tech, DataScope.ASSIGNED_ONLY);
 
-      http.getProduct.mockResolvedValue(catalog);
-      await expect(
-        service.addProduct('deal-1', { ...phoneLine, fulfillment: 'to_order', priceClient: 90 } as any, tech, DataScope.ASSIGNED_ONLY),
-      ).rejects.toThrow(BadRequestException);
-      expect(products.addProduct).not.toHaveBeenCalled();
+      expect(writtenPrices()).toEqual([90, -40]);
     });
 
-    it('prints the band in dollars with thousands separators', async () => {
-      repo.findById.mockResolvedValue(onHisJob());
-      http.getProduct.mockResolvedValue({ ...catalog, priceClient: 2000 });
-
-      expect(await refusal(service.addProduct('deal-1', { ...phoneLine, priceClient: 1 } as any, tech, DataScope.ASSIGNED_ONLY))).toBe(
-        'Price must be between $1,700.00 and $2,300.00 (±15% of the price book)',
-      );
-    });
-
-    it('judges nothing when the price book has no price for the item', async () => {
-      repo.findById.mockResolvedValue(onHisJob());
-      http.getProduct.mockResolvedValue({ ...catalog, priceClient: undefined });
-
-      await service.addProduct('deal-1', { ...phoneLine, priceClient: 500 } as any, tech, DataScope.ASSIGNED_ONLY);
-
-      expect(products.addProduct).toHaveBeenCalled();
-    });
-
-    it('refuses an edit priced out of the band before any stock moves', async () => {
+    it('a technician edits a line to any price, below zero included', async () => {
       repo.findById.mockResolvedValue(onHisJob());
       products.findProduct.mockResolvedValue(createMockDealProduct({ sourceTechId: 'tech-1' }));
 
-      expect(
-        await refusal(service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: 60 } as any, tech, DataScope.ASSIGNED_ONLY)),
-      ).toBe(BAND_45);
-      expect(http.restoreStock).not.toHaveBeenCalled();
-      expect(http.deductStock).not.toHaveBeenCalled();
-      expect(products.addProduct).not.toHaveBeenCalled();
+      await service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: -60 } as any, tech, DataScope.ASSIGNED_ONLY);
+
+      expect(written()).toMatchObject({ priceClient: -60 });
     });
 
-    it('judges a BitCRM line by today\'s price book even when its price is unchanged', async () => {
-      // The web dialog does the same: only an imported line is exempt.
+    it("a technician saves a line priced away from today's price book without touching its price", async () => {
       repo.findById.mockResolvedValue(onHisJob());
       products.findProduct.mockResolvedValue(createMockDealProduct({ sourceTechId: 'tech-1', priceClient: 60 }));
 
-      await expect(
-        service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: 60, quantity: 2 } as any, tech, DataScope.ASSIGNED_ONLY),
-      ).rejects.toThrow(BadRequestException);
+      await service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: 60, quantity: 2 } as any, tech, DataScope.ASSIGNED_ONLY);
+
+      expect(written()).toMatchObject({ priceClient: 60, quantity: 2 });
     });
 
-    describe('a line imported from Workiz keeps the price Workiz recorded', () => {
+    it('a technician re-prices a line imported from Workiz, and swaps it for another item at any price', async () => {
       const imported = (over = {}) =>
         createMockDealProduct({ fulfillment: 'imported', sourceTechId: undefined, priceClient: 99, ...over });
+      repo.findById.mockResolvedValue(onHisJob());
 
-      it('saves an in-place edit whose price is unchanged, however far from the catalog', async () => {
-        repo.findById.mockResolvedValue(onHisJob());
-        products.findProduct.mockResolvedValue(imported());
+      products.findProduct.mockResolvedValue(imported());
+      await service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: 98 } as any, tech, DataScope.ASSIGNED_ONLY);
 
-        await service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: 99, quantity: 2 } as any, tech, DataScope.ASSIGNED_ONLY);
+      products.findProduct.mockResolvedValue(imported({ productId: 'product-9' }));
+      await service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: 500 } as any, tech, DataScope.ASSIGNED_ONLY);
 
-        expect(written()).toMatchObject({ priceClient: 99, quantity: 2 });
-      });
-
-      it('exempts a service line marked by priceSource as well', async () => {
-        repo.findById.mockResolvedValue(onHisJob());
-        products.findProduct.mockResolvedValue(
-          imported({ fulfillment: 'service', priceSource: 'imported' }),
-        );
-        http.getProduct.mockResolvedValue({ ...catalog, type: 'service' });
-
-        await service.replaceProduct(
-          'deal-1', 'line-1',
-          { ...phoneLine, fulfillment: 'service', sourceTechId: undefined, priceClient: 99 } as any,
-          tech,
-        );
-
-        expect(written()).toMatchObject({ priceClient: 99 });
-      });
-
-      it('judges a new price typed on it', async () => {
-        repo.findById.mockResolvedValue(onHisJob());
-        products.findProduct.mockResolvedValue(imported());
-
-        expect(
-          await refusal(service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: 98 } as any, tech, DataScope.ASSIGNED_ONLY)),
-        ).toBe(BAND_45);
-      });
-
-      it('judges it once it is swapped for another item', async () => {
-        repo.findById.mockResolvedValue(onHisJob());
-        products.findProduct.mockResolvedValue(imported({ productId: 'product-9' }));
-
-        await expect(
-          service.replaceProduct('deal-1', 'line-1', { ...phoneLine, priceClient: 99 } as any, tech, DataScope.ASSIGNED_ONLY),
-        ).rejects.toThrow(BadRequestException);
-      });
+      expect(writtenPrices()).toEqual([98, 500]);
     });
 
-    describe('binds a technician only — the office sets any price (owner, 2026-10-14)', () => {
-      const dispatcher = createMockJwtUser({ id: 'dispatcher-1', roleId: 'role-dispatcher' });
-      const admin = createMockJwtUser({ id: 'admin-1', roleId: 'role-admin' });
+    it('a credit item of the price book (Workiz "Approved Discount" −100) takes any credit, and any charge', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+      http.getProduct.mockResolvedValue({ ...catalog, type: 'service', priceClient: -100 });
 
-      it('a dispatcher (department scope) adds far above, far below and below zero', async () => {
-        repo.findById.mockResolvedValue(onHisJob());
-        for (const priceClient of [999, 1, -25]) {
-          await service.addProduct('deal-1', { ...phoneLine, fulfillment: 'to_order', priceClient } as any, dispatcher, DataScope.DEPARTMENT);
-        }
-        expect(products.addProduct).toHaveBeenCalledTimes(3);
-        expect(products.addProduct.mock.calls.map(([, l]: [string, any]) => l.priceClient)).toEqual([999, 1, -25]);
-      });
+      for (const priceClient of [-50, -900, 20]) {
+        await service.addProduct('deal-1', { ...phoneLine, fulfillment: 'service', priceClient } as any, tech, DataScope.ASSIGNED_ONLY);
+      }
 
-      it('an admin (all scope) edits a line to a negative price', async () => {
-        repo.findById.mockResolvedValue(onHisJob());
-        products.findProduct.mockResolvedValue(createMockDealProduct({ fulfillment: 'to_order' }));
-        await service.replaceProduct('deal-1', 'line-1', { ...phoneLine, fulfillment: 'to_order', priceClient: -100 } as any, admin, DataScope.ALL);
-        expect(written()).toMatchObject({ priceClient: -100 });
-      });
-
-      it('a caller whose scope is unknown is not a technician either', async () => {
-        repo.findById.mockResolvedValue(onHisJob());
-        await service.addProduct('deal-1', { ...phoneLine, fulfillment: 'to_order', priceClient: 999 } as any, admin);
-        expect(written()).toMatchObject({ priceClient: 999 });
-      });
+      expect(writtenPrices()).toEqual([-50, -900, 20]);
     });
 
-    describe('a negative price book price (Workiz: "Approved Discount" −100) has a band of its own', () => {
-      it('brackets the catalog price by 15 % of its size: −115 … −85', async () => {
-        repo.findById.mockResolvedValue(onHisJob());
-        http.getProduct.mockResolvedValue({ ...catalog, type: 'service', priceClient: -100 });
-
-        await service.addProduct('deal-1', { ...phoneLine, fulfillment: 'service', priceClient: -90 } as any, tech, DataScope.ASSIGNED_ONLY);
-        expect(written()).toMatchObject({ priceClient: -90 });
-
-        expect(await refusal(service.addProduct('deal-1', { ...phoneLine, fulfillment: 'service', priceClient: -50 } as any, tech, DataScope.ASSIGNED_ONLY))).toBe(
-          'Price must be between $-115.00 and $-85.00 (±15% of the price book)',
-        );
-      });
+    it('a dispatcher (department scope) adds far above, far below and below zero', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+      for (const priceClient of [999, 1, -25]) {
+        await service.addProduct('deal-1', { ...phoneLine, fulfillment: 'to_order', priceClient } as any, dispatcher, DataScope.DEPARTMENT);
+      }
+      expect(writtenPrices()).toEqual([999, 1, -25]);
     });
 
+    it('an admin (all scope) edits a line to a negative price', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+      products.findProduct.mockResolvedValue(createMockDealProduct({ fulfillment: 'to_order' }));
+      await service.replaceProduct('deal-1', 'line-1', { ...phoneLine, fulfillment: 'to_order', priceClient: -100 } as any, admin, DataScope.ALL);
+      expect(written()).toMatchObject({ priceClient: -100 });
+    });
+
+    it('the price is the line\'s own: the price book is only read, never written', async () => {
+      repo.findById.mockResolvedValue(onHisJob());
+
+      await service.addProduct('deal-1', { ...phoneLine, priceClient: 70 } as any, tech, DataScope.ASSIGNED_ONLY);
+
+      expect(written()).toMatchObject({ productId: 'product-1', priceClient: 70 });
+      // Inventory hears a read of the item and the van's deduction — nothing else.
+      const called = Object.entries(http)
+        .filter(([, fn]) => (fn as jest.Mock).mock.calls.length > 0)
+        .map(([name]) => name)
+        .sort();
+      expect(called).toEqual(['deductStock', 'getProduct']);
+    });
   });
 
   /* ------------------------------------------------- no container at all */

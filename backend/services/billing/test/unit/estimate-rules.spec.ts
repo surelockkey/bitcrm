@@ -161,6 +161,14 @@ describe('estimate totals', () => {
     expect(totals.lineCount).toBe(2);
   });
 
+  it('totals a negative line (owner, 2026-10-15: any price): off the subtotal and the taxed amount', () => {
+    const totals = estimateTotals(estimate({ taxRatePercent: 10 }), [
+      item('a', 0),
+      item('b', 1, { quantity: 2, priceClient: -25 }),
+    ]);
+    expect(totals).toMatchObject({ subtotal: 50, taxableBase: 50, tax: 5, total: 55 });
+  });
+
   it('charges no tax when exempt', () => {
     const totals = estimateTotals(estimate({ taxRatePercent: 10, taxSource: 'exempt' }), [item('a', 0)]);
     expect(totals.tax).toBe(0);

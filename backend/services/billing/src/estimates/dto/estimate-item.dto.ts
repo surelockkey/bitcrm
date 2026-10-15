@@ -47,9 +47,10 @@ export class EstimateItemDto {
   @Min(1)
   quantity!: number;
 
-  @ApiProperty({ example: 45 })
+  // Any price, below zero too — a credit line, as a job line may be
+  // (deal-service AddDealProductDto). Owner, 2026-10-15.
+  @ApiProperty({ example: 45, description: 'The line\'s client price; may be below zero (a credit line).' })
   @IsNumber()
-  @Min(0)
   priceClient!: number;
 
   @ApiProperty({ example: 15 })

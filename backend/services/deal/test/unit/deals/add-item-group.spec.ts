@@ -117,7 +117,7 @@ describe('DealsService — adding an item group to a job', () => {
     expect(byProduct('deadbolt')).not.toHaveProperty('customAttributes');
   });
 
-  it("does not judge the group's prices by the ±15% band — they are the group's", async () => {
+  it("writes the group's prices as they are, however far from the price book", async () => {
     // $2,040 for a $1,200 door, $185 for a $45 deadbolt.
     await ctx.service.addItemGroup('deal-1', 'group-1', {}, tech, TECH);
 
@@ -335,7 +335,7 @@ describe('DealsService — adding an item group to a job', () => {
       priceClient: 185,
     };
 
-    it("keeps the group's price, out of the band, while the line keeps it", async () => {
+    it("keeps the group's price (priceSource 'group') while the line keeps it", async () => {
       ctx.products.findProduct.mockResolvedValue(groupLine());
 
       await ctx.service.replaceProduct('deal-1', 'line-1', { ...edit, description: 'Satin nickel' } as any, dispatcher, OFFICE);
@@ -343,7 +343,7 @@ describe('DealsService — adding an item group to a job', () => {
       expect(lines()[0]).toMatchObject({ priceClient: 185, priceSource: 'group', itemGroupId: 'group-1' });
     });
 
-    it('a new price typed on it ends the group price; the office sets any, a technician is held to the band', async () => {
+    it('a new price typed on it ends the group price — the office and a technician alike set any', async () => {
       ctx.products.findProduct.mockResolvedValue(groupLine());
 
       await ctx.service.replaceProduct('deal-1', 'line-1', { ...edit, priceClient: 184 } as any, dispatcher, OFFICE);
@@ -351,9 +351,9 @@ describe('DealsService — adding an item group to a job', () => {
       expect(lines()[0]).toMatchObject({ priceClient: 184, itemGroupId: 'group-1' });
 
       ctx.products.findProduct.mockResolvedValue(groupLine());
-      await expect(
-        ctx.service.replaceProduct('deal-1', 'line-1', { ...edit, priceClient: 184 } as any, tech, DataScope.ASSIGNED_ONLY),
-      ).rejects.toThrow(BadRequestException);
+      await ctx.service.replaceProduct('deal-1', 'line-1', { ...edit, priceClient: -15 } as any, tech, DataScope.ASSIGNED_ONLY);
+      expect(lines()[1]).not.toHaveProperty('priceSource');
+      expect(lines()[1]).toMatchObject({ priceClient: -15, itemGroupId: 'group-1' });
     });
   });
 });

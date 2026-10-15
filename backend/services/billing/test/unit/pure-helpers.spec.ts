@@ -161,23 +161,39 @@ describe('ProfileAddressDto', () => {
 });
 
 describe('EstimateItemDto', () => {
-  const errorsFor = (quantity: number) =>
+  const errorsOf = (over: Record<string, unknown>) =>
     validateSync(
       plainToInstance(EstimateItemDto, {
         productId: 'p',
         name: 'Rekey',
         sku: 'RK',
-        quantity,
+        quantity: 1,
         priceClient: 10,
         costCompany: 1,
         costForTech: 1,
+        ...over,
       }),
     ).map((e) => e.property);
+  const errorsFor = (quantity: number) => errorsOf({ quantity });
 
   it('requires at least 1 of a line, like a job line (sync-to-job would refuse less)', () => {
     expect(errorsFor(1)).toEqual([]);
     expect(errorsFor(2.5)).toEqual([]);
     expect(errorsFor(0.5)).toEqual(['quantity']);
+  });
+
+  // Owner, 2026-10-15: whoever writes the line sets any price, even below zero —
+  // a credit line, as a job line already may be (deal-service AddDealProductDto).
+  it('takes any client price for the line, below zero and zero included', () => {
+    expect(errorsOf({ priceClient: -20 })).toEqual([]);
+    expect(errorsOf({ priceClient: -904.98 })).toEqual([]);
+    expect(errorsOf({ priceClient: 0 })).toEqual([]);
+    expect(errorsOf({ priceClient: 1_250.5 })).toEqual([]);
+  });
+
+  it('still wants the price to be a number', () => {
+    expect(errorsOf({ priceClient: 'free' })).toEqual(['priceClient']);
+    expect(errorsOf({ priceClient: Number.NaN })).toEqual(['priceClient']);
   });
 });
 
