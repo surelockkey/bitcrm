@@ -93,8 +93,22 @@ describe('DEFAULT_ROLES <-> RESOURCE_REGISTRY consistency', () => {
     expect(dm.dataScope.technicians).toBe('department');
   });
 
+  // The softphone (the header phone: make and take calls in the browser) is its
+  // own switch, so a role can keep the office's work without a phone — the
+  // owner's Logistics role (2026-10-15). The office's roles hold it; a
+  // technician calls from the app (the masked bridge), never the softphone.
+  it('gives the softphone to the office roles and not to Technician or Read Only', () => {
+    const byId = (id: string) => DEFAULT_ROLES.find((r) => r.id === id)!;
+    for (const id of ['role-super-admin', 'role-admin', 'role-dept-manager', 'role-dispatcher']) {
+      expect(byId(id).permissions.calls).toMatchObject({ phone: true });
+    }
+    for (const id of ['role-technician', 'role-read-only']) {
+      expect(byId(id).permissions.calls).toMatchObject({ phone: false });
+    }
+  });
+
   it('grants calls per the supervision policy (join = supervisory roles only)', () => {
-    expect(RESOURCE_REGISTRY.calls).toEqual(['view', 'join', 'block']);
+    expect(RESOURCE_REGISTRY.calls).toEqual(['view', 'join', 'block', 'phone']);
     const byId = (id: string) => DEFAULT_ROLES.find((r) => r.id === id)!;
     // supervisory tiers may listen/join live calls
     for (const id of ['role-super-admin', 'role-admin', 'role-dept-manager']) {

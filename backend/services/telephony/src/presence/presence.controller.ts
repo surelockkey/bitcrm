@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { CurrentUser } from '@bitcrm/shared';
+import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { PresenceService } from './presence.service';
 import { UserDirectoryService } from '../common/user-directory.service';
@@ -53,12 +53,13 @@ export class PresenceController {
   }
 
   @Post()
+  @RequirePermission('calls', 'phone')
   @ApiOperation({
     summary: 'Set / refresh the current agent softphone presence',
     description:
       'The browser calls this when the phone is switched on (online=true) and ' +
       'periodically as a heartbeat, and once with online=false on switch-off. ' +
-      'Online agents are the pool inbound calls ring.',
+      'Online agents are the pool inbound calls ring. **Guard:** `calls.phone` (the softphone switch).',
   })
   async set(@Body() dto: PresenceDto, @CurrentUser() user: JwtUser) {
     if (dto.online) {

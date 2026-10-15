@@ -10,7 +10,7 @@ describe('calls.block', () => {
   const byId = (id: string) => DEFAULT_ROLES.find((r) => r.id === id)!;
 
   it('is a registered action on calls', () => {
-    expect(RESOURCE_REGISTRY.calls).toEqual(['view', 'join', 'block']);
+    expect(RESOURCE_REGISTRY.calls).toEqual(['view', 'join', 'block', 'phone']);
   });
 
   it.each(['role-super-admin', 'role-admin', 'role-dept-manager', 'role-dispatcher'])('%s may block callers', (id) => {

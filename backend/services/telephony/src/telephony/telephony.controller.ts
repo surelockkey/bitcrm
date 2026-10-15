@@ -68,14 +68,15 @@ export class TelephonyController {
   }
 
   @Post('token')
+  @RequirePermission('calls', 'phone')
   @ApiOperation({
     summary: 'Mint a Twilio Voice access token for the browser softphone',
     description:
       'Returns a short-lived Twilio AccessToken (VoiceGrant) scoped to the ' +
       'current user as the client identity, and `iceServers` — Twilio STUN/TURN ' +
       'servers the browser hands to every call so audio gets through networks ' +
-      'that block direct UDP (absent when Twilio could not be asked). Any ' +
-      'authenticated user.',
+      'that block direct UDP (absent when Twilio could not be asked). ' +
+      '**Guard:** `calls.phone` (the softphone switch).',
   })
   async token(@CurrentUser() user: JwtUser) {
     const token = this.telephonyService.generateAccessToken(user.id);
