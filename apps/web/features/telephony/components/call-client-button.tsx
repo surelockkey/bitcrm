@@ -85,9 +85,13 @@ export function CallClientButton({
 }) {
   const [open, setOpen] = useState(false);
   const [placing, setPlacing] = useState(false);
-  const { can } = usePermissions();
+  const { can, isTechnician } = usePermissions();
   const status = useSoftphoneStore((s) => s.status);
   const setActiveNumber = useSoftphoneStore((s) => s.setActiveNumber);
+  // A role without the phone (calls.phone, e.g. Logistics) places no calls.
+  // A technician keeps the button: he reaches the client through the masked
+  // bridge (his own cell), not the softphone.
+  const mayCall = can("calls", "phone") || isTechnician;
 
   // Both are only worth fetching once somebody means to call.
   // On the masked path the picker never opens — the caller id belongs to the
@@ -102,7 +106,7 @@ export function CallClientButton({
 
   // A masked viewer has no number to render, so `to` is empty — but the button
   // is the only way left to reach the client and must survive that.
-  if (!to && !masked) return null;
+  if (!mayCall || (!to && !masked)) return null;
 
   const calls = history.data?.pages.flatMap((p) => p.data) ?? [];
   const recent = recentCallerIds(calls, to).slice(0, 4);

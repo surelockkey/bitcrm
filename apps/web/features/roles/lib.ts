@@ -78,6 +78,7 @@ export const ACTION_LABELS: Record<string, string> = {
   // calls: listen in on and join a live call; block a number (Blocked callers).
   join: "Listen & join",
   block: "Block callers",
+  phone: "Use phone",
   // messages: archive, flag, recategorise, mark unread.
   manage: "Manage",
   manage_groups: "Manage groups",
