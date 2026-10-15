@@ -838,8 +838,10 @@ export class UsersService implements OnModuleInit {
 
     const updatedUser = await this.repository.update(id, attrs);
 
-    // Sync department to Cognito if changed
-    if (dto.department) {
+    // Sync department to Cognito if changed — when there is an account to
+    // sync: an imported person has none until the invite makes it, and the
+    // invite writes the claim from this record.
+    if (dto.department && existingUser.cognitoSub) {
       await this.cognitoAdmin.updateUserAttributes(
         existingUser.cognitoSub,
         { 'custom:department': dto.department },
@@ -884,14 +886,16 @@ export class UsersService implements OnModuleInit {
       // The sign-in goes FIRST, and a failure stops the change: a person
       // marked a subcontractor who can still sign in is the one outcome this
       // must never leave behind. (Locked out but still a User is recoverable.)
-      await this.cognitoAdmin.disableUser(user.cognitoSub);
+      // A person with no account yet has no sign-in to take away.
+      if (user.cognitoSub) await this.cognitoAdmin.disableUser(user.cognitoSub);
       await this.permissionCacheReader.setUserDisabled(id);
     }
     const updated = await this.repository.update(id, { userType: type });
     if (type === 'regular' && user.status !== UserStatus.INACTIVE) {
       // After the write, for the same reason the other way round: a failure
       // here leaves a User who cannot sign in yet — Reactivate gives it back.
-      await this.cognitoAdmin.enableUser(user.cognitoSub);
+      // No account yet: the invite below makes one, switched on.
+      if (user.cognitoSub) await this.cognitoAdmin.enableUser(user.cognitoSub);
       await this.permissionCacheReader.removeUserDisabled(id);
       await this.cognitoAdmin.resendInvite(user.email).catch((err: Error) =>
         this.logger.log(
@@ -917,7 +921,8 @@ export class UsersService implements OnModuleInit {
     // The account first: a refused Cognito call (an IAM gap, dev 2026-10-14)
     // must not leave a record that says "inactive" over a person who can
     // still sign in. The record follows only once sign-in is really off.
-    await this.cognitoAdmin.disableUser(user.cognitoSub);
+    // A person with no account yet (imported, never invited) has none to switch off.
+    if (user.cognitoSub) await this.cognitoAdmin.disableUser(user.cognitoSub);
     await this.repository.update(id, { status: UserStatus.INACTIVE });
     await this.permissionCacheReader.setUserDisabled(id);
     await this.cache.invalidateUser(id);
@@ -932,7 +937,7 @@ export class UsersService implements OnModuleInit {
 
     // A subcontractor comes back to the team, not to the sign-in page. The
     // account first, the record after — as deactivate does it.
-    if (!isSubcontractor(user)) {
+    if (!isSubcontractor(user) && user.cognitoSub) {
       await this.cognitoAdmin.enableUser(user.cognitoSub);
     }
     await this.repository.update(id, { status: UserStatus.ACTIVE });
@@ -1047,9 +1052,12 @@ export class UsersService implements OnModuleInit {
       permissionOverrides: carried,
     });
 
-    await this.cognitoAdmin.updateUserAttributes(targetUser.cognitoSub, {
-      'custom:role_id': roleId,
-    });
+    // No account yet: the invite writes the role claim from the record.
+    if (targetUser.cognitoSub) {
+      await this.cognitoAdmin.updateUserAttributes(targetUser.cognitoSub, {
+        'custom:role_id': roleId,
+      });
+    }
 
     await this.cache.invalidateUser(userId);
     await this.rolesCache.invalidateUserPermissions(userId);
