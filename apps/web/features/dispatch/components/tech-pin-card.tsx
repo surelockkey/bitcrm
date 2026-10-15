@@ -22,13 +22,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { WzMapPinCard, WzMapPinCardRow } from "@/components/workiz/map-pin";
-import {
-  isInTimeOrder,
-  techJobProgress,
-  technicianAvailability,
-  type TechAvailability,
-  type TechnicianPosition,
-} from "../lib";
+import { isInTimeOrder, techJobProgress, technicianAvailability, type TechAvailability, type TechnicianPosition, formatAge } from "../lib";
 import { JOB_ZONE, lastSeenText, pinCardWhen, type JobZoneOf } from "../map-words";
 
 const AVAILABILITY_LABEL: Record<TechAvailability, string> = {
@@ -120,6 +114,7 @@ export function TechPinCard({
   onReorder,
   onSelectJob,
   onClose,
+  now,
 }: {
   position: TechnicianPosition;
   name: string;
@@ -136,6 +131,8 @@ export function TechPinCard({
   onReorder: (orderedDealIds: string[]) => void;
   onSelectJob: (dealId: string) => void;
   onClose: () => void;
+  /** When the fixes were read (the board's clock, as the roster's) — for "12 min ago". */
+  now?: number;
 }) {
   const availability = technicianAvailability(jobs, position);
   const progress = techJobProgress(jobs);
@@ -175,7 +172,8 @@ export function TechPinCard({
       {position.source === "live" && position.updatedAt ? (
         <p>
           <RowType>Last seen:</RowType>
-          {lastSeenText(position.updatedAt)}
+          {/* When, and how long ago: a fix from yesterday is still the last real position. */}
+          {now === undefined ? lastSeenText(position.updatedAt) : `${lastSeenText(position.updatedAt)} · ${formatAge(position.updatedAt, now)}`}
         </p>
       ) : (
         <p>
