@@ -70,7 +70,7 @@ export interface InitOutboundOptions {
   /** The job this call is about; linked immediately, not at read time. */
   dealId?: string;
   origin?: 'softphone' | 'bridge' | 'inbound';
-  callerIdSource?: 'agent' | 'history' | 'area' | 'default' | 'owned';
+  callerIdSource?: 'agent' | 'history' | 'recent' | 'area' | 'default' | 'owned';
   /**
    * The masked call this conference was opened for, kept in the meta so the
    * client leg's callbacks can tell the phone how the call went.

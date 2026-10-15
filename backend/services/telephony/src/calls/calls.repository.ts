@@ -179,8 +179,10 @@ export interface CallRecord {
   /**
    * Which rung of the caller-id chain won, so "why did this client see that
    * number?" is answerable from the log rather than by re-deriving the chain.
+   * `recent` = a masked call that showed the company number the client last
+   * talked to (a call or an SMS — `ClientNumberHistory`).
    */
-  callerIdSource?: 'agent' | 'history' | 'area' | 'default' | 'owned';
+  callerIdSource?: 'agent' | 'history' | 'recent' | 'area' | 'default' | 'owned';
   /**
    * Both sides' names, folded and newline apart — what the log's Search box
    * matches (call-search.ts). Written by `setPartyNames` only (never by

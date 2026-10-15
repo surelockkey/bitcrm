@@ -30,8 +30,9 @@ const OWNED_TTL_MS = 60_000;
  * deliberately:
  *
  *  - **Server-placed legs** (the masked bridge, the technician dial-in): the
- *    job's market number wins outright. That is the requirement — an Atlanta
- *    job's client is called from the Atlanta number, every time.
+ *    job's market number — an Atlanta job's client is called from the Atlanta
+ *    number. The masked bridge puts the numbers the client has been talking
+ *    to ahead of it (`recent`, 2026-10-15); the dial-in does not.
  *  - **The human dialer**: the agent's explicit pick wins, because the shipped
  *    rationale for the caller-id picker is that clients answer the number they
  *    already recognise, and only the system's own legs are "about a market".
@@ -56,9 +57,19 @@ export class CallerIdResolver {
     @Inject(TELEPHONY_CONFIG) private readonly config: TelephonyConfig,
   ) {}
 
-  /** The chain for a leg the SYSTEM places. Market first. */
-  async forServerLeg(deal?: DealForCall): Promise<ResolvedCallerId> {
+  /**
+   * The chain for a leg the SYSTEM places. Market first — unless the caller
+   * hands over `recent`: the company numbers this client has been talking to,
+   * newest first (`ClientNumberHistory`). Only the masked call does
+   * (BridgeService.prepare, 2026-10-15: the client is rung "from the number
+   * the client has been talking to"); the technician dial-in passes none and
+   * keeps market first. Each is held to the same ownership check, so a number
+   * since released falls through to the next one the client knows, then to
+   * the market.
+   */
+  async forServerLeg(deal?: DealForCall, recent: readonly string[] = []): Promise<ResolvedCallerId> {
     return this.firstOwned([
+      ...recent.map((n): [CallerIdSource, string] => ['recent', n]),
       ['area', await this.marketNumber(deal)],
       ['default', this.config.defaultAreaCallerId || this.config.callerId],
       ['owned', await this.firstOwnedNumber()],
