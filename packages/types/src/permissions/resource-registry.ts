@@ -66,7 +66,10 @@ export const RESOURCE_REGISTRY = {
   // call detail and recording playback; `join` gates live listen/join;
   // `block` is Workiz Phone's "Blocked callers" — see the list, block a
   // number, unblock one (the office holds it; a technician does not).
-  calls: ['view', 'join', 'block'],
+  // `phone` is the softphone: the header phone that makes and takes calls in
+  // the browser (its Twilio token and the inbound-call presence). Off, a role
+  // works without a phone (Logistics); a technician calls from the app.
+  calls: ['view', 'join', 'block', 'phone'],
   // Client inbox: SMS, email and in-app threads with contacts, companies and
   // unknown numbers. `view` is data-scoped (all | department | assigned_only →
   // conversations of jobs the user is assigned to); `send` covers texting and
