@@ -100,6 +100,7 @@ import {
   type TimelineRowText,
 } from "../timeline-wording";
 import { personName } from "../person-name";
+import { timelineLocationNote, type TimelineLocationNote } from "../timeline-location";
 import { workizStamp } from "../schedule-cell";
 
 /* ----------------------------------------------------------- event meta */
@@ -418,7 +419,8 @@ function detail(entry: TimelineEntry, lk: Lookups): string | null {
       const base = `${superStatusLabel(from as never)} → ${superStatusLabel(to as never)}`;
       const sub =
         typeof d.subStatusId === "string" ? lk.subStatuses.get(d.subStatusId) : undefined;
-      return sub ? `${base} · ${sub}` : base;
+      // Where the phone was, when it was the phone that moved it.
+      return [base, sub, timelineLocationNote(d)?.text].filter(Boolean).join(" · ");
     }
   }
   if (entry.eventType === TimelineEventType.STAGE_CHANGED) {
@@ -445,12 +447,11 @@ function detail(entry: TimelineEntry, lk: Lookups): string | null {
     entry.eventType === TimelineEventType.TECH_CONFIRMED ||
     entry.eventType === TimelineEventType.TECH_ARRIVED
   ) {
-    // Who said so, and — on an arrival the phone could place — that it was
-    // located. The coordinates themselves belong on the map, not in a feed.
+    // Who said so, and — on an arrival the phone could place — how far from
+    // the address. The coordinates themselves belong on the map, not in a feed.
     const parts = [lk.userName(d.techId)].filter(Boolean) as string[];
-    if (entry.eventType === TimelineEventType.TECH_ARRIVED && d.location) {
-      parts.push("location recorded");
-    }
+    const where = entry.eventType === TimelineEventType.TECH_ARRIVED ? timelineLocationNote(d) : null;
+    if (where) parts.push(where.text);
     const sub = typeof d.subStatusId === "string" ? lk.subStatuses.get(d.subStatusId) : undefined;
     if (sub) parts.push(sub);
     return parts.length ? parts.join(" · ") : null;
@@ -1086,6 +1087,7 @@ function TimelineRow({
   actor,
   timestamp,
   text,
+  location,
   last,
   menu,
   children,
@@ -1095,6 +1097,8 @@ function TimelineRow({
   timestamp: string;
   /** Plain text; its line breaks are kept. */
   text?: string;
+  /** Where the phone was: "· 120 m from the address" after the text, red when far from it. */
+  location?: TimelineLocationNote;
   last: boolean;
   menu?: React.ReactNode;
   /** Replaces the text (a note being edited). */
@@ -1133,6 +1137,12 @@ function TimelineRow({
               )}
             >
               {text}
+              {location ? (
+                <>
+                  {" "}
+                  <span className={cn(location.far && "font-medium text-destructive")}>{`· ${location.text}`}</span>
+                </>
+              ) : null}
             </div>
             {long ? (
               <button type="button" onClick={() => setExpanded((v) => !v)} className="mt-2 block text-[14px] leading-4 text-[#6aa8ee] underline">
@@ -1228,7 +1238,7 @@ function JobEntryRow({
     ) : null;
 
   return (
-    <TimelineRow icon={view.icon} actor={actor} timestamp={entry.timestamp} text={view.lines.join("\n")} last={last} menu={menu}>
+    <TimelineRow icon={view.icon} actor={actor} timestamp={entry.timestamp} text={view.lines.join("\n")} location={view.location} last={last} menu={menu}>
       {isNote && isEditing ? (
         <div className="mt-2 space-y-1.5">
           <Textarea rows={3} maxLength={NOTE_MAX_LENGTH} value={draft} onChange={(e) => setDraft(e.target.value)} className="text-[12px]" />

@@ -930,3 +930,74 @@ describe("DealTimelinePanel — what the client did on the portal reads like Wor
     ).toBeInTheDocument();
   });
 });
+
+/**
+ * Owner, 2026-10-15: where the technician was when they changed the status —
+ * the deal service writes the phone's fix and its distance from the address
+ * on the entry, so the row says it with the rest, no extra read.
+ */
+describe("DealTimelinePanel — where the phone was", () => {
+  const show = (e: TimelineEntry) => {
+    timeline.entries = [e];
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+    openPanel();
+  };
+  const fix = { lat: 41.7637, lng: -72.6851, accuracy: 9 };
+  const done = (more: Record<string, unknown>) =>
+    entry({
+      eventType: TimelineEventType.STATUS_CHANGED,
+      actorId: "u-daniel",
+      details: { fromStatus: JobSuperStatus.IN_PROGRESS, toStatus: JobSuperStatus.DONE, fromSubStatusId: null, subStatusId: null, ...more },
+    });
+
+  it("a status change from the phone says how far from the address it was", () => {
+    show(done({ location: fix, distanceM: 120, farFromAddress: false }));
+
+    const note = screen.getByText("· 120 m from the address");
+    expect(note).not.toHaveClass("text-destructive");
+    expect(note.parentElement).toHaveTextContent("Status Updated - Done - · 120 m from the address");
+  });
+
+  it("a close far from the address stands out in red", () => {
+    show(done({ location: fix, distanceM: 14_200, farFromAddress: true }));
+
+    expect(screen.getByText("· 14.2 km from the address")).toHaveClass("text-destructive");
+  });
+
+  it("a fix without a distance — the address has no coordinates — says a location was recorded", () => {
+    show(done({ location: fix }));
+
+    expect(screen.getByText("· location recorded")).not.toHaveClass("text-destructive");
+  });
+
+  it("an arrival far from the address is red too", () => {
+    show(entry({ eventType: TimelineEventType.TECH_ARRIVED, details: { techId: "u-daniel", location: fix, distanceM: 640, farFromAddress: true } }));
+
+    expect(screen.getByText("Arrived at location")).toBeInTheDocument();
+    expect(screen.getByText("· 640 m from the address")).toHaveClass("text-destructive");
+  });
+
+  it("the client card's History says the same distance, after the status and after the arrival", () => {
+    function Row({ e }: { e: TimelineEntry }) {
+      const lookups = useTimelineLookups([]);
+      return (
+        <ol>
+          <EntryRow entry={e} lookups={lookups} actor="Daniel" />
+        </ol>
+      );
+    }
+    const { rerender } = render(<Row e={done({ location: fix, distanceM: 14_200, farFromAddress: true })} />);
+    expect(screen.getByText(/In Progress → Done · 14\.2 km from the address/i)).toBeInTheDocument();
+
+    rerender(<Row e={entry({ eventType: TimelineEventType.TECH_ARRIVED, details: { techId: "u-daniel", location: fix, distanceM: 120 } })} />);
+    expect(screen.getByText(/Daniel Munoz · 120 m from the address/)).toBeInTheDocument();
+    expect(screen.queryByText(/location recorded/)).not.toBeInTheDocument();
+  });
+
+  it("a change made on the web says nothing about a location", () => {
+    show(done({}));
+
+    expect(screen.getByText("Status Updated - Done -")).toBeInTheDocument();
+    expect(screen.queryByText(/from the address|location recorded/)).not.toBeInTheDocument();
+  });
+});

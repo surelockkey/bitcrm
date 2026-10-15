@@ -4,6 +4,7 @@ import { formatPhone } from "@/lib/phone";
 import { formatDuration } from "@/features/calls/lib";
 import { wallToCt } from "@/lib/timezone";
 import { SEND_TO_TECH_CHANNEL_LABEL } from "./lib";
+import { timelineLocationNote, type TimelineLocationNote } from "./timeline-location";
 
 /**
  * What a row of the job's Timeline says, in the words Workiz's activity log
@@ -35,6 +36,8 @@ export type RowIcon = "web" | "mobile" | "note" | "call-out" | "call-in" | "mess
 export interface TimelineRowText {
   lines: string[];
   icon: RowIcon;
+  /** Where the phone was on a status change or an arrival: "· 120 m from the address" after the line, red when far. */
+  location?: TimelineLocationNote;
 }
 
 export interface WordingExtras {
@@ -60,6 +63,9 @@ const workizOf = (e: TimelineEntry): WorkizStamp | undefined =>
 export function isImportedEntry(e: TimelineEntry): boolean {
   return (e.details as { source?: unknown } | undefined)?.source === "workiz" || typeof workizOf(e)?.text === "string";
 }
+
+/** The events the phone sends its fix with (`details.location`, owner 2026-10-15). */
+const LOCATED_EVENTS = new Set<string>([TimelineEventType.STATUS_CHANGED, TimelineEventType.TECH_ARRIVED]);
 
 /** Done from a technician's phone: what only the app does. */
 const MOBILE_EVENTS = new Set<string>([
@@ -242,8 +248,10 @@ export function entryRowText(e: TimelineEntry, lk: WordingLookups, extras: Wordi
   }
   if (isImportedEntry(e) && e.note) return { lines: [e.note], icon: "web" };
 
-  const icon: RowIcon = MOBILE_EVENTS.has(e.eventType) ? "mobile" : "web";
-  const one = (line: string): TimelineRowText => ({ lines: [line], icon });
+  // A fix comes only from the phone (the web sends none), so a located row was done in the app.
+  const where = LOCATED_EVENTS.has(e.eventType) ? timelineLocationNote(d) : null;
+  const icon: RowIcon = MOBILE_EVENTS.has(e.eventType) || where ? "mobile" : "web";
+  const one = (line: string): TimelineRowText => (where ? { lines: [line], icon, location: where } : { lines: [line], icon });
 
   if (extras.reschedule) return one(extras.reschedule);
   const plain = PLAIN[e.eventType];
