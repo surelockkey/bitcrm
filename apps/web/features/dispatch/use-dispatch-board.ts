@@ -20,6 +20,11 @@ import { useJobTypes } from "@/features/job-types/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
 import { useAllTechnicians, useTechnicianLocations } from "@/features/technicians/hooks";
 import { mergeLivePositions, technicianPositions, todayISO, type TechnicianPosition } from "./lib";
+import {
+  statesById,
+  useTechnicianLocationStates,
+  type TechnicianLocationState,
+} from "./location-state";
 import { readDispatchJobs, type DispatchJobs, type DispatchMapQuery } from "./map-api";
 import { useLastWhole } from "./use-last-whole";
 import { useReverseGeocode } from "./use-reverse-geocode";
@@ -59,6 +64,8 @@ export interface DispatchBoard {
   technicians: TechnicianPosition[];
   /** When the live fixes were read — what "Online · 3 min ago" counts from. */
   fixesAt: number;
+  /** userId → what their phone says about location: "Location off on the phone". */
+  locationStates: Map<string, TechnicianLocationState>;
   /** userId → the street a technician is on. */
   addresses: Map<string, string>;
   areas: ServiceArea[];
@@ -74,6 +81,7 @@ export interface BoardShows {
 
 const NO_DEALS: Deal[] = [];
 const NO_FIXES: TechnicianLocation[] = [];
+const NO_STATES: TechnicianLocationState[] = [];
 const NO_AREAS: ServiceArea[] = [];
 const NO_TECH_NAMES: TechnicianName[] = [];
 /** The key a closed read sits under while none is asked — never fetched. */
@@ -114,9 +122,9 @@ function useDispatchJobs(query: DispatchMapQuery, { enabled = true }: { enabled?
  *
  * What is on screen decides what is waited for (`shows`): the Jobs tab draws
  * the jobs, the job types and the areas, and names its techs from the map's
- * own answer — it does not wait for the team's directory, roster, live fixes
- * or streets unless "Show techs" draws the team; the Techs tab waits for all
- * of them, streets included (`techsReady`).
+ * own answer — it does not wait for the team's directory, roster, live fixes,
+ * phone states or streets unless "Show techs" draws the team; the Techs tab
+ * waits for all of them, streets included (`techsReady`).
  */
 export function useDispatchBoard(
   window: DealsWindow,
@@ -170,6 +178,11 @@ export function useDispatchBoard(
 
   const roster = useAllTechnicians(techs);
   const locations = useTechnicianLocations(techs);
+  // Whose phone shares no location — part of the team, read beside the fixes.
+  const states = useTechnicianLocationStates(techs);
+  // A user-service from before the endpoint answers 404: nothing to say.
+  const statesData = states.data ?? NO_STATES;
+  const locationStates = useMemo(() => statesById(statesData), [statesData]);
   const areas = useServiceAreas(withAreas);
   // The rows name their job type; the catalog comes with them, not after.
   const jobTypes = useJobTypes();
@@ -191,7 +204,8 @@ export function useDispatchBoard(
   const placed = settled(query) && todaySettled && !roster.isLoading && settled(locations);
   const geo = useReverseGeocode(technicians, techs && placed);
 
-  const teamIn = !directory.isLoading && !roster.isLoading && settled(locations) && todaySettled;
+  const teamIn =
+    !directory.isLoading && !roster.isLoading && settled(locations) && settled(states) && todaySettled;
   const techsReady = teamIn && !geo.pending;
 
   const whole =
@@ -219,6 +233,7 @@ export function useDispatchBoard(
       profiles: roster.profiles,
       technicians,
       fixesAt,
+      locationStates,
       addresses: geo.addresses,
       areas: areas.data ?? NO_AREAS,
     }),
@@ -236,6 +251,7 @@ export function useDispatchBoard(
       roster.profiles,
       technicians,
       fixesAt,
+      locationStates,
       geo.addresses,
       areas.data,
     ],

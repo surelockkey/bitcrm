@@ -24,11 +24,18 @@ import type { Deal } from "@bitcrm/types";
 import { WzMapPinCard, WzMapPinCardRow } from "@/components/workiz/map-pin";
 import { isInTimeOrder, techJobProgress, technicianAvailability, type TechAvailability, type TechnicianPosition, formatAge } from "../lib";
 import { JOB_ZONE, lastSeenText, pinCardWhen, type JobZoneOf } from "../map-words";
+import { locationIssue, type LocationIssue, type TechnicianLocationState } from "../location-state";
 
 const AVAILABILITY_LABEL: Record<TechAvailability, string> = {
   on_job: "On a job",
   available: "Available",
   offline: "Offline",
+};
+
+/** The phone's row: the map's red for "off", the readable amber for "approximate". */
+const ISSUE_TONE: Record<LocationIssue["tone"], string> = {
+  danger: "font-semibold text-wz-danger",
+  warning: "font-semibold text-warning-text",
 };
 
 /** Workiz's `rowType` words: "Last seen:" in #768287, 8px before the value. */
@@ -100,7 +107,8 @@ function JobRow({
  * The card a tech's pin opens (pg_dispatch_wz_13_tech_click): the name and
  * "Last seen:" the fix's time. Ours under it, in the card's own rows: whether
  * they are on a job, the street they are on, and the day's jobs in order — a
- * manager drags them to re-sequence (story 4.02:257).
+ * manager drags them to re-sequence (story 4.02:257). Ours above it
+ * (2026-10-15): a phone that shares no location says so, and since when.
  */
 export function TechPinCard({
   position,
@@ -115,6 +123,7 @@ export function TechPinCard({
   onSelectJob,
   onClose,
   now,
+  locationState,
 }: {
   position: TechnicianPosition;
   name: string;
@@ -133,7 +142,10 @@ export function TechPinCard({
   onClose: () => void;
   /** When the fixes were read (the board's clock, as the roster's) — for "12 min ago". */
   now?: number;
+  /** What their phone says about location (`GET /users/technicians/location-states`). */
+  locationState?: TechnicianLocationState;
 }) {
+  const issue = locationIssue(locationState);
   const availability = technicianAvailability(jobs, position);
   const progress = techJobProgress(jobs);
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${position.lat},${position.lng}`;
@@ -169,6 +181,14 @@ export function TechPinCard({
 
   return (
     <WzMapPinCard title={name} onClose={onClose}>
+      {issue ? (
+        <p className={ISSUE_TONE[issue.tone]}>
+          {/* Since when it went off: a pin that stopped moving 25 min ago is why. */}
+          {issue.kind === "off" && locationState && now !== undefined
+            ? `${issue.detail} · ${formatAge(locationState.updatedAt, now)}`
+            : issue.detail}
+        </p>
+      ) : null}
       {position.source === "live" && position.updatedAt ? (
         <p>
           <RowType>Last seen:</RowType>

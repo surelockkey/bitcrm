@@ -166,6 +166,8 @@ function mockApi() {
     http.get("*/users/technicians/locations", () =>
       HttpResponse.json({ success: true, data: [] }),
     ),
+    // Every phone shares its location unless a test says otherwise.
+    http.get("*/users/technicians/location-states", () => HttpResponse.json({ success: true, data: [] })),
     http.get("*/users/technicians", () =>
       HttpResponse.json({
         success: true,
@@ -588,6 +590,110 @@ describe("DispatchPage — Workiz's Map", () => {
 
       expect(screen.queryByRole("tab", { name: "Techs" })).not.toBeInTheDocument();
       expect(screen.queryByRole("switch", { name: "Show techs" })).not.toBeInTheDocument();
+    });
+  });
+
+  /**
+   * Whose phone shares no location (owner, 2026-10-15): counted in the Techs
+   * tab's header so nobody has to open every pin to find them, and one click
+   * on the count narrows the list to them.
+   */
+  describe("phones that share no location", () => {
+    const TECH_2 = { userId: "tech-2", status: "active", gpsTrackingEnabled: true, homeAddress: { line1: "2 Home Rd", city: "Atlanta", state: "GA", zip: "30310", lat: 33.71, lng: -84.41 } };
+    const since = () => new Date(Date.now() - 25 * 60_000).toISOString();
+
+    function twoTechs(states: unknown[]) {
+      server.use(
+        http.get("*/users", () =>
+          HttpResponse.json({
+            success: true,
+            data: [
+              { id: "tech-1", firstName: "Daniel", lastName: "Munoz", workizName: "(2) TX - Daniel Munoz" },
+              { id: "tech-2", firstName: "Eve", lastName: "Fine" },
+            ],
+            pagination: { count: 2 },
+          }),
+        ),
+        http.get("*/users/technicians", () =>
+          HttpResponse.json({
+            success: true,
+            data: [
+              { userId: "tech-1", status: "active", gpsTrackingEnabled: true, homeAddress: { line1: "9 Home Rd", city: "Atlanta", state: "GA", zip: "30310", lat: 33.7, lng: -84.4 } },
+              TECH_2,
+            ],
+            pagination: { count: 2 },
+          }),
+        ),
+        http.get("*/users/technicians/location-states", () => HttpResponse.json({ success: true, data: states })),
+      );
+    }
+
+    it("counts them in the Techs tab's header, and the count narrows the list to them — and back", async () => {
+      twoTechs([
+        { userId: "tech-1", permission: "denied", updatedAt: since() },
+        { userId: "tech-2", permission: "granted", precise: false, updatedAt: since() },
+      ]);
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+      await screen.findByTestId("job-row-deal-1");
+
+      await user.click(screen.getByRole("tab", { name: "Techs" }));
+      expect(await screen.findByTestId("tech-row-tech-1")).toHaveTextContent("Location off");
+      expect(screen.getByTestId("tech-row-tech-2")).toHaveTextContent("Approximate location only");
+      expect(screen.getByText("Found 2 users")).toBeInTheDocument();
+      // Approximate still shares a position: only the phone that shares none is counted.
+      const count = screen.getByRole("button", { name: "1 without location" });
+      expect(count).toHaveAttribute("aria-pressed", "false");
+
+      await user.click(count);
+      expect(screen.getByTestId("tech-row-tech-1")).toBeInTheDocument();
+      expect(screen.queryByTestId("tech-row-tech-2")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("tech-marker-tech-2")).not.toBeInTheDocument();
+      expect(screen.getByText("Found 1 users")).toBeInTheDocument();
+      expect(count).toHaveAttribute("aria-pressed", "true");
+
+      await user.click(count);
+      expect(screen.getByTestId("tech-row-tech-2")).toBeInTheDocument();
+      expect(screen.getByText("Found 2 users")).toBeInTheDocument();
+    });
+
+    it("says nothing when every phone shares its location", async () => {
+      twoTechs([{ userId: "tech-1", permission: "granted", precise: true, updatedAt: since() }]);
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+      await screen.findByTestId("job-row-deal-1");
+
+      await user.click(screen.getByRole("tab", { name: "Techs" }));
+      await screen.findByTestId("tech-row-tech-1");
+      expect(screen.queryByText(/without location/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Location off/)).not.toBeInTheDocument();
+    });
+
+    it("the tech's pin card says it in red, and since when", async () => {
+      twoTechs([{ userId: "tech-1", permission: "denied", updatedAt: since() }]);
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+      await screen.findByTestId("job-row-deal-1");
+
+      await user.click(screen.getByRole("tab", { name: "Techs" }));
+      await user.click(await screen.findByTestId("tech-row-tech-1"));
+
+      const card = await screen.findByRole("dialog", { name: "(2) TX - Daniel Munoz" });
+      expect(card).toHaveTextContent(/Location off on the phone · 2[56] min ago/);
+    });
+
+    // A user-service from before the states endpoint answers 404: the map is as it was.
+    it("a user-service without the endpoint changes nothing", async () => {
+      server.use(
+        http.get("*/users/technicians/location-states", () => HttpResponse.json({ success: false }, { status: 404 })),
+      );
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+      await screen.findByTestId("job-row-deal-1");
+
+      await user.click(screen.getByRole("tab", { name: "Techs" }));
+      expect(await screen.findByTestId("tech-row-tech-1")).toBeInTheDocument();
+      expect(screen.queryByText(/without location|Location off/)).not.toBeInTheDocument();
     });
   });
 
