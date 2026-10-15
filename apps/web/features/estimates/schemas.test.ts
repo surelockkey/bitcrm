@@ -20,9 +20,14 @@ describe("estimateItemSchema", () => {
     expect(r.quantity).toBe(2);
     expect(r.priceClient).toBe(10.5);
   });
-  it("rejects zero quantity and negative price", () => {
+  it("rejects zero quantity", () => {
     expect(estimateItemSchema.safeParse({ ...base, quantity: 0 }).success).toBe(false);
-    expect(estimateItemSchema.safeParse({ ...base, priceClient: -1 }).success).toBe(false);
+  });
+  // Owner, 2026-10-15: any price on a line, below zero too — a credit line.
+  it("takes a price below zero, and still wants a number", () => {
+    expect(estimateItemSchema.parse({ ...base, priceClient: "-20" }).priceClient).toBe(-20);
+    expect(estimateItemSchema.parse({ ...base, priceClient: -904.98 }).priceClient).toBe(-904.98);
+    expect(estimateItemSchema.safeParse({ ...base, priceClient: "abc" }).success).toBe(false);
   });
   it("drops an empty description", () => {
     expect(estimateItemSchema.parse({ ...base, description: "   " }).description).toBeUndefined();

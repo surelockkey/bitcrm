@@ -134,67 +134,18 @@ export const isUrgent = (d: Pick<Deal, "priority">): boolean => d.priority === D
 
 /* ------------------------------------------------------------------- money */
 
+/**
+ * "$1,234.50"; below zero the sign leads — "-$20.00" — as Workiz, the reports
+ * and the PDFs print a credit line (owner, 2026-10-15: any price, below zero
+ * too). What rounds to no cents is "$0.00", never "-$0.00".
+ */
 export function formatMoney(n: number): string {
-  return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const digits = Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n < 0 && digits !== "0.00" ? `-$${digits}` : `$${digits}`;
 }
 
 export const dealTotal = (products: DealProduct[]): number =>
   products.reduce((sum, p) => sum + p.priceClient * p.quantity, 0);
-
-/** Client-price adjustment band off catalog (story 5.05: ±15%). */
-export const PRICE_BAND = 0.15;
-/**
- * 15 % of the catalog price's SIZE either side, so a price book price below
- * zero (Workiz's "Approved Discount" −100 and 61 more) brackets itself:
- * −115 … −85, never a min above the max.
- */
-export const priceRange = (catalog: number) => {
-  const span = Math.abs(catalog) * PRICE_BAND;
-  return { min: catalog - span, max: catalog + span };
-};
-export function isPriceInBand(price: number, catalog: number): boolean {
-  const { min, max } = priceRange(catalog);
-  // small epsilon for float edges
-  return price >= min - 1e-6 && price <= max + 1e-6;
-}
-
-/**
- * A line carried over from Workiz, by either marker the importer can set:
- * `fulfillment: "imported"` on the 47 976 product lines, `priceSource:
- * "imported"` on the service lines (which keep `fulfillment: "service"`).
- */
-export function isImportedLine(
-  line?: Pick<DealProduct, "fulfillment" | "priceSource"> | null,
-): boolean {
-  return line?.fulfillment === "imported" || line?.priceSource === "imported";
-}
-
-/**
- * Whether the ±15% band should judge this line's price. 128 460 of the
- * 156 612 matched historical lines differ from today's catalog price and
- * 110 865 sit outside the band — flagging them would make every one of those
- * lines unsavable, so an imported line is exempt. So is a line an item group
- * added: the group sets its own price, as the server's `keepsGroupPrice` holds.
- */
-export function priceBandApplies(
-  line?: Pick<DealProduct, "fulfillment" | "priceSource"> | null,
-): boolean {
-  return !isImportedLine(line) && line?.priceSource !== "group";
-}
-
-/**
- * Whether the ±15% band binds this viewer at all. Story 5.05 caps the
- * *technician's* adjustment and sends anything beyond it to a manager; the
- * office — owner, admin, department manager, dispatcher — is that manager,
- * so it sets any price. Workiz has no band at all and 110 865 of the
- * 156 612 matched historical lines sit outside ±15%, which is how the office
- * actually prices. A technician adds items on the phone, where no band
- * exists either, so in practice this binds only a technician on the web.
- * The server never checks the band — it is a dialog rule, nothing more.
- */
-export function priceBandBinds(viewer: Pick<{ isTechnician: boolean }, "isTechnician">): boolean {
-  return viewer.isTechnician;
-}
 
 /* ------------------------------------------------------- date/time basis */
 

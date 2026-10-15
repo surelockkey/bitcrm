@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   catalog: [] as unknown[],
   groups: [] as unknown[],
   stock: new Map<string, number>(),
-  // Whether the viewer is a technician — the only role the ±15% band binds.
+  // Whether the viewer is a technician — who sets any price, as the office does.
   technician: true,
   // The edited line's catalog item is still being read.
   catalogPending: false,
@@ -221,7 +221,7 @@ describe("AddProductDialog (edit mode)", () => {
 });
 
 describe("AddProductDialog (imported line)", () => {
-  // A Workiz line at $5 against a $45 catalog price: far outside ±15%.
+  // A Workiz line at $5 against a $45 catalog price.
   const importedLine: DealProduct = {
     ...editingLine,
     priceClient: 5,
@@ -229,21 +229,11 @@ describe("AddProductDialog (imported line)", () => {
     sourceTechId: undefined,
   };
 
-  it("does not flag the price and keeps Save enabled", () => {
+  it("opens on the price Workiz recorded, with no band note, and Save on", () => {
     render(dialog(importedLine));
 
     expect(screen.getByLabelText("Price")).toHaveValue(5);
-    expect(screen.getByText(/the ±15% band doesn.t apply/i)).toBeInTheDocument();
-    expect(screen.queryByText(/allowed .* ±15%/i)).toBeNull();
-    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
-  });
-
-  it("exempts a service line the importer marked through priceSource", () => {
-    render(
-      dialog({ ...editingLine, priceClient: 5, fulfillment: "service", priceSource: "imported" }),
-    );
-
-    expect(screen.getByText(/the ±15% band doesn.t apply/i)).toBeInTheDocument();
+    expect(screen.queryByText(/allowed|±15|band/i)).toBeNull();
     expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
   });
 
@@ -262,95 +252,80 @@ describe("AddProductDialog (imported line)", () => {
     });
   });
 
-  it("re-applies the band as soon as the price itself is edited", () => {
-    render(dialog(importedLine));
-
-    // The exemption covers the price Workiz recorded, not a new one typed on
-    // top of it — otherwise any imported line is a permanent hole in the rule.
-    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "999" } });
-
-    expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
-    expect(screen.queryByText(/the ±15% band doesn.t apply/i)).toBeNull();
-    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
-  });
-
-  it("accepts an edited price that lands inside the band", async () => {
+  it("a technician types any new price on it and saves it", async () => {
     const u = user();
     render(dialog(importedLine));
 
-    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "45" } });
-    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
-
-    await u.click(screen.getByRole("button", { name: /^save$/i }));
-    expect(mocks.replace.mock.calls[0][0].body).toMatchObject({ priceClient: 45 });
-  });
-
-  it("restores the exemption when the imported price is typed back", () => {
-    render(dialog(importedLine));
-
     fireEvent.change(screen.getByLabelText("Price"), { target: { value: "999" } });
-    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "5" } });
+    expect(screen.queryByText(/allowed|±15|band/i)).toBeNull();
+    await u.click(screen.getByRole("button", { name: /^save$/i }));
 
-    expect(screen.getByText(/the ±15% band doesn.t apply/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+    expect(mocks.replace.mock.calls[0][0].body).toMatchObject({ priceClient: 999 });
   });
 
-  it("re-applies the band once the item is swapped for another", async () => {
+  it("a swap to another item takes any price too", async () => {
     const u = user();
     render(dialog(importedLine));
 
     await u.click(screen.getByRole("button", { name: /change item/i }));
     await u.click(screen.getByText("Schlage Lever"));
-
-    expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Price"), { target: { value: "5" } });
-    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
-  });
 
-  it("still blocks an out-of-band price on a normal line", () => {
-    render(dialog({ ...editingLine, priceClient: 5 }));
-
-    expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+    expect(screen.queryByText(/allowed|±15|band/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
   });
 });
 
-// Story 5.05: the technician adjusts the price within ±15% and anything
-// beyond goes to a manager. The office *is* that manager, so for it there is
-// no band — the owner's own "I can't set the price I want" (2026-10-14).
-describe("AddProductDialog (who the ±15% band binds)", () => {
-  it("holds a technician to the band", async () => {
+// Owner, 2026-10-15: a technician AND the office set any price on a line —
+// no ±15% band, below zero too. The price is the line's; the price book is
+// never changed by it.
+describe("AddProductDialog (any price, from anyone)", () => {
+  it("a technician sets a price far above the price book", async () => {
     const u = user();
     render(dialog());
     await u.click(screen.getByText("Kwikset Deadbolt"));
 
     fireEvent.change(screen.getByLabelText("Price"), { target: { value: "360" } });
 
-    expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
-  });
-
-  it("lets the office set any price", async () => {
-    mocks.technician = false;
-    const u = user();
-    render(dialog());
-    await u.click(screen.getByText("Kwikset Deadbolt"));
-
-    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "360" } });
-
-    expect(screen.queryByText(/allowed .*±15%/i)).toBeNull();
-    expect(screen.queryByText(/band/i)).toBeNull();
+    expect(screen.queryByText(/allowed|±15|band/i)).toBeNull();
     await u.click(screen.getByRole("button", { name: /^save$/i }));
     expect(mocks.add).toHaveBeenCalledTimes(1);
     expect(mocks.add.mock.calls[0][0]).toMatchObject({ productId: "p1", priceClient: 360 });
   });
 
-  it("shows the office no Workiz exemption note either — nothing to be exempt from", () => {
-    mocks.technician = false;
-    render(dialog({ ...editingLine, priceClient: 5, fulfillment: "imported" }));
+  it("a technician adds a credit line (a price below zero)", async () => {
+    const u = user();
+    render(dialog());
+    await u.click(screen.getByText("Kwikset Deadbolt"));
 
-    expect(screen.queryByText(/band/i)).toBeNull();
-    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "-20" } });
+    await u.click(screen.getByRole("button", { name: /^save$/i }));
+
+    expect(mocks.add.mock.calls[0][0]).toMatchObject({ productId: "p1", priceClient: -20 });
+  });
+
+  it("a technician saves a line priced far from today's price book without touching its price", async () => {
+    const u = user();
+    render(dialog({ ...editingLine, priceClient: 5 }));
+
+    expect(screen.queryByText(/allowed|±15|band/i)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "3" } });
+    await u.click(screen.getByRole("button", { name: /^save$/i }));
+
+    expect(mocks.replace.mock.calls[0][0].body).toMatchObject({ quantity: 3, priceClient: 5 });
+  });
+
+  it("the office sets any price as well", async () => {
+    mocks.technician = false;
+    const u = user();
+    render(dialog());
+    await u.click(screen.getByText("Kwikset Deadbolt"));
+
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "-360" } });
+
+    expect(screen.queryByText(/allowed|±15|band/i)).toBeNull();
+    await u.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(mocks.add.mock.calls[0][0]).toMatchObject({ productId: "p1", priceClient: -360 });
   });
 });
 

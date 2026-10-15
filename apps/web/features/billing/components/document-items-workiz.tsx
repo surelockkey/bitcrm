@@ -308,9 +308,9 @@ function WorkizItemRow({
           label={`${item.name} price`}
           value={String(item.priceClient)}
           display={formatMoney(item.priceClient)}
-          inputMode="decimal"
+          // Any price, below zero too (a credit line): no floor, and no
+          // decimal keypad — it has no minus key.
           step="0.01"
-          min={0}
           onCommit={(priceClient) => onInline({ priceClient })}
         />
       </td>
@@ -371,9 +371,11 @@ function CellEditor({
   value: string;
   display: ReactNode;
   onCommit: (value: string) => void;
-  inputMode: "numeric" | "decimal";
+  /** Absent: the browser's own keyboard for a number box (it has a minus key). */
+  inputMode?: "numeric" | "decimal";
   step: number | string;
-  min: number;
+  /** Absent: no floor (a price may go below zero). */
+  min?: number;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   // Enter / Escape close the box themselves; the blur its removal may fire must not save again.

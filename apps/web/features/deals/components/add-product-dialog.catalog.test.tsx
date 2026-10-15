@@ -8,8 +8,8 @@ import { duplicates, installFakeServer, renderWithClient, screen, settle } from 
 /*
  * The job's Add item dialog against the inventory API itself (a real
  * QueryClient on the app's defaults, a fake server at `fetch`): what it asks
- * for when it opens, and again when it opens again. Its forms and the ±15%
- * band are covered in add-product-dialog.test.tsx.
+ * for when it opens, and again when it opens again. Its forms and prices
+ * are covered in add-product-dialog.test.tsx.
  */
 
 const mocks = vi.hoisted(() => ({

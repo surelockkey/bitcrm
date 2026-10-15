@@ -15,7 +15,6 @@ import {
 } from "@/features/inventory/item-edit/wz";
 import { cn } from "@/lib/utils";
 import type { AddProductValues } from "../schemas";
-import { formatMoney, isPriceInBand, priceRange } from "../lib";
 import { amountOf, markupPct, money2, priceFromMarkup, signedAmountOf } from "../line-item-math";
 import { personName } from "../person-name";
 
@@ -44,10 +43,6 @@ export interface JobItemPopupProps {
   isEdit: boolean;
   /** The viewer holds `financials.view`: the Cost and Markup boxes are theirs. */
   mayCost: boolean;
-  /** Whether the viewer is held to the ±15% band at all (see priceBandBinds). */
-  bandBinds: boolean;
-  /** Imported or item-group line: the band does not judge its recorded price (see priceBandApplies). */
-  bandExempt: boolean;
   stockKnown: boolean;
   /** Units the chosen van can give — its stock plus any credit from the edited line. */
   available: number;
@@ -80,16 +75,16 @@ const JOINED = "[&>*+*]:-ml-px";
  * row; Inventory location; Description; Sold by; Taxable Item; the item
  * catalog's custom fields three to a row; Close · Save.
  *
- * Ours on top: a technician is held to the ±15% band (a line under Price), a
- * part the chosen van is short of goes to order (a line under the location),
- * and an edit may change the item ("Change item", left of the buttons).
+ * Ours on top: a part the chosen van is short of goes to order (a line under
+ * the location), and an edit may change the item ("Change item", left of the
+ * buttons). The price is anyone's to set — the technician's as the office's,
+ * below zero too (owner, 2026-10-15) — and it is the line's alone: the price
+ * book is never changed by it.
  */
 export function JobItemPopup({
   product,
   isEdit,
   mayCost,
-  bandBinds,
-  bandExempt,
   stockKnown,
   available,
   stockCredit,
@@ -161,12 +156,6 @@ export function JobItemPopup({
     onLocationChange?.(value === NONE ? undefined : value);
   };
 
-  const { min, max } = priceRange(product.priceClient);
-  // The exemption waives the band for the price Workiz recorded — not for
-  // whatever is typed next (the rule the add dialog has always held).
-  const exempt = bandBinds && bandExempt && priceValue === storedPrice;
-  const inBand = !bandBinds || exempt || isPriceInBand(priceValue, product.priceClient);
-
   const chosenTech = location === NONE ? undefined : location;
   const chosen = locations.find((l) => l.techId === chosenTech);
   // A stockable part the chosen van is short on — or with no van — is added
@@ -210,7 +199,7 @@ export function JobItemPopup({
     else onSave({ ...base, fulfillment: "sourced", sourceTechId: chosenTech });
   };
 
-  const canSave = !pending && inBand && quantity >= 1 && signedAmountOf(price) !== null;
+  const canSave = !pending && quantity >= 1 && signedAmountOf(price) !== null;
 
   return (
     <div className="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col" data-testid="job-item-popup">
@@ -242,16 +231,6 @@ export function JobItemPopup({
             </>
           ) : null}
         </div>
-        {!bandBinds ? null : exempt ? (
-          <p className="mt-1 text-[12px] leading-4 text-[#8c8c8c]">
-            Imported from Workiz — the ±15% band doesn&apos;t apply. Catalog {formatMoney(product.priceClient)}.
-          </p>
-        ) : (
-          <p className={cn("mt-1 text-[12px] leading-4", inBand ? "text-[#8c8c8c]" : "text-[#f45e44]")}>
-            Allowed {formatMoney(min)}–{formatMoney(max)} (±15%)
-          </p>
-        )}
-
         {isService ? null : (
           <>
             <WzSelect

@@ -17,11 +17,6 @@ import {
   isUrgent,
   formatMoney,
   dealTotal,
-  priceRange,
-  isPriceInBand,
-  isImportedLine,
-  priceBandApplies,
-  priceBandBinds,
   filterDeals,
   datePresetRange,
   scheduleMarker,
@@ -45,6 +40,7 @@ import {
   seenByTechLabel,
   deliveryReasonLabel,
 } from "./lib";
+import * as dealsLib from "./lib";
 
 function deal(over: Partial<Deal> = {}): Deal {
   return {
@@ -134,69 +130,31 @@ describe("money", () => {
     expect(formatMoney(140)).toBe("$140.00");
     expect(formatMoney(45.5)).toBe("$45.50");
   });
+  // Owner, 2026-10-15: a line may be priced below zero (a credit line); it
+  // reads as Workiz and the reports print money: the sign before the dollar.
+  it("formats an amount below zero with the sign before the dollar", () => {
+    expect(formatMoney(-20)).toBe("-$20.00");
+    expect(formatMoney(-1234.5)).toBe("-$1,234.50");
+    // Less than half a cent below zero is no money at all, not "-$0.00".
+    expect(formatMoney(-0.004)).toBe("$0.00");
+  });
   it("sums line items", () => {
     expect(dealTotal([product({ quantity: 2, priceClient: 45 }), product({ priceClient: 95 })])).toBe(185);
     expect(dealTotal([])).toBe(0);
   });
+  it("sums a negative line as a credit, never clamped", () => {
+    expect(dealTotal([product({ quantity: 2, priceClient: 45 }), product({ priceClient: -20 })])).toBe(70);
+  });
 });
 
-describe("price band (±15%)", () => {
-  it("computes the allowed range off catalog price", () => {
-    const r = priceRange(45);
-    expect(r.min).toBeCloseTo(38.25, 2);
-    expect(r.max).toBeCloseTo(51.75, 2);
-  });
-  it("validates a price against the band", () => {
-    expect(isPriceInBand(45, 45)).toBe(true);
-    expect(isPriceInBand(50, 45)).toBe(true);
-    expect(isPriceInBand(52, 45)).toBe(false);
-  });
-
-  // Workiz's price book holds 62 items priced below zero ("Approved Discount" −100):
-  // their band is 15 % of the price's size either side, not a min above the max.
-  it("brackets a negative catalog price by its size: −100 → −115 … −85", () => {
-    expect(priceRange(-100)).toEqual({ min: -115, max: -85 });
-    expect(isPriceInBand(-90, -100)).toBe(true);
-    expect(isPriceInBand(-50, -100)).toBe(false);
-    expect(isPriceInBand(-120, -100)).toBe(false);
-    expect(isPriceInBand(38, 45)).toBe(false);
-  });
-
-  // 128 460 of the 156 612 matched historical Workiz lines differ from the
-  // catalog price and 110 865 sit outside ±15% — the band must not judge them.
-  it("does not apply to a line the importer marked", () => {
-    expect(priceBandApplies({ fulfillment: "imported" })).toBe(false);
-    expect(priceBandApplies({ fulfillment: "service", priceSource: "imported" })).toBe(false);
-    expect(isImportedLine({ fulfillment: "imported" })).toBe(true);
-    expect(isImportedLine({ priceSource: "imported" })).toBe(true);
-  });
-
-  // An item group sets its members' prices apart from the price book (Workiz
-  // "Add group"); the server exempts those lines while they keep that price
-  // (deal-line-rules `keepsGroupPrice`), so the dialog must not flag them.
-  it("does not apply to a line an item group added", () => {
-    expect(priceBandApplies({ fulfillment: "sourced", priceSource: "group" })).toBe(false);
-    expect(priceBandApplies({ fulfillment: "service", priceSource: "group" })).toBe(false);
-  });
-
-  // Story 5.05 caps the *technician's* adjustment and sends anything beyond
-  // it to a manager. The office is that manager — owner, admin, dispatcher —
-  // so it sets any price (Workiz has no band at all; 71% of the historical
-  // lines sit outside ±15%).
-  it("binds a technician and nobody else", () => {
-    expect(priceBandBinds({ isTechnician: true })).toBe(true);
-    expect(priceBandBinds({ isTechnician: false })).toBe(false);
-  });
-
-  it("still applies to every line BitCRM writes itself", () => {
-    expect(priceBandApplies({ fulfillment: "sourced" })).toBe(true);
-    expect(priceBandApplies({ fulfillment: "to_order" })).toBe(true);
-    expect(priceBandApplies({ fulfillment: "service" })).toBe(true);
-    expect(priceBandApplies({ priceSource: "override" })).toBe(true);
-    // Legacy rows carry neither marker.
-    expect(priceBandApplies({})).toBe(true);
-    expect(priceBandApplies(undefined)).toBe(true);
-    expect(isImportedLine(null)).toBe(false);
+// Owner, 2026-10-15: a technician and the office alike set any price on a
+// line, below zero too. The band was deleted, not widened — nothing is left
+// to judge a price by.
+describe("no price band", () => {
+  it("exports none of the band's helpers", () => {
+    for (const name of ["PRICE_BAND", "priceRange", "isPriceInBand", "isImportedLine", "priceBandApplies", "priceBandBinds"]) {
+      expect(dealsLib).not.toHaveProperty(name);
+    }
   });
 });
 

@@ -20,7 +20,7 @@ import { pickableGroups } from "@/features/price-book/item-groups/lib";
 import { ItemGroupChoices, ItemGroupConfirm } from "@/features/price-book/item-groups/item-group-picker";
 import { fetchTechStock } from "../tech-stock";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { formatMoney, priceBandApplies, priceBandBinds } from "../lib";
+import { formatMoney } from "../lib";
 import { personName } from "../person-name";
 import { JobItemPopup, type JobItemInitial, type JobItemLocation } from "./job-item-popup";
 
@@ -90,10 +90,9 @@ function AddProductFlow({ dealId, techIds, editing, onClose }: AddProductProps &
   // The card's own reads: the catalog's custom fields (its bottom), the
   // people for "Sold by", the chosen van's stock (the location's count).
   const attributes = useItemAttributes();
-  // Only a technician is held to the ±15% band; the office sets any price.
-  // The Cost box is the office's too: inventory hides costCompany from anyone else.
-  const { isTechnician, can } = usePermissions();
-  const bandBinds = priceBandBinds({ isTechnician });
+  // The price is anyone's to set (owner, 2026-10-15). The Cost box is the
+  // office's: inventory hides costCompany from anyone without financials.view.
+  const { can } = usePermissions();
   const mayCost = can("financials", "view");
   const add = useAddProduct(dealId);
   // Workiz: Add item offers the item groups too — a group adds all its items at once.
@@ -162,11 +161,6 @@ function AddProductFlow({ dealId, techIds, editing, onClose }: AddProductProps &
           product={current}
           isEdit={isEdit}
           mayCost={mayCost}
-          bandBinds={bandBinds}
-          // A line carried over from Workiz keeps whatever price Workiz
-          // recorded — 82% of the historical lines differ from today's
-          // catalog price, so the ±15% band must not block saving them.
-          bandExempt={sameLine && !priceBandApplies(editing)}
           stockKnown={stockKnown}
           available={availOf(current.id) + stockCredit}
           stockCredit={stockCredit}

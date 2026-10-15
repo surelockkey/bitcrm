@@ -6,7 +6,7 @@ import { InventoryStatus, ProductType, type Product } from "@bitcrm/types";
 import { duplicates, installFakeServer, renderWithClient, screen, settle } from "@/test/page-load";
 import type { EstimateItemBody } from "@/features/estimates/schemas";
 
-// Whether the viewer is a technician — the only role the ±15% band binds.
+// Whether the viewer is a technician — who sets any price, as the office does.
 const viewer = vi.hoisted(() => ({ technician: false }));
 vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => ({ isTechnician: viewer.technician, can: () => true }),
@@ -108,7 +108,10 @@ function EstimatePage({ onSubmit }: { onSubmit: (body: EstimateItemBody) => void
 
 const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  viewer.technician = false;
+});
 
 describe("ProductPickerDialog", () => {
   it("lists the active catalog and asks the server for what is typed (name or SKU)", async () => {
@@ -250,7 +253,8 @@ describe("ProductPickerDialog", () => {
     ]);
   });
 
-  it("holds a technician to the ±15% band", async () => {
+  // Owner, 2026-10-15: no ±15% band — a technician sets any price, as the office does.
+  it("lets a technician set any price", async () => {
     catalogServer();
     viewer.technician = true;
     const onSubmit = vi.fn();
@@ -260,13 +264,28 @@ describe("ProductPickerDialog", () => {
     const price = screen.getByLabelText("Client price");
     await u.clear(price);
     await u.type(price, "200");
-    expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^add item$/i })).toBeDisabled();
-    viewer.technician = false;
+    expect(screen.queryByText(/allowed|±15|band/i)).toBeNull();
+    await u.click(screen.getByRole("button", { name: /^add item$/i }));
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ productId: "p1", priceClient: 200 });
   });
 
-  // Story 5.05 sends a price beyond the band to a manager; the office is that
-  // manager, so an estimate it writes takes any price (owner, 2026-10-14).
+  it("takes a price below zero — a credit line — and shows its amount as -$20.00", async () => {
+    catalogServer();
+    viewer.technician = true;
+    const onSubmit = vi.fn();
+    renderWithClient(<ProductPickerDialog open onOpenChange={() => {}} onSubmit={onSubmit} />);
+    const u = user();
+    await u.click(await screen.findByText("Deadbolt"));
+    const price = screen.getByLabelText("Client price");
+    expect(price).not.toHaveAttribute("min");
+    await u.clear(price);
+    await u.type(price, "-20");
+    expect(screen.queryByText(/negative/i)).toBeNull();
+    expect(screen.getByText("-$20.00")).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: /^add item$/i }));
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ productId: "p1", priceClient: -20 });
+  });
+
   it("lets the office set any price", async () => {
     catalogServer();
     const onSubmit = vi.fn();
@@ -276,7 +295,7 @@ describe("ProductPickerDialog", () => {
     const price = screen.getByLabelText("Client price");
     await u.clear(price);
     await u.type(price, "200");
-    expect(screen.queryByText(/allowed .*±15%/i)).toBeNull();
+    expect(screen.queryByText(/allowed|±15|band/i)).toBeNull();
     await u.click(screen.getByRole("button", { name: /^add item$/i }));
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0][0]).toMatchObject({ productId: "p1", priceClient: 200 });
