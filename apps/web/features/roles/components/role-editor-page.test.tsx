@@ -55,7 +55,7 @@ describe("RoleEditorPage — no Advanced tab, one switch", () => {
   it("puts the switch at the top of the jobs block, before View Jobs", () => {
     render(<RoleEditorPage roleId="role-technician" />);
     const titles = screen.getAllByRole("heading", { level: 5 }).map((h) => h.textContent);
-    expect(titles.slice(0, 2)).toEqual([NAME, "View Jobs"]);
+    expect(titles.slice(0, 2)).toEqual([NAME, "Jobs"]);
   });
 
   it.each([
