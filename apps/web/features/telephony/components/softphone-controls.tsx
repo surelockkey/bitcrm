@@ -8,6 +8,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { usePermissions } from "@/features/auth/use-permissions";
 import { useSoftphoneStore, type SoftphoneStatus } from "../softphone-store";
 
 const STATUS_DOT: Record<SoftphoneStatus, string> = {
@@ -24,10 +25,15 @@ const STATUS_LABEL: Record<SoftphoneStatus, string> = {
   error: "error",
 };
 
-/** Single header button: opens the dialer. A dot shows the phone status. */
+/**
+ * Single header button: opens the dialer. A dot shows the phone status.
+ * Only for a role with the phone (`calls.phone`, Roles → Calls → Use Phone).
+ */
 export function SoftphoneControls() {
+  const { can } = usePermissions();
   const status = useSoftphoneStore((s) => s.status);
   const setDialerOpen = useSoftphoneStore((s) => s.setDialerOpen);
+  if (!can("calls", "phone")) return null;
 
   return (
     <Tooltip>

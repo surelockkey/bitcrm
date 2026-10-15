@@ -5,6 +5,9 @@ import type { CallRecord } from "@/features/calls/lib";
 import { CallClientButton } from "./call-client-button";
 
 const mocks = vi.hoisted(() => ({
+  // The softphone switch (calls.phone) and whether the viewer is a technician.
+  canPhone: true,
+  isTechnician: false,
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
   startCall: vi.fn(),
@@ -31,7 +34,10 @@ vi.mock("../softphone-store", () => ({
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
-  usePermissions: () => ({ can: () => true }),
+  usePermissions: () => ({
+    can: (resource: string, action?: string) => (resource === "calls" && action === "phone" ? mocks.canPhone : true),
+    isTechnician: mocks.isTechnician,
+  }),
 }));
 vi.mock("../numbers-hooks", () => ({
   useNumbers: () => ({
@@ -74,11 +80,26 @@ const open = async (u: ReturnType<typeof userEvent.setup>) =>
 
 describe("CallClientButton", () => {
   beforeEach(() => {
+  mocks.canPhone = true;
+  mocks.isTechnician = false;
     mocks.startCall.mockClear();
     mocks.toastError.mockClear();
     mocks.toastSuccess.mockClear();
     mocks.setActiveNumber.mockClear();
     mocks.status = "online";
+  });
+
+  it("is not offered to a role without the phone (calls.phone off — Logistics)", () => {
+    mocks.canPhone = false;
+    render(<CallClientButton to="+14045551234" partyId="c1" />);
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("stays for a technician without the softphone — he reaches the client through the masked bridge", () => {
+    mocks.canPhone = false;
+    mocks.isTechnician = true;
+    render(<CallClientButton to="+14045551234" partyId="c1" dealId="d1" contactId="c1" />);
+    expect(screen.getAllByRole("button").length).toBeGreaterThan(0);
   });
 
   it("stays out of the way until it's clicked", () => {
