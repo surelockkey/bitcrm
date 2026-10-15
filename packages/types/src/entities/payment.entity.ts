@@ -114,8 +114,13 @@ export interface Payment {
    * `paymentReportType`). Keys of `PAYMENT_REPORT_TYPE_LABELS`.
    */
   methodDetail?: string;
-  /** Workiz's own label for `methodDetail`, as imported ("Credit offline"). */
+  /** Workiz's own label for `methodDetail`, as imported ("Credit offline") or chosen in Add payment. */
   methodLabel?: string;
+  /**
+   * Workiz "Charged by referral" (Add payment, offline types): the money was
+   * taken by the referral partner who sent the job, not by us.
+   */
+  chargedByReferral?: boolean;
   /** How a card payment was collected: "Client portal", "Card reader", "Keyed". */
   transactionMethod?: string;
   /** What the processor kept (Workiz Pay `app_fee`), dollars. NOT `feeAmount`, which is our surcharge. */

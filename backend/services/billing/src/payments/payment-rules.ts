@@ -1,5 +1,6 @@
 import {
   COUNTED_PAYMENT_STATUSES,
+  cardServiceFee,
   EMPTY_PAYMENT_SUMMARY,
   type OnlinePaymentMethod,
   type Payment,
@@ -31,8 +32,7 @@ const isMoney = (v: unknown): v is number => typeof v === 'number' && Number.isF
 
 /** Card surcharge (off by default — see PaymentSettings). Never enters DocumentTotals. */
 export function surchargeFor(amount: number, percent: number): number {
-  if (!isMoney(amount) || !isMoney(percent) || percent <= 0) return 0;
-  return round2((amount * percent) / 100);
+  return cardServiceFee(amount, 0, percent);
 }
 
 /**
@@ -45,7 +45,8 @@ export function surchargeFor(amount: number, percent: number): number {
  * the balance.
  */
 export function serviceFeeFor(amount: number, tip: number, percent: number): number {
-  return surchargeFor(amount + tip, percent);
+  // One formula for billing and every screen that shows the fee (`@bitcrm/types`).
+  return cardServiceFee(amount, tip, percent);
 }
 
 const counts = (status: PaymentStatus) => COUNTED_PAYMENT_STATUSES.includes(status);

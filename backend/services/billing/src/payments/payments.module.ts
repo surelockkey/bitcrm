@@ -23,6 +23,7 @@ import { PaymentReportService } from './report/payment-report.service';
 import { StripeEventsHandler } from './stripe/stripe-events.handler';
 import { StripeWebhookController } from './stripe/stripe-webhook.controller';
 import {
+  DealTerminalController,
   EstimateTerminalController,
   InvoiceTerminalController,
   TerminalController,
@@ -55,10 +56,12 @@ import { TerminalService } from './terminal/terminal.service';
     PublicPaymentsController,
     StripeWebhookController,
     // Tap to Pay: `/terminal/...`, `/invoices/:id/terminal-intent`,
-    // `/estimates/:id/terminal-intent`, `/terminal-intents/:paymentId/...`.
+    // `/estimates/:id/terminal-intent`, `/terminal-intents/:paymentId/...`;
+    // the web's Credit charge on the job: `/deals/:dealId/card-intent`.
     TerminalController,
     InvoiceTerminalController,
     EstimateTerminalController,
+    DealTerminalController,
     TerminalIntentsController,
   ],
   providers: [

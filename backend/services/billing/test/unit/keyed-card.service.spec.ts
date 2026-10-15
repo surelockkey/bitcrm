@@ -470,6 +470,121 @@ describe('Keyed card — the job’s invoice (POST /invoices/:id/card-intent)', 
   });
 });
 
+describe('Keyed card — Workiz’s type on the row', () => {
+  it('files a typed card as a "Credit charge" (methodDetail `charge`) from the moment its row is written', async () => {
+    const { service, ledger, stripe } = build();
+    let atCreate: Payment | undefined;
+    stripe.createKeyedIntent.mockImplementationOnce(async (input: any) => {
+      atCreate = { ...ledger.payments.get(input.metadata.paymentId)! };
+      return pi();
+    });
+    await service.openCardForInvoice('deal-1', { amount: 60, attemptId: ATTEMPT, paymentMethodId: PM }, tech());
+    expect(atCreate).toMatchObject({ methodDetail: 'charge', methodLabel: 'Credit charge' });
+    expect(ledger.payments.get(ATTEMPT)).toMatchObject({ method: 'card', methodDetail: 'charge', methodLabel: 'Credit charge' });
+  });
+});
+
+/**
+ * The office's "Add payment" → Credit charge (web): the card typed into
+ * Stripe Elements on the job, as a `pm_…` — billing never sees the number.
+ * A payment belongs to the JOB (Workiz), so the route is the job's and works
+ * with or without an invoice; the office charges a card over the phone, so
+ * there is no client signature to wait for (the phone's sign-first rule is
+ * about the client standing next to the technician).
+ */
+describe('Keyed card — the job (POST /deals/:dealId/card-intent, the web’s Credit charge)', () => {
+  const noInvoice = () => invoice({ id: 'deal-other', dealId: 'deal-other' });
+
+  it('charges a job with no invoice against the job’s own balance, on the job’s ledger', async () => {
+    const { service, ledger, stripe } = build({ invoice: noInvoice() });
+    stripe.createKeyedIntent.mockResolvedValueOnce(pi({ status: 'succeeded', latest_charge: charge() }));
+
+    const res = await service.openCardForDeal('deal-1', { amount: 100, attemptId: ATTEMPT, paymentMethodId: PM }, caller());
+
+    expect(res).toMatchObject({ paymentId: ATTEMPT, status: 'succeeded', amount: 100, total: 100 });
+    expect(ledger.payments.get(ATTEMPT)).toMatchObject({
+      invoiceId: 'deal-1',
+      dealId: 'deal-1',
+      contactId: 'contact-1',
+      method: 'card',
+      methodDetail: 'charge',
+      channel: 'keyed',
+      status: 'settled',
+      source: 'office',
+    });
+    expect(stripe.createKeyedIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paymentMethodId: PM,
+        idempotencyKey: `keyed_${ATTEMPT}`,
+        metadata: expect.objectContaining({ paymentId: ATTEMPT, dealId: 'deal-1', channel: 'keyed' }),
+      }),
+    );
+  });
+
+  it('refuses more than the job owes — nothing written, Stripe never called', async () => {
+    const { service, ledger, stripe } = build({ invoice: noInvoice() });
+    await expect(
+      service.openCardForDeal('deal-1', { amount: 100.01, attemptId: ATTEMPT, paymentMethodId: PM }, caller()),
+    ).rejects.toThrow(BadRequestException);
+    expect(ledger.payments.size).toBe(0);
+    expect(stripe.createKeyedIntent).not.toHaveBeenCalled();
+  });
+
+  it('measures against the invoice when the job has one — and needs no client signature on it', async () => {
+    const ledger = fakeLedger([payment({ id: 'p-cash', amount: 30, method: 'cash', source: 'office' })]);
+    const { service, stripe, signatures } = build({ ledger, invoice: invoice({ signedAt: undefined }) });
+    stripe.createKeyedIntent.mockResolvedValue(pi());
+
+    await expect(
+      service.openCardForDeal('deal-1', { amount: 70.01, attemptId: ATTEMPT, paymentMethodId: PM }, caller()),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      service.openCardForDeal('deal-1', { amount: 70, attemptId: ATTEMPT, paymentMethodId: PM }, caller()),
+    ).resolves.toMatchObject({ amount: 70, status: 'requires_action' });
+    expect(signatures.hasAny).not.toHaveBeenCalled();
+  });
+
+  it('adds the account’s service fee to the charge, exactly as on the phone', async () => {
+    const { service, settings, stripe } = build({ invoice: noInvoice() });
+    await settings.update({ surchargePercent: 3 }, 'u-1');
+    stripe.createKeyedIntent.mockResolvedValueOnce(pi({ status: 'succeeded', latest_charge: charge() }));
+    const res = await service.openCardForDeal('deal-1', { amount: 33.5, attemptId: ATTEMPT, paymentMethodId: PM }, caller());
+    expect(res).toMatchObject({ amount: 33.5, feeAmount: 1.01, total: 34.51 });
+  });
+
+  it('answers a decline with Stripe’s words (200), and a retried POST with the same answer', async () => {
+    const { service, stripe } = build({ invoice: noInvoice() });
+    stripe.createKeyedIntent.mockRejectedValueOnce(cardError());
+    const res = await service.openCardForDeal('deal-1', { amount: 60, attemptId: ATTEMPT, paymentMethodId: PM }, caller());
+    expect(res).toMatchObject({ status: 'requires_payment_method', declineMessage: 'Your card was declined.' });
+    stripe.retrievePaymentIntent.mockResolvedValue(cardError().payment_intent);
+    await expect(
+      service.openCardForDeal('deal-1', { amount: 60, attemptId: ATTEMPT, paymentMethodId: PM }, caller()),
+    ).resolves.toEqual(res);
+    expect(stripe.createKeyedIntent).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the roster rule, the 404 and the 503 — and never takes a card number', async () => {
+    const { service, deal, ledger } = build({ invoice: noInvoice() });
+    deal.getBillingView.mockResolvedValueOnce(billingView({ assignedTechIds: ['someone-else'] }));
+    await expect(
+      service.openCardForDeal('deal-1', { amount: 10, attemptId: ATTEMPT, paymentMethodId: PM }, tech()),
+    ).rejects.toThrow(ForbiddenException);
+    deal.getBillingView.mockResolvedValueOnce(null);
+    await expect(
+      service.openCardForDeal('deal-1', { amount: 10, attemptId: ATTEMPT, paymentMethodId: PM }, caller()),
+    ).rejects.toThrow(NotFoundException);
+    await expect(
+      service.openCardForDeal('deal-1', { amount: 10, attemptId: ATTEMPT, paymentMethodId: '4242424242424242' }, caller()),
+    ).rejects.toThrow(BadRequestException);
+    const off = build({ invoice: noInvoice(), stripe: mockStripeService({ available: false }) });
+    await expect(
+      off.service.openCardForDeal('deal-1', { amount: 10, attemptId: ATTEMPT, paymentMethodId: PM }, caller()),
+    ).rejects.toThrow(ServiceUnavailableException);
+    expect(ledger.payments.size).toBe(0);
+  });
+});
+
 describe('Keyed card — an estimate’s deposit (POST /estimates/:id/card-intent)', () => {
   it('takes it on the JOB’s ledger, tagged with the estimate, against what is still owed of the deposit', async () => {
     const ledger = fakeLedger([payment({ id: 'dep-1', estimateId: 'est-1', amount: 40, method: 'cash', source: 'office' })]);

@@ -148,6 +148,59 @@ describe('Payments ledger routes (HTTP)', () => {
     });
   });
 
+  describe('POST …/payments — Workiz’s Add payment (type, confirmation code, paid on, charged by referral)', () => {
+    it('hands the Workiz type and "charged by referral" to the service, on both routes', async () => {
+      const body = {
+        amount: 40,
+        method: 'other',
+        methodDetail: 'zelle',
+        reference: 'ZL-1',
+        takenAt: '2026-10-01T16:00:00.000Z',
+        chargedByReferral: true,
+      };
+      const inv = await http().post('/api/billing/invoices/deal-1/payments').send(body);
+      expect(inv.status).toBe(201);
+      expect({ ...payments.recordOffline.mock.calls[0][1] }).toEqual(body);
+      const job = await http().post('/api/billing/deals/deal-1/payments').send(body);
+      expect(job.status).toBe(201);
+      expect({ ...payments.recordOfflineForDeal.mock.calls[0][1] }).toEqual(body);
+    });
+
+    it('takes the type alone (the method follows from it), and a bank transfer made outside Stripe', async () => {
+      for (const body of [
+        { amount: 10, methodDetail: 'venmo' },
+        { amount: 10, method: 'bank', methodDetail: 'bank_transfer_offline' },
+      ]) {
+        const res = await http().post('/api/billing/deals/deal-1/payments').send(body);
+        expect(res.status).toBe(201);
+      }
+      expect(payments.recordOfflineForDeal).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the old body working — a method alone', async () => {
+      const res = await http().post('/api/billing/invoices/deal-1/payments').send({ amount: 10, method: 'card' });
+      expect(res.status).toBe(201);
+    });
+
+    it('400s an online or unknown type, a non-boolean referral flag, and no method or type at all', async () => {
+      for (const body of [
+        { amount: 10, method: 'card', methodDetail: 'charge' },
+        { amount: 10, method: 'bank', methodDetail: 'bank_transfer' },
+        { amount: 10, methodDetail: 'bitcoin' },
+        { amount: 10, method: 'cash', chargedByReferral: 'yes' },
+        { amount: 10 },
+        { amount: 10, method: 'wire' },
+      ]) {
+        for (const path of ['/api/billing/invoices/deal-1/payments', '/api/billing/deals/deal-1/payments']) {
+          const res = await http().post(path).send(body);
+          expect(res.status).toBe(400);
+        }
+      }
+      expect(payments.recordOffline).not.toHaveBeenCalled();
+      expect(payments.recordOfflineForDeal).not.toHaveBeenCalled();
+    });
+  });
+
   describe('GET /payment-settings — the phone’s StripeProvider reads the publishable key here', () => {
     afterEach(() => {
       stripe.configured = { secretKey: true, webhookSecret: true, publishableKey: true };

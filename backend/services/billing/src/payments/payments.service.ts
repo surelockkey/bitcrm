@@ -11,9 +11,14 @@ import {
 import { tryNormalizePhone } from '@bitcrm/shared';
 import {
   BillingEventType,
+  OFFLINE_PAYMENT_TYPES,
+  PAYMENT_TYPE_METHOD,
   TimelineEventType,
   estimateDepositDue,
+  isOfflinePaymentType,
+  paymentTypeLabel,
   type Deal,
+  type OfflinePaymentType,
   type Invoice,
   type JobPaymentLedger,
   type OnlinePaymentMethod,
@@ -59,10 +64,24 @@ export const OFFLINE_PAYMENT_METHODS: readonly PaymentMethod[] = ['cash', 'check
 
 export interface RecordPaymentInput {
   amount: number;
-  method: PaymentMethod;
+  /** Required without `methodDetail`; with it, optional and must be the type's own (`PAYMENT_TYPE_METHOD`). */
+  method?: PaymentMethod;
+  /** Workiz's offline Payment type (`OFFLINE_PAYMENT_TYPES`): Zelle, Credit offline, Bank transfer (offline)… */
+  methodDetail?: string;
+  /** Workiz "Charged by referral". */
+  chargedByReferral?: boolean;
+  /** Workiz's Confirmation code. */
   reference?: string;
   note?: string;
+  /** Workiz's "Paid on". */
   takenAt?: string;
+}
+
+/** An offline payment's method, resolved: the coarse method and, when one was chosen, Workiz's type + label. */
+interface OfflineKind {
+  method: PaymentMethod;
+  methodDetail?: OfflinePaymentType;
+  methodLabel?: string;
 }
 
 /** The job's "Add payment": optionally an estimate's deposit (Workiz: the estimate's Deposits). */
@@ -369,7 +388,7 @@ export class PaymentsService {
   /** Cash, a cheque, a card taken in person. Settled the moment it is recorded. */
   async recordOffline(invoiceId: string, input: RecordPaymentInput, caller: Caller): Promise<Payment> {
     const { invoice, deal } = await this.jobInvoiceFor(invoiceId, caller);
-    assertOfflineMethod(input.method);
+    offlineKind(input);
     return this.writeOffline(
       { ...invoiceOwner(invoice), ...jobDims(deal) },
       await this.amountDue(invoice),
@@ -386,19 +405,10 @@ export class PaymentsService {
    */
   async recordOfflineForDeal(dealId: string, input: RecordJobPaymentInput, caller: Caller): Promise<Payment> {
     const ctx = await this.jobContext(dealId, caller);
-    assertOfflineMethod(input.method);
+    offlineKind(input);
     const deal = ctx.view.deal;
-    // The job's invoice (id === deal id) always has the job.
-    const invoice = ctx.invoice && hasJob(ctx.invoice) ? ctx.invoice : null;
-    const owner: PaymentOwner = invoice
-      ? { ...invoiceOwner(invoice), ...jobDims(deal) }
-      : {
-          invoiceId: deal.id,
-          dealId: deal.id,
-          contactId: deal.contactId,
-          ...(deal.companyId && { companyId: deal.companyId }),
-          ...jobDims(deal),
-        };
+    const invoice = jobInvoiceOf(ctx);
+    const owner = jobOwner(ctx);
     if (input.estimateId !== undefined) return this.writeDeposit(input.estimateId, owner, input, caller);
     if (invoice) return this.writeOffline(owner, await this.amountDue(invoice), input, caller);
     const paid = amountPaidFrom(await this.repo.listByInvoice(deal.id));
@@ -452,6 +462,7 @@ export class PaymentsService {
     input: RecordPaymentInput,
     caller: Caller,
   ): Promise<Payment> {
+    const kind = offlineKind(input);
     const amount = this.clamp(input.amount, amountDue);
     const now = new Date().toISOString();
     const takenInTheField = isAssignedOnly(caller, 'payments');
@@ -461,10 +472,12 @@ export class PaymentsService {
       ...owner,
       amount,
       currency: 'usd',
-      method: input.method,
+      method: kind.method,
+      ...(kind.methodDetail && { methodDetail: kind.methodDetail, methodLabel: kind.methodLabel }),
       status: 'settled',
       refundedAmount: 0,
       source: takenInTheField ? 'field' : 'office',
+      ...(input.chargedByReferral === true && { chargedByReferral: true }),
       ...(input.reference && { reference: input.reference }),
       ...(input.note && { note: input.note }),
       takenBy: caller.user.id,
@@ -773,8 +786,9 @@ export class PaymentsService {
   /**
    * The job + its invoice if it has one, with the caller's `assigned_only`
    * scope enforced. The job-level twin of `context`, which insists on an invoice.
+   * 404 without the job, 403 off its roster. The job's card charge starts here too.
    */
-  private async jobContext(dealId: string, caller: Caller): Promise<JobContext> {
+  async jobContext(dealId: string, caller: Caller): Promise<JobContext> {
     const view = await this.accessibleJob(dealId, caller);
     const invoice = await this.invoices.getStored(view.deal.id);
     return { invoice, view };
@@ -821,6 +835,34 @@ function jobTotal(view: DealBillingView, amountPaid: number): number {
 }
 
 const balanceOf = (total: number, amountPaid: number): number => round2(Math.max(0, total - amountPaid));
+
+/** The job's invoice when it has one (id === deal id, which always has the job). */
+const jobInvoiceOf = (ctx: JobContext): JobInvoice | null => (ctx.invoice && hasJob(ctx.invoice) ? ctx.invoice : null);
+
+/** Who a payment taken on the job belongs to: its invoice's owner when it has one, else the job's. */
+export function jobOwner(ctx: JobContext): PaymentOwner {
+  const deal = ctx.view.deal;
+  const invoice = jobInvoiceOf(ctx);
+  return invoice
+    ? { ...invoiceOwner(invoice), ...jobDims(deal) }
+    : {
+        invoiceId: deal.id,
+        dealId: deal.id,
+        contactId: deal.contactId,
+        ...(deal.companyId && { companyId: deal.companyId }),
+        ...jobDims(deal),
+      };
+}
+
+/**
+ * What the job still owes given its ledger — against the invoice's total when
+ * it has one, otherwise the job's own (as `listForDeal` measures it).
+ */
+export function jobOwed(ctx: JobContext, ledger: Payment[]): number {
+  const paid = summarizePayments(ledger).settled;
+  const invoice = jobInvoiceOf(ctx);
+  return balanceOf(invoice ? (invoice.totals?.total ?? 0) : jobTotal(ctx.view, paid), paid);
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -969,12 +1011,35 @@ const invoiceOwner = (invoice: JobInvoice): PaymentOwner => ({
   ...(invoice.companyId && { companyId: invoice.companyId }),
 });
 
-function assertOfflineMethod(method: PaymentMethod): void {
-  if (!OFFLINE_PAYMENT_METHODS.includes(method)) {
+/**
+ * What an offline payment is recorded as — 400 for anything else. Without
+ * Workiz's type it is the old body: one of `OFFLINE_PAYMENT_METHODS` (bank is
+ * ACH, which settles through the portal). With it, the type decides the
+ * method (`PAYMENT_TYPE_METHOD`) — so a bank transfer made outside Stripe is
+ * `bank` — and a method sent alongside must agree.
+ */
+function offlineKind(input: Pick<RecordPaymentInput, 'method' | 'methodDetail'>): OfflineKind {
+  const { method, methodDetail } = input;
+  if (methodDetail === undefined || methodDetail === null) {
+    if (!method || !OFFLINE_PAYMENT_METHODS.includes(method)) {
+      throw new BadRequestException(
+        `Record a payment as one of: ${OFFLINE_PAYMENT_METHODS.join(', ')} (bank payments settle through the portal)`,
+      );
+    }
+    return { method };
+  }
+  if (!isOfflinePaymentType(methodDetail)) {
     throw new BadRequestException(
-      `Record a payment as one of: ${OFFLINE_PAYMENT_METHODS.join(', ')} (bank payments settle through the portal)`,
+      methodDetail === 'charge'
+        ? 'A credit charge goes through the card form, not as a recorded payment'
+        : `The payment type must be one of: ${OFFLINE_PAYMENT_TYPES.join(', ')}`,
     );
   }
+  const expected = PAYMENT_TYPE_METHOD[methodDetail];
+  if (method !== undefined && method !== null && method !== expected) {
+    throw new BadRequestException(`A ${paymentTypeLabel(methodDetail)} payment is recorded as ${expected}, not ${method}`);
+  }
+  return { method: expected, methodDetail, methodLabel: paymentTypeLabel(methodDetail) };
 }
 
 export { isStripeBacked };

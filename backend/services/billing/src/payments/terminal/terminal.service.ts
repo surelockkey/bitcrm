@@ -13,6 +13,7 @@ import type Stripe from 'stripe';
 import { hasPermission } from '@bitcrm/shared';
 import {
   estimateDepositDue,
+  paymentTypeLabel,
   type Address,
   type KeyedPaymentIntent,
   type Payment,
@@ -32,7 +33,7 @@ import { SignaturesService } from '../../signatures/signatures.service';
 import { PaymentSettingsService } from '../payment-settings.service';
 import { round2, serviceFeeFor, summarizePayments, toCents } from '../payment-rules';
 import { PaymentVersionConflictError, PaymentsRepository } from '../payments.repository';
-import { PaymentsService, clampStaffAmount, jobDims, type PaymentOwner } from '../payments.service';
+import { PaymentsService, clampStaffAmount, jobDims, jobOwed, jobOwner, type PaymentOwner } from '../payments.service';
 import { StripeEventsHandler } from '../stripe/stripe-events.handler';
 import { StripeService, type TerminalAddress } from '../stripe/stripe.service';
 
@@ -84,6 +85,12 @@ interface OpenParams {
   owner: PaymentOwner & { estimateId?: string };
   /** The document the client signed — and that the money is for. */
   document: { kind: SignatureDocumentKind; id: string; signedAt?: string };
+  /**
+   * The phone's sign-first rule (the client stands next to the technician).
+   * The office's Credit charge on the job takes the card over the phone and
+   * has no signature to wait for.
+   */
+  signatureRequired: boolean;
   description: string;
   /** What is still owed — of the balance, or of the deposit — given the job's ledger. */
   owed: (ledger: Payment[]) => number;
@@ -223,6 +230,36 @@ export class TerminalService {
     return this.openKeyed(await this.estimateAttempt(estimateId, input, caller), paymentMethodId);
   }
 
+  /**
+   * The office's "Add payment" → Credit charge (web): the card typed into
+   * Stripe Elements, as a `pm_…`, on the JOB — with or without an invoice
+   * (Workiz: a payment belongs to the job), up to what the job still owes.
+   * The same attempt rules as the phone, minus the client's signature.
+   */
+  async openCardForDeal(dealId: string, request: CardIntentRequest, caller: Caller): Promise<KeyedPaymentIntent> {
+    const input = parseRequest(request);
+    const paymentMethodId = parsePaymentMethod(request);
+    this.requireStripe();
+    return this.openKeyed(await this.dealAttempt(dealId, input, caller), paymentMethodId);
+  }
+
+  /** The job as an attempt's owner: 404 / 403 off the roster. Its invoice's owner and total when it has one. */
+  private async dealAttempt(dealId: string, input: Attempt, caller: Caller): Promise<OpenParams> {
+    const ctx = await this.payments.jobContext(dealId, caller);
+    const owner = jobOwner(ctx);
+    const number = ctx.invoice?.number ?? ctx.view.deal.dealNumber ?? ctx.view.deal.id;
+    return {
+      caller,
+      input,
+      owner,
+      document: { kind: 'invoice', id: owner.invoiceId },
+      signatureRequired: false,
+      description: ctx.invoice ? `Invoice ${number}` : `Job ${number}`,
+      owed: (ledger) => jobOwed(ctx, ledger),
+      scope: (ledger) => ledger,
+    };
+  }
+
   /** The job's invoice as an attempt's owner: 404 / 403 off the roster / 409 for a client invoice (no job). */
   private async invoiceAttempt(invoiceId: string, input: Attempt, caller: Caller): Promise<OpenParams> {
     const { invoice, deal } = await this.payments.jobInvoiceFor(invoiceId, caller);
@@ -237,6 +274,7 @@ export class TerminalService {
         ...jobDims(deal),
       },
       document: { kind: 'invoice', id: invoice.id, signedAt: invoice.signedAt },
+      signatureRequired: true,
       description: `Invoice ${invoice.number}`,
       owed: (ledger) => round2(Math.max(0, (invoice.totals?.total ?? 0) - summarizePayments(ledger).settled)),
       scope: (ledger) => ledger,
@@ -277,6 +315,7 @@ export class TerminalService {
         ...jobDims(view.deal),
       },
       document: { kind: 'estimate', id: estimate.id, signedAt: estimate.signedAt },
+      signatureRequired: true,
       description: `Deposit for estimate ${estimate.number}`,
       owed: (ledger) => round2(Math.max(0, depositDue - summarizePayments(deposit(ledger)).settled)),
       scope: deposit,
@@ -332,7 +371,7 @@ export class TerminalService {
    */
   private async writeAttempt(p: OpenParams, channel: PaymentChannel): Promise<{ payment: Payment; fresh: boolean }> {
     const { caller, input } = p;
-    await this.assertSigned(p.document);
+    if (p.signatureRequired) await this.assertSigned(p.document);
 
     const ledger = await this.supersedeOwnAttempts(p.owner.dealId, caller, input.attemptId);
     const owed = p.owed(ledger);
@@ -357,6 +396,9 @@ export class TerminalService {
       amount,
       currency: 'usd',
       method: 'card',
+      // Workiz files a card through the processor as a "Credit charge" — from the row's first write.
+      methodDetail: 'charge',
+      methodLabel: paymentTypeLabel('charge'),
       status: 'pending',
       refundedAmount: 0,
       ...(input.tipAmount > 0 && { tipAmount: input.tipAmount }),

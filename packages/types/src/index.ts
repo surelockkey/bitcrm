@@ -476,6 +476,15 @@ export type {
   TotalsInput,
   TotalsLine,
 } from './billing/totals';
+export {
+  ADD_PAYMENT_TYPES,
+  OFFLINE_PAYMENT_TYPES,
+  PAYMENT_TYPE_METHOD,
+  paymentTypeLabel,
+  isOfflinePaymentType,
+  cardServiceFee,
+} from './billing/payment-types';
+export type { AddPaymentType, OfflinePaymentType } from './billing/payment-types';
 export type { TaxRate } from './entities/tax-rate.entity';
 export { INVOICE_STATUSES } from './entities/invoice.entity';
 export { PAYMENT_SCHEDULE_METHODS } from './entities/payment-schedule.entity';
