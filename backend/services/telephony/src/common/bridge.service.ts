@@ -13,6 +13,11 @@ import { DealReadService, type DealForCall } from './deal-read.service';
 import { ContactLookupService } from './contact-lookup.service';
 import { CallerIdResolver } from '../voice/caller-id.resolver';
 import { CallsService } from '../calls/calls.service';
+import {
+  nextProgress,
+  type BridgeProgress,
+  type BridgeState,
+} from './bridge-progress';
 
 /** Long enough for a technician to answer and press a key, and no longer. */
 const CONTEXT_TTL_SECONDS = 300;
@@ -35,6 +40,14 @@ export const bridgeClaimKey = (bridgeId: string) =>
   `telephony:bridge:claim:${bridgeId}`;
 export const bridgeUserKey = (userId: string) =>
   `telephony:bridge:tech:${userId}`;
+/**
+ * Where the bridge stands (`state`, `reason`), who may read it (`ownerId`) and
+ * the technician's ringing leg (`legSid`). Beside the context, not in it: the
+ * context holds the client's number and goes on every terminal leg status,
+ * while the outcome must still be there when the phone next asks.
+ */
+export const bridgeStateKey = (bridgeId: string) =>
+  `telephony:bridge:state:${bridgeId}`;
 
 /** What the browser sends. Note there is no phone number in it. */
 export interface BridgeRequest {
@@ -232,6 +245,78 @@ export class BridgeService {
     const keys = [bridgeUserKey(userId)];
     if (bridgeId) keys.push(bridgeKey(bridgeId), bridgeClaimKey(bridgeId));
     await this.redis.client.del(...keys).catch(() => undefined);
+  }
+
+  /**
+   * Open the bridge's progress at "ringing your phone", readable only by
+   * `ownerId` — the user who asked for the call. Written BEFORE the leg is
+   * placed: Twilio can report a leg it refused (geo permissions) before
+   * `calls.create` has even returned, and a `failed` with nowhere to land
+   * would leave the phone ringing for nobody.
+   */
+  async track(bridgeId: string, ownerId: string): Promise<void> {
+    await this.redis.client.hset(bridgeStateKey(bridgeId), {
+      state: 'ringing_you',
+      ownerId,
+    });
+    await this.redis.client.expire(bridgeStateKey(bridgeId), CONTEXT_TTL_SECONDS);
+  }
+
+  /** The technician's leg, once Twilio has named it — what Cancel hangs up. */
+  async rememberLeg(bridgeId: string, legSid: string): Promise<void> {
+    await this.redis.client.hset(bridgeStateKey(bridgeId), { legSid });
+  }
+
+  /** The technician's leg on this bridge, or null. */
+  async ringingLeg(bridgeId: string): Promise<string | null> {
+    const raw = await this.redis.client.hgetall(bridgeStateKey(bridgeId));
+    return raw?.legSid || null;
+  }
+
+  /**
+   * Move the bridge along: `step` gets the stage it is at and proposes the
+   * next, which is kept only if it moves forward (`nextProgress`). A bridge
+   * nobody tracks — a softphone bridge, an expired one — is left alone.
+   *
+   * Read-then-write, not atomic: both legs' callbacks run on the call's
+   * serial queue (`call:<technician leg>`), and across tasks the forward-only
+   * rule is what keeps a late callback from undoing an outcome.
+   */
+  async advance(
+    bridgeId: string,
+    step: (current: BridgeState) => BridgeProgress | null,
+  ): Promise<BridgeProgress | null> {
+    const key = bridgeStateKey(bridgeId);
+    const raw = await this.redis.client.hgetall(key);
+    if (!raw?.state) return null;
+    const current: BridgeProgress = {
+      state: raw.state as BridgeState,
+      ...(raw.reason && { reason: raw.reason }),
+    };
+    const proposed = step(current.state);
+    const next = proposed && nextProgress(current, proposed);
+    if (!next) return null;
+    await this.redis.client.hset(key, {
+      state: next.state,
+      ...(next.reason && { reason: next.reason }),
+    });
+    await this.redis.client.expire(key, CONTEXT_TTL_SECONDS);
+    return next;
+  }
+
+  /**
+   * What the phone is told: `{state, reason?}`, and only for the user who
+   * started the bridge. Anyone else gets the same null as an unknown id, so a
+   * bridge id cannot be probed.
+   */
+  async statusFor(bridgeId: string, userId: string): Promise<BridgeProgress | null> {
+    if (!bridgeId) return null;
+    const raw = await this.redis.client.hgetall(bridgeStateKey(bridgeId));
+    if (!raw?.state || raw.ownerId !== userId) return null;
+    return {
+      state: raw.state as BridgeState,
+      ...(raw.reason && { reason: raw.reason }),
+    };
   }
 
   /** The leg sid that claimed this bridge's answer webhook, if any. */

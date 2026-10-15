@@ -270,3 +270,96 @@ describe('BridgeService.context', () => {
     await expect(service.context('nope')).resolves.toBeNull();
   });
 });
+
+/**
+ * The bridge's progress, which the phone polls after "Call client". It lives
+ * beside the context, not in it: the context (with the client's real number)
+ * is deleted on every terminal leg status, and a `failed` that vanished with
+ * it would leave the phone saying nothing — the bug this exists to fix.
+ */
+describe('BridgeService — progress', () => {
+  const STATE_KEY = 'telephony:bridge:state:b-1';
+
+  it('opens at "ringing your phone", owned by whoever started it, on the context TTL', async () => {
+    const { service, redis } = makeService();
+
+    await service.track('b-1', 'tech-1');
+
+    expect(redis.hashes.get(STATE_KEY)).toEqual({ state: 'ringing_you', ownerId: 'tech-1' });
+    expect(redis.client.expire).toHaveBeenCalledWith(STATE_KEY, 300);
+    await expect(service.statusFor('b-1', 'tech-1')).resolves.toEqual({ state: 'ringing_you' });
+  });
+
+  it('answers only the user who started the bridge', async () => {
+    const { service } = makeService();
+    await service.track('b-1', 'tech-1');
+
+    await expect(service.statusFor('b-1', 'tech-2')).resolves.toBeNull();
+  });
+
+  it('answers nothing for an unknown or expired bridge', async () => {
+    const { service } = makeService();
+
+    await expect(service.statusFor('nope', 'tech-1')).resolves.toBeNull();
+    await expect(service.statusFor('', 'tech-1')).resolves.toBeNull();
+  });
+
+  it('moves forward with the reason, and never back', async () => {
+    const { service } = makeService();
+    await service.track('b-1', 'tech-1');
+
+    await service.advance('b-1', () => ({ state: 'connecting_client' }));
+    await service.advance('b-1', () => ({ state: 'you_answered' })); // late
+    expect(await service.statusFor('b-1', 'tech-1')).toEqual({ state: 'connecting_client' });
+
+    await service.advance('b-1', () => ({ state: 'failed', reason: 'The client did not answer' }));
+    await service.advance('b-1', () => ({ state: 'ended' }));
+    expect(await service.statusFor('b-1', 'tech-1')).toEqual({
+      state: 'failed',
+      reason: 'The client did not answer',
+    });
+  });
+
+  it('hands the step the stage it is at', async () => {
+    const { service } = makeService();
+    await service.track('b-1', 'tech-1');
+    const step = jest.fn(() => null);
+
+    await service.advance('b-1', step);
+
+    expect(step).toHaveBeenCalledWith('ringing_you');
+  });
+
+  it('leaves a bridge nobody is tracking alone (a softphone bridge, an expired one)', async () => {
+    const { service, redis } = makeService();
+
+    await service.advance('b-untracked', () => ({ state: 'connected' }));
+
+    expect(redis.hashes.has('telephony:bridge:state:b-untracked')).toBe(false);
+  });
+
+  it('outlives release — the outcome is read after the legs are over', async () => {
+    const { service } = makeService();
+    await service.track('b-1', 'tech-1');
+    await service.advance('b-1', () => ({ state: 'failed', reason: 'Your phone did not answer' }));
+
+    await service.release('tech-1', 'b-1');
+
+    expect(await service.statusFor('b-1', 'tech-1')).toEqual({
+      state: 'failed',
+      reason: 'Your phone did not answer',
+    });
+  });
+
+  it('remembers the technician’s ringing leg, so Cancel can hang it up', async () => {
+    const { service } = makeService();
+    await service.track('b-1', 'tech-1');
+
+    await service.rememberLeg('b-1', 'CAtech');
+
+    await expect(service.ringingLeg('b-1')).resolves.toBe('CAtech');
+    await expect(service.ringingLeg('nope')).resolves.toBeNull();
+    // Never part of what the phone is told.
+    expect(await service.statusFor('b-1', 'tech-1')).toEqual({ state: 'ringing_you' });
+  });
+});

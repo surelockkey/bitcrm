@@ -49,6 +49,7 @@ import { UserPhoneLookupService } from '../common/user-phone-lookup.service';
 import { UserDirectoryService } from '../common/user-directory.service';
 import { PermissionLookupService } from '../common/permission-lookup.service';
 import { BridgeService } from '../common/bridge.service';
+import { technicianLegProgress } from '../common/bridge-progress';
 import { PresenceService } from '../presence/presence.service';
 import { TwilioRest } from '@bitcrm/shared';
 import { maskCall, maskCalls } from './call-masking';
@@ -979,7 +980,8 @@ export class CallsController {
       'never reaches the browser. `via` picks which end rings the caller ' +
       '(`cell` rings their handset, then dials the client; `softphone` opens ' +
       'a browser leg); omitted, presence decides. Returns immediately with a ' +
-      'bridgeId; watch GET /calls/active for progress.',
+      'bridgeId; a `cell` bridge reports its progress on ' +
+      'GET /calls/bridge/:bridgeId.',
   })
   async startBridge(
     @Body() dto: StartBridgeDto,
@@ -1033,12 +1035,37 @@ export class CallsController {
     };
   }
 
+  @Get('bridge/:bridgeId')
+  @ApiOperation({
+    summary: 'Where a masked call stands',
+    description:
+      '**Guard:** Authenticated (any role), exactly like `POST /calls/bridge` — and ' +
+      'only for the user who started the bridge: anyone else gets 404, as does an ' +
+      'unknown or expired id, so a bridge id cannot be probed. Returns ' +
+      '`{state, reason?}`. `state` moves `ringing_you` → `you_answered` → ' +
+      '`connecting_client` → `connected` → `ended`, or stops at `failed` with a ' +
+      '`reason` to show as is ("Your phone did not answer", "Your number could not ' +
+      'be reached from the company line", "The client\'s line is busy", …), read ' +
+      'off both legs\' Twilio status callbacks (CallStatus, SipResponseCode, ' +
+      'ErrorCode). Kept 5 minutes after the last change. The phone polls it every ' +
+      '2 s after a `cell` bridge.',
+  })
+  async bridgeStatus(
+    @Param('bridgeId') bridgeId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const progress = await this.bridge.statusFor(bridgeId, user.id);
+    if (!progress) throw new NotFoundException('Call not found');
+    return { success: true, data: progress };
+  }
+
   @Delete('bridge/:bridgeId')
   @ApiOperation({
     summary: 'Cancel a bridge that is still ringing',
     description:
-      'The creator or the technician being rung. A mis-tap must be abortable ' +
-      'before the client is ever dialled.',
+      'The creator or the technician being rung. Hangs up the technician\'s ' +
+      'leg while it rings: a mis-tap must be abortable before the client is ' +
+      'ever dialled.',
   })
   async cancelBridge(
     @Param('bridgeId') bridgeId: string,
@@ -1050,9 +1077,14 @@ export class CallsController {
       throw new ForbiddenException('That is not your call');
     }
 
-    const legSid = await this.bridge.answerClaim(bridgeId);
+    // The answer claim names the leg only once a key was pressed; while the
+    // handset still rings, the leg is the one ringTechnician placed.
+    const legSid =
+      (await this.bridge.answerClaim(bridgeId)) ??
+      (await this.bridge.ringingLeg(bridgeId));
     if (legSid) await this.cancelLeg(legSid);
     await this.bridge.release(ctx.technicianId, bridgeId);
+    await this.bridge.advance(bridgeId, () => ({ state: 'ended' }));
     return { success: true, data: { cancelled: true } };
   }
 
@@ -1085,6 +1117,9 @@ export class CallsController {
 
     const base = this.config.publicBaseUrl;
     try {
+      // Before the leg exists: Twilio can report a leg it refused before
+      // calls.create has returned, and that `failed` needs somewhere to land.
+      await this.bridge.track(bridgeId, ctx.actorId);
       const created = await new TwilioRest(this.config).run((c) =>
         c.calls.create({
           to: phone,
@@ -1099,6 +1134,7 @@ export class CallsController {
           statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
         }),
       );
+      await this.bridge.rememberLeg(bridgeId, created.sid);
 
       await this.callsService.applyLifecycle({
         callSid: created.sid,
@@ -1113,6 +1149,13 @@ export class CallsController {
       return created.sid;
     } catch (error) {
       await this.bridge.release(ctx.technicianId, bridgeId);
+      // Nobody will poll a bridge whose POST failed; this only keeps the
+      // record from saying "ringing" for a phone that never rang.
+      await this.bridge
+        .advance(bridgeId, (current) =>
+          technicianLegProgress({ CallStatus: 'failed' }, current),
+        )
+        .catch(() => undefined);
       throw error;
     }
   }
