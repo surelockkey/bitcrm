@@ -17,7 +17,9 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
+import { usePermissions } from "@/features/auth/use-permissions";
 import { formatMoney } from "@/features/deals/lib";
+import { amountOf, markupPct, money2, priceFromMarkup } from "@/features/deals/line-item-math";
 import { estimateItemSchema, type EstimateItemBody } from "@/features/estimates/schemas";
 import { CATALOG_PAGE_SIZE, useCatalogProduct, useCatalogProducts, useCatalogSearch } from "@/features/price-book/catalog-search";
 import { useItemGroups } from "@/features/price-book/item-groups/hooks";
@@ -54,7 +56,8 @@ interface PickerProps {
  * Catalog picker for document lines (estimates). Same catalog search as the
  * job's Add item dialog, without the van-stock sourcing — an estimate
  * reserves nothing until it is synced to the job. The price is anyone's to
- * set, below zero too (owner, 2026-10-15).
+ * set, below zero too (owner, 2026-10-15); the Markup % and Cost boxes (the
+ * line's own company cost, as on the job's card) are the office's.
  *
  * What was typed and what was picked live in the body, which the dialog
  * mounts afresh on every open: a page that closes the picker by its own
@@ -80,6 +83,10 @@ export function ProductPickerDialog({
 }
 
 function PickerBody({ onSubmit, editing, pending, onAddGroup }: PickerProps) {
+  // The Cost and Markup boxes are the office's: inventory hides costCompany
+  // from anyone without financials.view.
+  const { can } = usePermissions();
+  const mayCost = can("financials", "view");
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<Product | null>(null);
   const [changing, setChanging] = useState(false);
@@ -120,6 +127,7 @@ function PickerBody({ onSubmit, editing, pending, onAddGroup }: PickerProps) {
           key={picked?.id ?? editing?.productId}
           product={picked ?? editingProduct}
           line={picked ? undefined : editing}
+          mayCost={mayCost}
           pending={pending}
           submitLabel={editing ? "Save" : "Add item"}
           backLabel={editing && !picked ? "Change item" : "← Back"}
@@ -206,6 +214,7 @@ function PickerBody({ onSubmit, editing, pending, onAddGroup }: PickerProps) {
 function Configure({
   product,
   line,
+  mayCost,
   pending,
   submitLabel,
   backLabel,
@@ -218,19 +227,55 @@ function Configure({
    */
   product: Product | null | undefined;
   line?: PickerLine;
+  /** The viewer holds `financials.view`: the Cost and Markup boxes are theirs. */
+  mayCost: boolean;
   pending?: boolean;
   submitLabel: string;
   backLabel: string;
   onBack: () => void;
   onSubmit: (body: EstimateItemBody) => void;
 }) {
+  // The line's own costs on an edit — Workiz freezes the cost on the line, so
+  // the catalog's never overwrites it; a new line (or a swap) starts from the
+  // catalog's. Inventory leaves costCompany out for a viewer without
+  // financials.view, hence the fallbacks.
+  const baseCost = line ? line.costCompany : (product?.costCompany ?? 0);
+  const costForTech = line ? line.costForTech : (product?.costTech ?? 0);
+  const storedPrice = line?.priceClient ?? product?.priceClient ?? 0;
   const [qty, setQty] = useState(String(line?.quantity ?? 1));
-  const [price, setPrice] = useState(String(line?.priceClient ?? product?.priceClient ?? 0));
+  const [price, setPrice] = useState(String(storedPrice));
+  const [cost, setCost] = useState(String(baseCost));
+  const [markup, setMarkup] = useState(() => {
+    const m = markupPct(storedPrice, baseCost);
+    return m === null ? "" : money2(m);
+  });
   const [taxable, setTaxable] = useState(line ? line.taxable : product?.taxable !== false);
   const [description, setDescription] = useState(line?.description ?? "");
 
   const catalogPrice = product?.priceClient;
   const priceNum = Number(price);
+  const costValue = amountOf(cost);
+
+  // Two-way, as the job's card: a markup prices the line from its cost; a
+  // price or a cost re-marks it.
+  const changePrice = (text: string) => {
+    setPrice(text);
+    const p = text.trim() === "" ? NaN : Number(text);
+    const m = costValue === null ? null : markupPct(p, costValue);
+    setMarkup(m === null ? "" : money2(m));
+  };
+  const changeCost = (text: string) => {
+    setCost(text);
+    const c = amountOf(text);
+    const m = c === null ? null : markupPct(priceNum, c);
+    setMarkup(m === null ? "" : money2(m));
+  };
+  const changeMarkup = (text: string) => {
+    setMarkup(text);
+    const m = Number(text);
+    const p = text.trim() === "" || !Number.isFinite(m) || costValue === null ? null : priceFromMarkup(costValue, m);
+    if (p !== null) setPrice(money2(p));
+  };
 
   const parsed = estimateItemSchema.safeParse({
     productId: product?.id ?? line?.productId,
@@ -240,12 +285,14 @@ function Configure({
     description,
     quantity: qty,
     priceClient: price,
-    costCompany: product?.costCompany ?? line?.costCompany ?? 0,
-    costForTech: product?.costTech ?? line?.costForTech ?? 0,
+    // A viewer who cannot see costs keeps the line's (or the catalog's on a new line).
+    costCompany: mayCost ? cost : baseCost,
+    costForTech,
     taxable,
   });
   const qtyError = !parsed.success && parsed.error.issues.find((i) => i.path[0] === "quantity")?.message;
   const priceError = !parsed.success && parsed.error.issues.find((i) => i.path[0] === "priceClient")?.message;
+  const costError = mayCost && !parsed.success && parsed.error.issues.some((i) => i.path[0] === "costCompany");
   // Not before the catalog item is known: the line takes its type and costs from it.
   const valid = parsed.success && product !== undefined;
 
@@ -295,10 +342,40 @@ function Configure({
             step="0.01"
             value={price}
             aria-invalid={Boolean(priceError)}
-            onChange={(e) => setPrice(e.target.value)}
+            onChange={(e) => changePrice(e.target.value)}
           />
           {priceError ? <p className="text-[11px] text-destructive">{priceError}</p> : null}
         </div>
+        {mayCost ? (
+          <>
+            <div className="space-y-1.5">
+              <Label htmlFor="picker-markup">Markup %</Label>
+              <Input
+                id="picker-markup"
+                className="h-9"
+                type="number"
+                step="0.01"
+                value={markup}
+                onChange={(e) => changeMarkup(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="picker-cost">Cost</Label>
+              <Input
+                id="picker-cost"
+                className="h-9"
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min={0}
+                value={cost}
+                aria-invalid={costError}
+                onChange={(e) => changeCost(e.target.value)}
+              />
+              {costError ? <p className="text-[11px] text-destructive">Cost can&apos;t be negative</p> : null}
+            </div>
+          </>
+        ) : null}
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="picker-description">

@@ -6,10 +6,14 @@ import { InventoryStatus, ProductType, type Product } from "@bitcrm/types";
 import { duplicates, installFakeServer, renderWithClient, screen, settle } from "@/test/page-load";
 import type { EstimateItemBody } from "@/features/estimates/schemas";
 
-// Whether the viewer is a technician — who sets any price, as the office does.
-const viewer = vi.hoisted(() => ({ technician: false }));
+// Whether the viewer is a technician — who sets any price, as the office does —
+// and whether they hold financials.view (the Cost and Markup boxes).
+const viewer = vi.hoisted(() => ({ technician: false, mayCost: true }));
 vi.mock("@/features/auth/use-permissions", () => ({
-  usePermissions: () => ({ isTechnician: viewer.technician, can: () => true }),
+  usePermissions: () => ({
+    isTechnician: viewer.technician,
+    can: (resource: string) => resource !== "financials" || viewer.mayCost,
+  }),
 }));
 
 import { ProductPickerDialog } from "./product-picker-dialog";
@@ -111,6 +115,7 @@ const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 afterEach(() => {
   vi.unstubAllGlobals();
   viewer.technician = false;
+  viewer.mayCost = true;
 });
 
 describe("ProductPickerDialog", () => {
@@ -299,5 +304,89 @@ describe("ProductPickerDialog", () => {
     await u.click(screen.getByRole("button", { name: /^add item$/i }));
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0][0]).toMatchObject({ productId: "p1", priceClient: 200 });
+  });
+
+  // Workiz parity: the estimate's "Add item" has the job card's Markup % and
+  // Cost boxes — the line's own company cost, typed over by the office.
+  describe("the line's company cost (Markup % · Cost)", () => {
+    const editing = {
+      productId: "p1", name: "Deadbolt", sku: "DB-1", quantity: 2, priceClient: 90,
+      costCompany: 15, costForTech: 18, taxable: true,
+    };
+
+    it("prefills a new line's cost from the catalog; a markup reprices it, a cost or a price re-marks it", async () => {
+      catalogServer();
+      const onSubmit = vi.fn();
+      renderWithClient(<ProductPickerDialog open onOpenChange={() => {}} onSubmit={onSubmit} />);
+      const u = user();
+      await u.click(await screen.findByText("Deadbolt"));
+
+      expect(screen.getByLabelText("Cost")).toHaveValue(20);
+      // (100 − 20) / 20
+      expect(screen.getByLabelText("Markup %")).toHaveValue(400);
+
+      const markup = screen.getByLabelText("Markup %");
+      await u.clear(markup);
+      await u.type(markup, "50");
+      expect(screen.getByLabelText("Client price")).toHaveValue(30);
+
+      const cost = screen.getByLabelText("Cost");
+      await u.clear(cost);
+      await u.type(cost, "10");
+      expect(screen.getByLabelText("Markup %")).toHaveValue(200);
+
+      const price = screen.getByLabelText("Client price");
+      await u.clear(price);
+      await u.type(price, "25");
+      expect(screen.getByLabelText("Markup %")).toHaveValue(150);
+
+      await u.click(screen.getByRole("button", { name: /^add item$/i }));
+      expect(onSubmit.mock.calls[0][0]).toMatchObject({ priceClient: 25, costCompany: 10, costForTech: 25 });
+    });
+
+    it("opens an edit on the LINE's cost, not the catalog's, and keeps it on save", async () => {
+      catalogServer();
+      const onSubmit = vi.fn();
+      renderWithClient(<ProductPickerDialog open onOpenChange={() => {}} onSubmit={onSubmit} editing={editing} />);
+      const u = user();
+      expect(await screen.findByText(/catalog \$100\.00/)).toBeInTheDocument();
+
+      expect(screen.getByLabelText("Cost")).toHaveValue(15);
+      expect(screen.getByLabelText("Markup %")).toHaveValue(500);
+      await u.click(screen.getByRole("button", { name: /^save$/i }));
+
+      expect(onSubmit.mock.calls[0][0]).toMatchObject({ priceClient: 90, costCompany: 15, costForTech: 18 });
+    });
+
+    it("saves a cost typed over on an edit", async () => {
+      catalogServer();
+      const onSubmit = vi.fn();
+      renderWithClient(<ProductPickerDialog open onOpenChange={() => {}} onSubmit={onSubmit} editing={editing} />);
+      const u = user();
+      await screen.findByText(/catalog \$100\.00/);
+
+      const cost = screen.getByLabelText("Cost");
+      await u.clear(cost);
+      await u.type(cost, "30");
+      expect(screen.getByLabelText("Markup %")).toHaveValue(200);
+      await u.click(screen.getByRole("button", { name: /^save$/i }));
+
+      expect(onSubmit.mock.calls[0][0]).toMatchObject({ priceClient: 90, costCompany: 30 });
+    });
+
+    it("hides Cost and Markup without financials.view, and an edit keeps the line's own cost", async () => {
+      viewer.mayCost = false;
+      catalogServer();
+      const onSubmit = vi.fn();
+      renderWithClient(<ProductPickerDialog open onOpenChange={() => {}} onSubmit={onSubmit} editing={editing} />);
+      const u = user();
+      await screen.findByText(/catalog \$100\.00/);
+
+      expect(screen.queryByLabelText("Cost")).toBeNull();
+      expect(screen.queryByLabelText("Markup %")).toBeNull();
+      await u.click(screen.getByRole("button", { name: /^save$/i }));
+
+      expect(onSubmit.mock.calls[0][0]).toMatchObject({ costCompany: 15, costForTech: 18 });
+    });
   });
 });
