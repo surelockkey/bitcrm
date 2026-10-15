@@ -45,7 +45,11 @@ export class TechniciansController {
     summary: 'Get a technician profile',
     description:
       '**Guard:** `technicians.view` permission required. Manager+ or self — ' +
-      'a technician may only read their own profile.',
+      'a technician may only read their own profile.\n\n' +
+      '`gpsTrackingEnabled` is served as it applies, not as the checkbox was stored: ' +
+      'the card’s **Track location**, and never `true` for a subcontractor. The phone ' +
+      'reads its own profile here to decide whether to post `POST /technicians/:id/location` ' +
+      'at all; a fix posted while it is `false` is accepted and dropped.',
   })
   async getProfile(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     const data = await this.techniciansService.getProfile(id, user);
