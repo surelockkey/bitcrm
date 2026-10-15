@@ -7,7 +7,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  ADD_PAYMENT_TYPES,
   MAX_SURCHARGE_PERCENT,
+  paymentReportTypeLabel,
+  paymentTypeLabel,
+  type AddPaymentType,
   type DocumentTotals,
   type OnlinePaymentMethod,
   type Payment,
@@ -55,6 +59,31 @@ export const PAYMENT_METHOD_META: Record<PaymentMethod, { label: string; icon: L
 
 export function paymentMethodLabel(method: PaymentMethod): string {
   return PAYMENT_METHOD_META[method]?.label ?? method;
+}
+
+/**
+ * How a payment row names its method: Workiz's type when it has one ("Zelle",
+ * "Credit charge", "Bank transfer (offline)") — chosen in Add payment or
+ * brought by the import — else the coarse method ("Cash", "Card").
+ */
+export function paymentLabel(p: Pick<Payment, "method" | "methodDetail" | "methodLabel">): string {
+  return p.methodLabel?.trim() || (p.methodDetail ? paymentReportTypeLabel(p.methodDetail) : paymentMethodLabel(p.method));
+}
+
+/**
+ * Add payment's "Payment type" options, in Workiz's order. Credit charge (a
+ * card typed into Stripe here) only when a card can actually be charged.
+ */
+export function addPaymentTypes({ canCharge }: { canCharge: boolean }): { value: AddPaymentType; label: string }[] {
+  return ADD_PAYMENT_TYPES.filter((t) => canCharge || t !== "charge").map((value) => ({
+    value,
+    label: paymentTypeLabel(value),
+  }));
+}
+
+/** A card can be charged from the browser once Stripe's publishable key is configured. */
+export function canChargeCard(settings: { publishableKey?: string | null } | undefined): boolean {
+  return !!settings?.publishableKey;
 }
 
 /** What staff can key in by hand. `bank` is online-only (ACH runs through Stripe). */

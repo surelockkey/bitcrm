@@ -3,18 +3,32 @@ import { DEFAULT_PAYMENT_SETTINGS, MAX_SURCHARGE_PERCENT } from "@bitcrm/types";
 import {
   paymentSettingsSchema,
   recordPaymentSchema,
+  toRecordPaymentBody,
   settingsToForm,
   toSettingsBody,
 } from "./schemas";
 
-describe("recordPaymentSchema", () => {
-  const valid = { amount: "125.50", method: "check", reference: "1042", note: "", takenAt: "2026-09-20" };
+describe("recordPaymentSchema — Workiz's Add payment", () => {
+  const valid = {
+    amount: "125.50",
+    type: "check",
+    reference: "1042",
+    note: "",
+    takenAt: "2026-09-20",
+    chargedByReferral: false,
+  };
 
   it("keeps the typed amount for the form and trims the rest", () => {
     const parsed = recordPaymentSchema.parse({ ...valid, reference: " 1042 " });
     expect(parsed.amount).toBe("125.50");
-    expect(parsed.method).toBe("check");
+    expect(parsed.type).toBe("check");
     expect(parsed.reference).toBe("1042");
+  });
+
+  it("takes every Workiz type, Credit charge included", () => {
+    for (const type of ["charge", "cash", "credit", "bank_transfer_offline", "zelle", "debit_offline"]) {
+      expect(recordPaymentSchema.safeParse({ ...valid, type }).success).toBe(true);
+    }
   });
 
   it("refuses nothing, zero and a negative amount", () => {
@@ -23,12 +37,37 @@ describe("recordPaymentSchema", () => {
     }
   });
 
-  it("refuses a method staff cannot key in by hand", () => {
-    expect(recordPaymentSchema.safeParse({ ...valid, method: "bank" }).success).toBe(false);
+  it("refuses a type that is not one of Add payment's — ACH stays the portal's", () => {
+    expect(recordPaymentSchema.safeParse({ ...valid, type: "bank_transfer" }).success).toBe(false);
+    expect(recordPaymentSchema.safeParse({ ...valid, type: "bank" }).success).toBe(false);
   });
 
   it("refuses a date it cannot read", () => {
     expect(recordPaymentSchema.safeParse({ ...valid, takenAt: "20/09/2026" }).success).toBe(false);
+  });
+});
+
+describe("toRecordPaymentBody", () => {
+  it("sends the Workiz type with the method it maps to, and the referral flag only when ticked", () => {
+    expect(
+      toRecordPaymentBody(
+        { amount: "40", type: "zelle", reference: "ZL-1", note: "", takenAt: "2026-09-20", chargedByReferral: true },
+        "2026-09-20T16:00:00.000Z",
+      ),
+    ).toEqual({
+      amount: 40,
+      method: "other",
+      methodDetail: "zelle",
+      reference: "ZL-1",
+      takenAt: "2026-09-20T16:00:00.000Z",
+      chargedByReferral: true,
+    });
+    expect(
+      toRecordPaymentBody(
+        { amount: "10", type: "bank_transfer_offline", reference: "", note: "n", takenAt: "2026-09-20", chargedByReferral: false },
+        "2026-09-20T16:00:00.000Z",
+      ),
+    ).toEqual({ amount: 10, method: "bank", methodDetail: "bank_transfer_offline", note: "n", takenAt: "2026-09-20T16:00:00.000Z" });
   });
 });
 

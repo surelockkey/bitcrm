@@ -151,6 +151,42 @@ export class EstimateTerminalController {
   }
 }
 
+/**
+ * `POST /deals/:dealId/card-intent` — the office's "Add payment" → Credit
+ * charge (web). Deeper than every `/deals/:dealId/...` route of
+ * DealPaymentsController, so nothing shadows it.
+ */
+@ApiTags(TAG)
+@ApiBearerAuth()
+@Controller('deals')
+export class DealTerminalController {
+  constructor(private readonly terminal: TerminalService) {}
+
+  @Post(':dealId/card-intent')
+  @RequirePermission('payments', 'collect')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'A typed card on the job (the web’s Credit charge), with or without an invoice',
+    description:
+      '**Guard:** `payments.collect` (technicians: `assigned_only`). Workiz “Add payment” → Credit charge: the card ' +
+      'typed into Stripe Elements in the browser, as the `pm_…` `stripe.createPaymentMethod` made (name on card, ' +
+      'ZIP and the client’s email ride on it as Stripe `billing_details` — billing never sees card data). The ' +
+      'payment lands on the JOB’s ledger (invoice id === job id) and is capped by what the job still owes — the ' +
+      'invoice’s total when it has one, the job’s own otherwise. No client signature is asked for (the office ' +
+      'charges a card over the phone). Every other rule is the phone’s typed card: the `pending` row (channel ' +
+      '`keyed`, methodDetail `charge`) is written FIRST, the `card` PaymentIntent for `amount + tipAmount + ' +
+      'feeAmount` is created AND confirmed in one call (idempotency key `keyed_<attemptId>`), **HTTP 200 for every ' +
+      'Stripe outcome** by `status` — `succeeded` (settled), `requires_action` (`stripe.handleNextAction`, then ' +
+      '`POST /terminal-intents/:paymentId/sync`), `requires_payment_method` (declined, `declineMessage`; another ' +
+      'card is a NEW `attemptId`). → `{ paymentId, intentId, clientSecret, status, amount, tipAmount, feeAmount, ' +
+      'total, currency, declineMessage? }`. 400 above what is owed, when nothing is, for a PaymentMethod Stripe ' +
+      'does not know; 403 off the job’s roster; 404 for an unknown job; 503 without Stripe.',
+  })
+  async card(@Param('dealId') dealId: string, @Body() dto: CardIntentDto, @CallerCtx() caller: Caller) {
+    return { success: true, data: await this.terminal.openCardForDeal(dealId, dto, caller) };
+  }
+}
+
 /** After the tap. Its own prefix: no `/payments/:paymentId/...` route can take it. */
 @ApiTags(TAG)
 @ApiBearerAuth()

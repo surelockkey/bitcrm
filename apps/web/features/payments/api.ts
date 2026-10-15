@@ -2,14 +2,19 @@ import type {
   Contact,
   Invoice,
   JobPaymentLedger,
+  KeyedPaymentIntent,
+  OfflinePaymentType,
   OnlinePaymentMethod,
   Payment,
   PaymentRefund,
   PaymentReportPage,
   PaymentReportQuery,
   PaymentReportTotals,
+  PaymentReceiptRequest,
+  PaymentReceiptResult,
   PaymentSettings,
   PaymentSummary,
+  TerminalIntentOutcome,
 } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
 import { getContactsByIds } from "@/features/clients/api";
@@ -32,13 +37,30 @@ export interface PaymentPage {
   summary?: PaymentSummary;
 }
 
-/** An offline payment keyed in by staff. Online money arrives through Stripe. */
+/**
+ * An offline payment keyed in by staff (Workiz Add payment with an offline
+ * type). `method` follows from `methodDetail`; the server checks they agree.
+ */
 export interface RecordPaymentBody {
   amount: number;
-  method: OfflinePaymentMethod;
+  method: OfflinePaymentMethod | "bank";
+  /** Workiz's Payment type: Zelle, Credit offline, Bank transfer (offline)… */
+  methodDetail?: OfflinePaymentType;
+  /** Workiz "Charged by referral". */
+  chargedByReferral?: boolean;
+  /** Workiz's Confirmation code. */
   reference?: string;
   note?: string;
+  /** Workiz's Paid on. */
   takenAt?: string;
+}
+
+/** Credit charge: the PaymentMethod Stripe.js made from the typed card — never card data. */
+export interface CardIntentBody {
+  amount: number;
+  /** One UUID per attempt — the payment id and Stripe's idempotency key. */
+  attemptId: string;
+  paymentMethodId: string;
 }
 
 export interface RefundBody {
@@ -54,6 +76,8 @@ export interface RefundBody {
  */
 export interface PaymentSettingsView extends PaymentSettings {
   stripeConfigured?: boolean;
+  /** Stripe's publishable key (`pk_…`, public by design); `null` while Stripe is not configured. */
+  publishableKey?: string | null;
 }
 
 export const getInvoicePayments = (invoiceId: string): Promise<InvoiceLedger> =>
@@ -80,9 +104,24 @@ export const refundPayment = (paymentId: string, body: RefundBody): Promise<Paym
 export const deletePayment = (paymentId: string): Promise<{ deleted: boolean }> =>
   http.delete<{ deleted: boolean }>(`${BASE}/payments/${paymentId}`);
 
-/** Re-sends the client their receipt for one payment. */
-export const resendReceipt = (paymentId: string): Promise<{ sent: boolean; sentTo?: string }> =>
-  http.post<{ sent: boolean; sentTo?: string }>(`${BASE}/payments/${paymentId}/receipt`);
+/** Re-sends the client their receipt for one payment — to the address typed, when one is. */
+export const resendReceipt = (paymentId: string, body?: PaymentReceiptRequest): Promise<PaymentReceiptResult> =>
+  http.post<PaymentReceiptResult>(`${BASE}/payments/${paymentId}/receipt`, body);
+
+/**
+ * Add payment → Credit charge on the job (with or without an invoice): billing
+ * creates and confirms the PaymentIntent. 200 for every Stripe outcome.
+ */
+export const chargeCardOnDeal = (dealId: string, body: CardIntentBody): Promise<KeyedPaymentIntent> =>
+  http.post<KeyedPaymentIntent>(`${BASE}/deals/${dealId}/card-intent`, body);
+
+/** After 3-D Secure: billing asserts what Stripe says about the attempt now. */
+export const syncCardAttempt = (paymentId: string): Promise<TerminalIntentOutcome> =>
+  http.post<TerminalIntentOutcome>(`${BASE}/terminal-intents/${paymentId}/sync`);
+
+/** Gives up on an unfinished attempt — its intent is cancelled at Stripe. */
+export const cancelCardAttempt = (paymentId: string): Promise<TerminalIntentOutcome> =>
+  http.post<TerminalIntentOutcome>(`${BASE}/terminal-intents/${paymentId}/cancel`);
 
 export const listPayments = (params: PaymentListParams = {}): Promise<PaymentPage> =>
   http.get<PaymentPage>(`${BASE}/payments${buildPaymentListQuery(params)}`);

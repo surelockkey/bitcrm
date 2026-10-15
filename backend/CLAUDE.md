@@ -952,6 +952,15 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   total; refund / delete / receipt fall back to the job too. The
   `/invoices/:id/payments` routes still 404 without an invoice, and an invoice
   created later starts from the existing ledger (`ledgerAmountPaid(deal.id)`).
+- **Add payment carries Workiz's Payment type.** `POST …/payments` takes `methodDetail`
+  (`OFFLINE_PAYMENT_TYPES` in @bitcrm/types: credit, cash, check, bank_transfer_offline,
+  cash_app, consumer_financing, venmo, zelle, debit_offline) and `chargedByReferral`; the
+  coarse `method` follows from the type (`PAYMENT_TYPE_METHOD`; a bank transfer made outside
+  Stripe is `bank`) and a method sent with it must agree (400). A method-only body works as
+  before. Credit charge is the web's `POST /deals/:dealId/card-intent` (the phone's typed-card
+  rules, on the job with or without an invoice, NO signature gate); every phone/web card row
+  carries `methodDetail: 'charge'`. The fee shown anywhere is `cardServiceFee` (@bitcrm/types),
+  the very function billing charges with.
 - **The Payments report is a projection, and a deploy is not done until it is rebuilt.**
   `GET /payments/report[/totals|/export]` (Workiz Reports → Payments) read only
   the `PAYLINE#` / `PAYAGG#` rows, never the ledger's `PAYMENTS` list index

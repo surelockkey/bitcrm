@@ -86,6 +86,23 @@ describe("DealPaymentsTab — a job's payments, with or without an invoice", () 
     expect(row).toHaveTextContent("$15.00 tip");
   });
 
+  it("names a payment by its Workiz type, and says 'By referral' when the referral partner collected it", async () => {
+    serve(
+      jobLedger({
+        payments: [
+          payment({ id: "p1", method: "other", methodDetail: "zelle", methodLabel: "Zelle", chargedByReferral: true, reference: "ZL-1" }),
+          payment({ id: "p2", method: "bank", methodDetail: "bank_transfer_offline", reference: "BT-2" }),
+        ],
+      }),
+    );
+    renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
+    const zelle = (await screen.findByTitle("ZL-1")).closest("tr")!;
+    expect(zelle).toHaveTextContent("Zelle");
+    expect(zelle).toHaveTextContent("By referral");
+    expect(zelle).not.toHaveTextContent("By Mike Tech");
+    expect(screen.getByTitle("BT-2").closest("tr")!).toHaveTextContent("Bank transfer (offline)");
+  });
+
   it("heads the tab with the balance over the job's total — 'Balance $50.00/$150.00'", async () => {
     serve(jobLedger());
     renderWithClient(<DealPaymentsTab deal={{ id: "d1" }} />);
@@ -200,8 +217,8 @@ describe("DealPaymentsTab — a job's payments, with or without an invoice", () 
     const dialog = await screen.findByRole("dialog");
     // Prefilled with the balance.
     expect(within(dialog).getByLabelText(/amount/i)).toHaveValue("50.00");
-    await user().click(within(dialog).getByRole("button", { name: /record payment/i }));
-    await waitFor(() => expect(posted).toMatchObject({ amount: 50, method: "cash" }));
+    await user().click(within(dialog).getByRole("button", { name: "Add payment" }));
+    await waitFor(() => expect(posted).toMatchObject({ amount: 50, method: "cash", methodDetail: "cash" }));
     expect(toast.success).toHaveBeenCalledWith("Recorded $50.00");
   });
 

@@ -1,20 +1,61 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsISO8601, IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
-import { PAYMENT_METHODS, type PaymentMethod } from '@bitcrm/types';
+import {
+  IsBoolean,
+  IsIn,
+  IsISO8601,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  ValidateIf,
+} from 'class-validator';
+import { OFFLINE_PAYMENT_TYPES, PAYMENT_METHODS, type OfflinePaymentType, type PaymentMethod } from '@bitcrm/types';
 import { OFFLINE_PAYMENT_METHODS } from '../payments.service';
 
-/** Money staff took themselves — cash, a cheque, a card run in person. */
+/**
+ * Money staff took themselves — cash, a cheque, a card run in person, Zelle…
+ * (Workiz "Add payment" with an offline Payment type).
+ */
 export class RecordPaymentDto {
   @ApiProperty({ example: 120.5, description: 'Dollars. Refused above the invoice balance.' })
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0.01)
   amount!: number;
 
-  @ApiProperty({ enum: OFFLINE_PAYMENT_METHODS as unknown as string[], example: 'cash' })
-  @IsIn(OFFLINE_PAYMENT_METHODS as unknown as string[])
-  method!: PaymentMethod;
+  @ApiPropertyOptional({
+    enum: PAYMENT_METHODS as unknown as string[],
+    example: 'cash',
+    description:
+      `The coarse method. Required without \`methodDetail\` (then one of ${OFFLINE_PAYMENT_METHODS.join(', ')}); ` +
+      'with it, optional and must be the one the type maps to (`PAYMENT_TYPE_METHOD`: credit / debit offline → ' +
+      'card, bank transfer (offline) → bank, cash app / consumer financing / venmo / zelle → other) — 400 otherwise.',
+  })
+  @ValidateIf((o: RecordPaymentDto) => o.methodDetail === undefined || o.method !== undefined)
+  @IsIn(PAYMENT_METHODS as unknown as string[])
+  method?: PaymentMethod;
 
-  @ApiPropertyOptional({ example: 'Cheque #1041', description: "Cheque number, confirmation code, the tech's note." })
+  @ApiPropertyOptional({
+    enum: OFFLINE_PAYMENT_TYPES as unknown as string[],
+    example: 'zelle',
+    description:
+      'Workiz’s Payment type, stored as `methodDetail` (its label as `methodLabel`). The card charge is not one ' +
+      'of them: it goes through `POST /deals/:dealId/card-intent`.',
+  })
+  @IsOptional()
+  @IsIn(OFFLINE_PAYMENT_TYPES as unknown as string[])
+  methodDetail?: OfflinePaymentType;
+
+  @ApiPropertyOptional({ example: true, description: 'Workiz "Charged by referral".' })
+  @IsOptional()
+  @IsBoolean()
+  chargedByReferral?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'Cheque #1041',
+    description: "Workiz's Confirmation code — cheque number, Zelle confirmation, the tech's note.",
+  })
   @IsOptional()
   @IsString()
   @MaxLength(200)
@@ -26,7 +67,10 @@ export class RecordPaymentDto {
   @MaxLength(1000)
   note?: string;
 
-  @ApiPropertyOptional({ example: '2026-09-22T15:30:00.000Z', description: 'When it was actually taken. Defaults to now.' })
+  @ApiPropertyOptional({
+    example: '2026-09-22T15:30:00.000Z',
+    description: 'Workiz’s "Paid on": when it was actually taken. Defaults to now.',
+  })
   @IsOptional()
   @IsISO8601()
   takenAt?: string;

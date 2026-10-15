@@ -7,7 +7,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { formatMoney } from "@/features/billing/lib";
 import * as api from "./api";
-import { paymentMethodLabel, type PaymentListParams } from "./lib";
+import { paymentLabel, type PaymentListParams } from "./lib";
 import type { PaymentSettingsBody } from "./schemas";
 
 /* ------------------------------------------------------------- queries */
@@ -136,13 +136,13 @@ export function useRefundPayment(invoiceId: string, dealId?: string) {
 export function useDeletePayment(invoiceId: string, dealId?: string) {
   const invalidate = useInvalidateLedger(invoiceId, dealId);
   return useMutation({
-    mutationFn: async (payment: Pick<Payment, "id" | "amount" | "method">) => {
+    mutationFn: async (payment: Pick<Payment, "id" | "amount" | "method" | "methodDetail" | "methodLabel">) => {
       await api.deletePayment(payment.id);
       return payment;
     },
     onSuccess: (p) => {
       invalidate();
-      toast.success(`Deleted the ${formatMoney(p.amount)} ${paymentMethodLabel(p.method).toLowerCase()} payment`);
+      toast.success(`Deleted the ${formatMoney(p.amount)} ${paymentLabel(p).toLowerCase()} payment`);
     },
     onError: (e) => toast.error(getApiErrorMessage(e, "The payment couldn't be deleted")),
   });

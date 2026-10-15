@@ -10,7 +10,7 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { estimateStatusLabel } from "@/features/estimates/lib";
 // Where an invoice lives: its own page — a job's too ("← Job ID" back to the job).
 import { invoiceHref } from "@/features/invoices/lib";
-import { paymentMethodLabel, paymentStatusLabel } from "@/features/payments/lib";
+import { paymentLabel, paymentStatusLabel } from "@/features/payments/lib";
 import { wzDayStart, wzMoney, wzWhen } from "../client-page";
 import { openRow, PLAIN_LINK } from "./client-jobs-tab";
 
@@ -209,9 +209,9 @@ export function ClientPaymentsTab({
       {
         id: "type",
         label: "Type",
-        sortValue: (p) => paymentMethodLabel(p.method),
-        searchText: (p) => paymentMethodLabel(p.method),
-        render: (p) => paymentMethodLabel(p.method),
+        sortValue: (p) => paymentLabel(p),
+        searchText: (p) => paymentLabel(p),
+        render: (p) => paymentLabel(p),
       },
       { id: "approval", label: "Approval Code", sortValue: (p) => p.reference, searchText: (p) => p.reference, render: (p) => p.reference ?? "" },
       {

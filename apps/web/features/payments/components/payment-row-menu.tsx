@@ -11,11 +11,11 @@ import {
 import { WZ_MENU_POPUP, WZ_MENU_POPUP_ITEM } from "@/components/workiz/menu-popup";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/features/billing/lib";
-import { paymentMethodLabel } from "../lib";
+import { paymentLabel } from "../lib";
 
 /** "the $100.00 cash payment" — how a row's controls and dialogs name it. */
-export function describePayment(p: Pick<Payment, "amount" | "method">): string {
-  return `the ${formatMoney(p.amount)} ${paymentMethodLabel(p.method).toLowerCase()} payment`;
+export function describePayment(p: Pick<Payment, "amount" | "method" | "methodDetail" | "methodLabel">): string {
+  return `the ${formatMoney(p.amount)} ${paymentLabel(p).toLowerCase()} payment`;
 }
 
 /**
@@ -36,7 +36,7 @@ export function PaymentRowMenu({
   onDelete,
   className,
 }: {
-  payment: Pick<Payment, "amount" | "method">;
+  payment: Pick<Payment, "amount" | "method" | "methodDetail" | "methodLabel">;
   canResend: boolean;
   canRefund: boolean;
   canDelete: boolean;

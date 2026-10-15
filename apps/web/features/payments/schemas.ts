@@ -1,8 +1,16 @@
 import { z } from "zod";
-import { DEFAULT_PAYMENT_SETTINGS, MAX_SURCHARGE_PERCENT, type PaymentSettings } from "@bitcrm/types";
+import {
+  ADD_PAYMENT_TYPES,
+  DEFAULT_PAYMENT_SETTINGS,
+  MAX_SURCHARGE_PERCENT,
+  PAYMENT_TYPE_METHOD,
+  isOfflinePaymentType,
+  type PaymentSettings,
+} from "@bitcrm/types";
 import { formatMoney } from "@/features/billing/lib";
 import { isYmd } from "@/features/billing/dates";
-import { OFFLINE_PAYMENT_METHODS } from "./lib";
+import type { RecordPaymentBody } from "./api";
+import { parseMoney } from "./lib";
 
 const ymd = z.string().refine((v) => isYmd(v), "Pick a valid date");
 
@@ -30,19 +38,35 @@ const positiveDollars = (unreadable: string) =>
 /* ------------------------------------------------------- record payment */
 
 /**
- * The offline "Record payment" form. Money the client handed over in cash, by
- * cheque, or on a terminal — online card/bank money arrives through Stripe and
- * is never keyed in here.
+ * Workiz's "Add payment": an amount and a Payment type. The offline types
+ * (cash, Zelle, a card run elsewhere...) carry a Confirmation code, a Paid on
+ * date and "Charged by referral"; Credit charge has its card form instead,
+ * whose card fields live in Stripe's Elements, never here.
  */
 export const recordPaymentSchema = z.object({
   amount: positiveDollars("Enter an amount"),
-  method: z.enum(OFFLINE_PAYMENT_METHODS),
+  type: z.enum(ADD_PAYMENT_TYPES),
   reference: z.string().trim().max(120, "At most 120 characters"),
   note: z.string().trim().max(1000, "At most 1000 characters"),
   takenAt: ymd,
+  chargedByReferral: z.boolean(),
 });
 
 export type RecordPaymentValues = z.infer<typeof recordPaymentSchema>;
+
+/** The offline form → `POST .../payments`: Workiz's type and the coarse method it maps to. */
+export function toRecordPaymentBody(values: RecordPaymentValues, takenAt: string): RecordPaymentBody {
+  if (!isOfflinePaymentType(values.type)) throw new Error("A credit charge is charged, not recorded");
+  return {
+    amount: parseMoney(values.amount),
+    method: PAYMENT_TYPE_METHOD[values.type] as RecordPaymentBody["method"],
+    methodDetail: values.type,
+    ...(values.reference ? { reference: values.reference } : {}),
+    ...(values.note ? { note: values.note } : {}),
+    takenAt,
+    ...(values.chargedByReferral ? { chargedByReferral: true } : {}),
+  };
+}
 
 /* --------------------------------------------------------------- refund */
 

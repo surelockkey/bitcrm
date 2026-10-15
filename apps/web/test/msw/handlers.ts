@@ -1,4 +1,5 @@
 import { http, HttpResponse } from "msw";
+import { DEFAULT_PAYMENT_SETTINGS } from "@bitcrm/types";
 
 /** Canonical token payload (LoginResponse / ChangePasswordResponse shape). */
 export const TOKENS = {
@@ -118,4 +119,13 @@ export const handlers = [
       data: { message: "Password has been reset." },
     });
   }),
+
+  // The account's payment settings, as billing answers with no Stripe keys:
+  // every Add payment dialog reads them (Credit charge needs the publishable key).
+  http.get("*/billing/payment-settings", () =>
+    HttpResponse.json({
+      success: true,
+      data: { ...DEFAULT_PAYMENT_SETTINGS, stripeConfigured: false, publishableKey: null },
+    }),
+  ),
 ];

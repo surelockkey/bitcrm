@@ -111,6 +111,9 @@ export function PayInvoicesDialog({
           invoiceId={current.id}
           dealId={current.dealId}
           balanceDue={current.totals?.balanceDue ?? 0}
+          /* Walked one invoice at a time, a card would be typed (and charged) once per
+             invoice: offline types only here — a card is charged from the job or the invoice. */
+          allowCharge={false}
           open
           onOpenChange={(o) => {
             if (!o) setQueue((q) => q.slice(1));

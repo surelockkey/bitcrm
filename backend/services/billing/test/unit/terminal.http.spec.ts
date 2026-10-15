@@ -6,6 +6,7 @@ import request from 'supertest';
 import { HttpExceptionFilter, PermissionGuard } from '@bitcrm/shared';
 import { DataScope } from '@bitcrm/types';
 import {
+  DealTerminalController,
   EstimateTerminalController,
   InvoiceTerminalController,
   TerminalController,
@@ -57,6 +58,7 @@ describe('Stripe Terminal routes (HTTP)', () => {
     openForInvoice: jest.fn(async (..._a: any[]): Promise<any> => intent),
     openForEstimate: jest.fn(async (..._a: any[]): Promise<any> => intent),
     openCardForInvoice: jest.fn(async (..._a: any[]): Promise<any> => declined),
+    openCardForDeal: jest.fn(async (..._a: any[]): Promise<any> => declined),
     openCardForEstimate: jest.fn(async (..._a: any[]): Promise<any> => ({ ...declined, status: 'succeeded', declineMessage: undefined })),
     cancel: jest.fn(async (..._a: any[]): Promise<any> => outcome),
     sync: jest.fn(async (..._a: any[]): Promise<any> => outcome),
@@ -73,7 +75,7 @@ describe('Stripe Terminal routes (HTTP)', () => {
       getPermissions: jest.fn(async (_userId: string, roleId: string) => (roleId === 'viewer' ? viewer : collector)),
     };
     const mod = await Test.createTestingModule({
-      controllers: [TerminalController, InvoiceTerminalController, EstimateTerminalController, TerminalIntentsController],
+      controllers: [TerminalController, InvoiceTerminalController, EstimateTerminalController, DealTerminalController, TerminalIntentsController],
       providers: [
         {
           provide: APP_GUARD,
@@ -166,6 +168,33 @@ describe('Stripe Terminal routes (HTTP)', () => {
       expect.objectContaining({ amount: 50, attemptId: ATTEMPT, paymentMethodId: 'pm_card_visa' }),
       expect.anything(),
     );
+  });
+
+  it('POST /deals/:dealId/card-intent — the web’s Credit charge on the job, with or without an invoice', async () => {
+    const res = await http()
+      .post('/api/billing/deals/deal-1/card-intent')
+      .send({ amount: 60, attemptId: ATTEMPT, paymentMethodId: 'pm_1Abc', cardNumber: '4242424242424242' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, data: declined });
+    const [id, body, caller] = terminal.openCardForDeal.mock.calls[0];
+    expect(id).toBe('deal-1');
+    // Whitelisted: nothing but the PaymentMethod ever reaches the service.
+    expect({ ...body }).toEqual({ amount: 60, attemptId: ATTEMPT, paymentMethodId: 'pm_1Abc' });
+    expect(caller.user.id).toBe('tech-1');
+
+    for (const bad of [
+      { amount: 10, attemptId: ATTEMPT, paymentMethodId: '4242424242424242' },
+      { amount: 10, attemptId: 'retry-1', paymentMethodId: 'pm_1Abc' },
+      { amount: 0, attemptId: ATTEMPT, paymentMethodId: 'pm_1Abc' },
+    ]) {
+      expect((await http().post('/api/billing/deals/deal-1/card-intent').send(bad)).status).toBe(400);
+    }
+    const viewer = await http()
+      .post('/api/billing/deals/deal-1/card-intent')
+      .set('x-role', 'viewer')
+      .send({ amount: 10, attemptId: ATTEMPT, paymentMethodId: 'pm_1Abc' });
+    expect(viewer.status).toBe(403);
+    expect(terminal.openCardForDeal).toHaveBeenCalledTimes(1);
   });
 
   it('400s a typed-card body the phone got wrong — above all a card number where the PaymentMethod belongs', async () => {
