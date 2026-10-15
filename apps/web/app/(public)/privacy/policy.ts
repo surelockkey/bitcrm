@@ -13,7 +13,7 @@ export const COMPANY_LEGAL_NAME = "Sure Lock & Key LLC";
 /** The mailbox that answers privacy requests (owner, 2026-10-14). */
 export const PRIVACY_CONTACT_EMAIL = "system@surelockkey.com";
 
-export const EFFECTIVE_DATE = "October 14, 2026";
+export const EFFECTIVE_DATE = "October 15, 2026";
 
 /** A paragraph, or a bulleted list. */
 export type Block = string | string[];
@@ -48,12 +48,12 @@ export const SECTIONS: PolicySection[] = [
   {
     heading: "Location",
     body: [
-      "The app asks for your location in two moments only:",
+      "The app uses your location for two things:",
       [
-        "When you tap Arrived on a job. One position fix is sent with the arrival, so dispatch can see you reached the job. If the phone gives no fix within eight seconds, the arrival is recorded without coordinates.",
+        "To show dispatch where you are. While the app is open on your screen, it sends your position to the office about every thirty seconds, and the dispatcher sees you as a pin on the map with the time it was last seen. Only your current position is kept; there is no history of where you have been.",
         "While you take a card with Tap to Pay. Apple and Stripe require the phone's location to accept a contactless payment.",
       ],
-      "Location is used while the app is open and never tracked in the background. The app keeps no location history. You can decline the permission in your phone's settings: Arrived still works, Tap to Pay does not.",
+      "Nothing is sent in the background: when the app is closed or behind another app, no position leaves the phone, and the app never tracks you in the background. You can turn the sharing off in the app's Settings (\"Share my location with dispatch\"), and you can decline the permission in your phone's settings; the office then sees you by the address of your last job instead. Tap to Pay does not work without location.",
     ],
   },
   {
