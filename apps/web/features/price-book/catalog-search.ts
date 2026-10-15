@@ -71,7 +71,7 @@ export function useCatalogSearch(text: string, enabled = true): CatalogSearch {
 
 /**
  * One catalog item by id — the item behind a line being edited, for its
- * catalog price (the ±15% band) and type. Nothing is read without an id.
+ * catalog price, type and costs. Nothing is read without an id.
  */
 export function useCatalogProduct(id: string | undefined) {
   return useQuery({

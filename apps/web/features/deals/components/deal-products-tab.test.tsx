@@ -470,6 +470,26 @@ describe("DealProductsTab (job variant — Workiz's Items tab)", () => {
     expect(lastDialog().editing).toBeUndefined();
   });
 
+  // Owner, 2026-10-15: a line may be priced below zero — a credit line comes
+  // off the subtotal, tax stays on the taxable lines, nothing is clamped.
+  it("a job with one negative line: the row reads -$20.00, the boxes total it", () => {
+    mocks.products = [
+      line({ quantity: 2, priceClient: 50 }),
+      line({ productId: "p2", lineId: "line-2", name: "Credit", quantity: 1, priceClient: -20, costCompany: 0, taxable: false }),
+    ];
+    render(
+      <DealProductsTab deal={{ ...deal, taxRateId: "t1", taxRatePercent: 10 }} canEdit variant="job" showCost balance={0} />,
+    );
+
+    const credit = screen.getByRole("button", { name: /edit credit/i }).closest("tr")!;
+    expect(within(credit).getAllByText("-$20.00")).toHaveLength(2);
+    const box = (label: string) => screen.getByRole("group", { name: label });
+    expect(box("Subtotal")).toHaveTextContent("80.00");
+    expect(box("Taxable")).toHaveTextContent("100.00");
+    expect(box("Tax")).toHaveTextContent("10.00");
+    expect(box("Total")).toHaveTextContent("90.00");
+  });
+
   it("totals in boxes: Total and Balance on the left, Subtotal → Tax on the right", () => {
     mocks.products = [line({ quantity: 2, priceClient: 50 })];
     render(

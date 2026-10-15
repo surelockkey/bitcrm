@@ -60,6 +60,10 @@ describe("isInvalidPortalError", () => {
 describe("formatting", () => {
   it("formats money and days without a timezone shift", () => {
     expect(formatMoney(1234.5)).toBe("$1,234.50");
+    // A credit line (owner, 2026-10-15: any price, below zero too) reads as the
+    // office's app and the PDF print it: the sign before the dollar.
+    expect(formatMoney(-20)).toBe("-$20.00");
+    expect(formatMoney(-0.004)).toBe("$0.00");
     expect(formatYmd("2026-09-01")).toBe("Sep 1, 2026");
     expect(formatYmd(undefined)).toBe("—");
     expect(formatYmd("garbage")).toBe("—");

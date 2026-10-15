@@ -17,8 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
-import { usePermissions } from "@/features/auth/use-permissions";
-import { formatMoney, isPriceInBand, priceBandBinds, priceRange } from "@/features/deals/lib";
+import { formatMoney } from "@/features/deals/lib";
 import { estimateItemSchema, type EstimateItemBody } from "@/features/estimates/schemas";
 import { CATALOG_PAGE_SIZE, useCatalogProduct, useCatalogProducts, useCatalogSearch } from "@/features/price-book/catalog-search";
 import { useItemGroups } from "@/features/price-book/item-groups/hooks";
@@ -52,10 +51,10 @@ interface PickerProps {
 }
 
 /**
- * Catalog picker for document lines (estimates). Same catalog search and
- * price band (a technician's, see priceBandBinds) as the job's Add item
- * dialog, without the van-stock sourcing — an estimate reserves nothing
- * until it is synced to the job.
+ * Catalog picker for document lines (estimates). Same catalog search as the
+ * job's Add item dialog, without the van-stock sourcing — an estimate
+ * reserves nothing until it is synced to the job. The price is anyone's to
+ * set, below zero too (owner, 2026-10-15).
  *
  * What was typed and what was picked live in the body, which the dialog
  * mounts afresh on every open: a page that closes the picker by its own
@@ -81,9 +80,6 @@ export function ProductPickerDialog({
 }
 
 function PickerBody({ onSubmit, editing, pending, onAddGroup }: PickerProps) {
-  // Only a technician is held to the ±15% band; the office sets any price.
-  const { isTechnician } = usePermissions();
-  const bandBinds = priceBandBinds({ isTechnician });
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<Product | null>(null);
   const [changing, setChanging] = useState(false);
@@ -124,7 +120,6 @@ function PickerBody({ onSubmit, editing, pending, onAddGroup }: PickerProps) {
           key={picked?.id ?? editing?.productId}
           product={picked ?? editingProduct}
           line={picked ? undefined : editing}
-          bandBinds={bandBinds}
           pending={pending}
           submitLabel={editing ? "Save" : "Add item"}
           backLabel={editing && !picked ? "Change item" : "← Back"}
@@ -211,7 +206,6 @@ function PickerBody({ onSubmit, editing, pending, onAddGroup }: PickerProps) {
 function Configure({
   product,
   line,
-  bandBinds,
   pending,
   submitLabel,
   backLabel,
@@ -224,8 +218,6 @@ function Configure({
    */
   product: Product | null | undefined;
   line?: PickerLine;
-  /** Whether the viewer is held to the ±15% band at all (see priceBandBinds). */
-  bandBinds: boolean;
   pending?: boolean;
   submitLabel: string;
   backLabel: string;
@@ -239,8 +231,6 @@ function Configure({
 
   const catalogPrice = product?.priceClient;
   const priceNum = Number(price);
-  const inBand = !bandBinds || catalogPrice === undefined || isPriceInBand(priceNum, catalogPrice);
-  const range = bandBinds && catalogPrice !== undefined ? priceRange(catalogPrice) : null;
 
   const parsed = estimateItemSchema.safeParse({
     productId: product?.id ?? line?.productId,
@@ -256,8 +246,8 @@ function Configure({
   });
   const qtyError = !parsed.success && parsed.error.issues.find((i) => i.path[0] === "quantity")?.message;
   const priceError = !parsed.success && parsed.error.issues.find((i) => i.path[0] === "priceClient")?.message;
-  // Not before the catalog item is known: the band judges the price against it.
-  const valid = parsed.success && inBand && product !== undefined;
+  // Not before the catalog item is known: the line takes its type and costs from it.
+  const valid = parsed.success && product !== undefined;
 
   return (
     <form
@@ -297,24 +287,17 @@ function Configure({
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="picker-price">Client price</Label>
+          {/* Any price, below zero too: no `min`, and no decimal keypad (it has no minus key). */}
           <Input
             id="picker-price"
             className="h-9"
             type="number"
-            inputMode="decimal"
             step="0.01"
-            min={0}
             value={price}
-            aria-invalid={!inBand || Boolean(priceError)}
+            aria-invalid={Boolean(priceError)}
             onChange={(e) => setPrice(e.target.value)}
           />
-          {priceError ? (
-            <p className="text-[11px] text-destructive">{priceError}</p>
-          ) : range ? (
-            <p className={cn("text-[11px]", inBand ? "text-muted-foreground" : "text-destructive")}>
-              Allowed {formatMoney(range.min)}–{formatMoney(range.max)} (±15%)
-            </p>
-          ) : null}
+          {priceError ? <p className="text-[11px] text-destructive">{priceError}</p> : null}
         </div>
       </div>
       <div className="space-y-1.5">

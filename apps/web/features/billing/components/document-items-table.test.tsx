@@ -74,6 +74,25 @@ describe("DocumentItemsTable — variant workiz", () => {
     expect(screen.queryByRole("spinbutton", { name: "Push bar install price" })).not.toBeInTheDocument();
   });
 
+  // Owner, 2026-10-15: any price on a line, below zero too (a credit line).
+  it("edits the price in place to below zero", async () => {
+    const props = setup();
+    const u = user();
+    await u.click(screen.getByRole("button", { name: "Edit Push bar install price" }));
+    const box = screen.getByRole("spinbutton", { name: "Push bar install price" });
+    expect(box).not.toHaveAttribute("min");
+    await u.clear(box);
+    await u.type(box, "-20{Enter}");
+    expect(props.onUpdate).toHaveBeenCalledWith("l1", expect.objectContaining({ priceClient: -20, quantity: 1 }));
+  });
+
+  it("prints a credit line's price and amount with the sign before the dollar", () => {
+    setup({ items: [{ ...line, priceClient: -20, quantity: 2 }] });
+    const row = screen.getByRole("row", { name: /push bar install/i });
+    expect(within(row).getByText("-$20.00")).toBeInTheDocument();
+    expect(within(row).getByText("-$40.00")).toBeInTheDocument();
+  });
+
   it("Escape leaves the quantity as it was", async () => {
     const props = setup();
     const u = user();
@@ -154,5 +173,18 @@ describe("DocumentItemsTable — variant workiz", () => {
     setup({ items: [], onOpenLine, emptyAction: "Add line items" });
     await user().click(screen.getByRole("button", { name: "Add line items" }));
     expect(onOpenLine).toHaveBeenCalledWith(null);
+  });
+});
+
+describe("DocumentItemsTable — variant card", () => {
+  // Owner, 2026-10-15: any price on a line, below zero too (a credit line).
+  it("edits the price in its box to below zero", async () => {
+    const props = setup({ variant: "card" });
+    const u = user();
+    const box = screen.getByRole("spinbutton", { name: "Push bar install price" });
+    expect(box).not.toHaveAttribute("min");
+    await u.clear(box);
+    await u.type(box, "-20{Enter}");
+    expect(props.onUpdate).toHaveBeenCalledWith("l1", expect.objectContaining({ priceClient: -20 }));
   });
 });

@@ -60,8 +60,10 @@ export function isInvalidPortalError(e: unknown): boolean {
 
 /* ---------------------------------------------------------------- formatting */
 
+/** "$1,234.50"; a credit line's "-$20.00" (the sign leads); never "-$0.00". */
 export function formatMoney(n: number): string {
-  return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const digits = Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n < 0 && digits !== "0.00" ? `-$${digits}` : `$${digits}`;
 }
 
 const YMD = /^(\d{4})-(\d{2})-(\d{2})$/;

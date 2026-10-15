@@ -327,10 +327,10 @@ function ItemRow({
       </td>
       <td className={cn(cell, "font-mono tabular-nums")}>
         {canEdit ? (
+          // Any price, below zero too (a credit line): no floor, and no
+          // decimal keypad — it has no minus key.
           <CommitInput
             type="number"
-            inputMode="decimal"
-            min={0}
             step="0.01"
             aria-label={`${item.name} price`}
             value={String(item.priceClient)}

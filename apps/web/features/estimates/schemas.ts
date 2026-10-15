@@ -28,7 +28,8 @@ export const estimateItemSchema = z.object({
     .optional()
     .transform((v) => (v ? v : undefined)),
   quantity: z.coerce.number().int("Whole numbers only").min(1, "At least 1"),
-  priceClient: z.coerce.number().min(0, "Price can't be negative"),
+  // Any price, below zero too — a credit line (owner, 2026-10-15).
+  priceClient: z.coerce.number(),
   costCompany: z.coerce.number().min(0),
   costForTech: z.coerce.number().min(0),
   taxable: z.boolean().optional(),
