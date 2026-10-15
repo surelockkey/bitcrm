@@ -22,6 +22,26 @@ describe('ContactLookupService', () => {
     jest.useRealTimers();
   });
 
+  /** What a masked call dials — the numbers and what to press on each. */
+  it('reads a client’s numbers with their extensions', async () => {
+    global.fetch = mockCrm({
+      id: 'c1',
+      firstName: 'Jane',
+      lastName: 'Roe',
+      phones: ['+14045551234', '+14045555678'],
+      phoneExtensions: { '+14045555678': '102' },
+    }) as never;
+    const service = new ContactLookupService();
+
+    const out = await service.phonesOf('c1');
+
+    expect(out).toEqual({
+      phones: ['+14045551234', '+14045555678'],
+      name: 'Jane Roe',
+      extensions: { '+14045555678': '102' },
+    });
+  });
+
   it('resolves a number to a contact and names it', async () => {
     global.fetch = mockCrm({ '+14045551234': jane }) as never;
     const service = new ContactLookupService();

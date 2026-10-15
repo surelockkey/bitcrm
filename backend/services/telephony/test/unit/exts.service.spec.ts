@@ -5,24 +5,33 @@ import { type CallExt } from '../../src/exts/exts.repository';
 function makeService() {
   /** Codes anybody has ever held — released rows stay, exactly as in Dynamo. */
   const taken = new Map<string, CallExt>();
+  /** The reverse pointers, one per (job, phone position). */
   const byDeal = new Map<string, string>();
+  const pointer = (dealId: string, phoneIndex = 0) => `${dealId}#${phoneIndex}`;
 
   const repo = {
     findByCode: jest.fn(async (code: string) => taken.get(code) ?? null),
-    findByDeal: jest.fn(async (dealId: string) => {
-      const code = byDeal.get(dealId);
+    findByDeal: jest.fn(async (dealId: string, phoneIndex = 0) => {
+      const code = byDeal.get(pointer(dealId, phoneIndex));
       return code ? (taken.get(code) ?? null) : null;
     }),
-    claim: jest.fn(async (code: string, dealId: string) => {
+    listByDeal: jest.fn(async (dealId: string) =>
+      [...byDeal.entries()]
+        .filter(([key]) => key.startsWith(`${dealId}#`))
+        .map(([, code]) => taken.get(code))
+        .filter((ext): ext is CallExt => !!ext),
+    ),
+    claim: jest.fn(async (code: string, dealId: string, phoneIndex = 0) => {
       if (taken.has(code)) return null;
       const ext: CallExt = {
         code,
         dealId,
+        phoneIndex,
         status: 'active',
         createdAt: '2026-08-26T10:00:00.000Z',
       };
       taken.set(code, ext);
-      byDeal.set(dealId, code);
+      byDeal.set(pointer(dealId, phoneIndex), code);
       return ext;
     }),
     release: jest.fn(async (code: string) => {
@@ -30,7 +39,7 @@ function makeService() {
       if (ext) taken.set(code, { ...ext, status: 'released' });
     }),
   };
-  return { service: new ExtsService(repo as never), repo, taken };
+  return { service: new ExtsService(repo as never), repo, taken, byDeal };
 }
 
 describe('ExtsService — minting', () => {
@@ -180,5 +189,115 @@ describe('ExtsService — rotation and quarantine', () => {
       dealId: 'deal-1',
       status: 'released',
     });
+  });
+});
+
+/**
+ * Workiz style: every client number on the job gets its own masked number —
+ * the shared technician line plus a code of its own — so the technician at the
+ * door picks the mobile or the landline just as the in-app buttons do.
+ */
+describe('ExtsService — one code per client number', () => {
+  it('gives each phone position of a job its own code', async () => {
+    const { service } = makeService();
+
+    const first = await service.forDeal('deal-1', 0);
+    const second = await service.forDeal('deal-1', 1);
+
+    expect(second.code).not.toBe(first.code);
+    expect(second).toMatchObject({ dealId: 'deal-1', phoneIndex: 1 });
+  });
+
+  it('is idempotent per position — a printed code keeps working', async () => {
+    const { service } = makeService();
+
+    const a = await service.forDeal('deal-1', 1);
+    const b = await service.forDeal('deal-1', 1);
+
+    expect(b.code).toBe(a.code);
+  });
+
+  it('defaults to the first number, as every caller before this did', async () => {
+    const { service } = makeService();
+
+    const implicit = await service.forDeal('deal-1');
+    const explicit = await service.forDeal('deal-1', 0);
+
+    expect(explicit.code).toBe(implicit.code);
+  });
+
+  it('mints the codes for every number on the job, in order', async () => {
+    const { service } = makeService();
+
+    const codes = await service.forDealPhones('deal-1', 3);
+
+    expect(codes.map((c) => c.phoneIndex ?? 0)).toEqual([0, 1, 2]);
+    expect(new Set(codes.map((c) => c.code)).size).toBe(3);
+    // The same three on the next look.
+    const again = await service.forDealPhones('deal-1', 3);
+    expect(again.map((c) => c.code)).toEqual(codes.map((c) => c.code));
+  });
+
+  /** A job whose client has no number on file still gets the code it always had. */
+  it('always mints at least the first number’s code', async () => {
+    const { service } = makeService();
+
+    const codes = await service.forDealPhones('deal-1', 0);
+
+    expect(codes).toHaveLength(1);
+    expect(codes[0].phoneIndex ?? 0).toBe(0);
+  });
+
+  /** Bounded: a client record with dozens of numbers must not mint dozens of codes. */
+  it('caps how many numbers get a code', async () => {
+    const { service } = makeService();
+
+    const codes = await service.forDealPhones('deal-1', 500);
+
+    expect(codes.length).toBeLessThanOrEqual(10);
+  });
+
+  /**
+   * A code minted before codes were per number has no `phoneIndex` and sits on
+   * the job's original pointer: it must keep naming the first number, so every
+   * code already printed on a work order keeps working with no migration.
+   */
+  it('reads a code minted before positions existed as the first number’s', async () => {
+    const { service, taken, byDeal } = makeService();
+    taken.set('4729', {
+      code: '4729',
+      dealId: 'deal-1',
+      status: 'active',
+      createdAt: '2026-06-01T10:00:00.000Z',
+    });
+    byDeal.set('deal-1#0', '4729');
+
+    await expect(service.forDeal('deal-1', 0)).resolves.toMatchObject({ code: '4729' });
+    const codes = await service.forDealPhones('deal-1', 2);
+    expect(codes[0].code).toBe('4729');
+    await expect(service.resolve('4729')).resolves.toMatchObject({ dealId: 'deal-1' });
+  });
+
+  it('rotates one number’s code without disturbing the others', async () => {
+    const { service } = makeService();
+    const [first, second] = await service.forDealPhones('deal-1', 2);
+
+    const rotated = await service.rotate('deal-1', 1);
+
+    expect(rotated.code).not.toBe(second.code);
+    expect(rotated.phoneIndex).toBe(1);
+    await expect(service.resolve(second.code)).resolves.toBeNull();
+    await expect(service.resolve(first.code)).resolves.toMatchObject({ dealId: 'deal-1' });
+  });
+
+  it('retires every number’s code when the job closes', async () => {
+    const { service } = makeService();
+    const codes = await service.forDealPhones('deal-1', 3);
+
+    await service.releaseForDeal('deal-1');
+
+    for (const ext of codes) {
+      await expect(service.resolve(ext.code)).resolves.toBeNull();
+    }
   });
 });

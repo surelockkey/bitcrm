@@ -4,10 +4,16 @@ import {
   DeleteCommand,
   GetCommand,
   PutCommand,
+  QueryCommand,
   ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { CALLS_TABLE, extPk, extOfPk } from '../common/constants/dynamo.constants';
+import {
+  CALLS_TABLE,
+  extPk,
+  extOfPk,
+  extOfSk,
+} from '../common/constants/dynamo.constants';
 
 /** How long a released code stays unusable before it can be drawn again. */
 const QUARANTINE_DAYS = Number(
@@ -17,6 +23,12 @@ const QUARANTINE_DAYS = Number(
 export interface CallExt {
   code: string;
   dealId: string;
+  /**
+   * Which of the job's client numbers the code rings — the bridge's
+   * `phoneIndex` order (see `clientLineAt`). Absent on codes minted before
+   * codes were per number, which therefore read as the first number.
+   */
+  phoneIndex?: number;
   status: 'active' | 'released';
   createdAt: string;
   releasedAt?: string;
@@ -27,9 +39,18 @@ export interface CallExt {
 /**
  * Job codes, in the calls table.
  *
- * Two items per job, and the second is not redundant: without the reverse row
- * a job screen re-render would mint a fresh code every time, and a technician
- * holding a printed work order would find it dead.
+ * Two items per (job, client number), and the second is not redundant:
+ * without the reverse row a job screen re-render would mint a fresh code every
+ * time, and a technician holding a printed work order would find it dead.
+ *
+ * ```
+ * EXT#<code>      / METADATA   { code, dealId, phoneIndex?, status, … }
+ * EXTOF#<dealId>  / METADATA   { code }  the first number's pointer (as it always was)
+ * EXTOF#<dealId>  / PHONE#<i>  { code, phoneIndex }  every other number's
+ * ```
+ *
+ * One partition per job holds every pointer, so closing a job finds all of
+ * its codes with one Query.
  */
 @Injectable()
 export class ExtsRepository {
@@ -47,16 +68,43 @@ export class ExtsRepository {
     return (res.Item as CallExt | undefined) ?? null;
   }
 
-  async findByDeal(dealId: string): Promise<CallExt | null> {
+  /** The code for one of the job's numbers — the first when none is named. */
+  async findByDeal(dealId: string, phoneIndex = 0): Promise<CallExt | null> {
     const res = await this.dynamoDb.client.send(
       new GetCommand({
         TableName: CALLS_TABLE,
-        Key: { PK: extOfPk(dealId), SK: 'METADATA' },
+        Key: { PK: extOfPk(dealId), SK: extOfSk(phoneIndex) },
       }),
     );
     const pointer = res.Item as { code?: string } | undefined;
     if (!pointer?.code) return null;
     return this.findByCode(pointer.code);
+  }
+
+  /** Every code the job's pointers name, active or released — one Query. */
+  async listByDeal(dealId: string): Promise<CallExt[]> {
+    const codes: string[] = [];
+    let cursor: Record<string, unknown> | undefined;
+    do {
+      const res: {
+        Items?: Array<Record<string, unknown>>;
+        LastEvaluatedKey?: Record<string, unknown>;
+      } = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: CALLS_TABLE,
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: { ':pk': extOfPk(dealId) },
+          ExclusiveStartKey: cursor,
+        }),
+      );
+      for (const item of res.Items ?? []) {
+        if (typeof item.code === 'string') codes.push(item.code);
+      }
+      cursor = res.LastEvaluatedKey;
+    } while (cursor);
+
+    const found = await Promise.all(codes.map((code) => this.findByCode(code)));
+    return found.filter((ext): ext is CallExt => !!ext);
   }
 
   /**
@@ -69,9 +117,19 @@ export class ExtsRepository {
    *
    * Returns null when the code is taken, so the caller can redraw.
    */
-  async claim(code: string, dealId: string): Promise<CallExt | null> {
+  async claim(
+    code: string,
+    dealId: string,
+    phoneIndex = 0,
+  ): Promise<CallExt | null> {
     const now = new Date().toISOString();
-    const item: CallExt = { code, dealId, status: 'active', createdAt: now };
+    const item: CallExt = {
+      code,
+      dealId,
+      phoneIndex,
+      status: 'active',
+      createdAt: now,
+    };
 
     try {
       await this.dynamoDb.client.send(
@@ -93,7 +151,14 @@ export class ExtsRepository {
     await this.dynamoDb.client.send(
       new PutCommand({
         TableName: CALLS_TABLE,
-        Item: { PK: extOfPk(dealId), SK: 'METADATA', dealId, code, updatedAt: now },
+        Item: {
+          PK: extOfPk(dealId),
+          SK: extOfSk(phoneIndex),
+          dealId,
+          code,
+          phoneIndex,
+          updatedAt: now,
+        },
       }),
     );
     return item;

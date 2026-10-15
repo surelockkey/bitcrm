@@ -91,3 +91,10 @@ export const allCallsSk = (startedAt: string, callSid: string) =>
  */
 export const extPk = (code: string) => `EXT#${code}`;
 export const extOfPk = (dealId: string) => `EXTOF#${dealId}`;
+/**
+ * One reverse pointer per client number on the job. The first number keeps
+ * the row every code was minted on before codes were per number (`METADATA`),
+ * so those codes resolve unchanged; the others sit beside it (`PHONE#<i>`).
+ */
+export const extOfSk = (phoneIndex = 0) =>
+  phoneIndex > 0 ? `PHONE#${phoneIndex}` : 'METADATA';

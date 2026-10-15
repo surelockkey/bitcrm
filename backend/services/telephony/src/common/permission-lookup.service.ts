@@ -2,9 +2,10 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   PermissionCacheReader,
   fetchResolvedPermissions,
+  getDataScopeFilter,
   hasPermission,
 } from '@bitcrm/shared';
-import { type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
+import { DataScope, type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 
 const USER_SERVICE_URL =
   process.env.USER_SERVICE_URL || 'http://localhost:4001';
@@ -43,6 +44,7 @@ type PermissionFetch = (
 export class PermissionLookupService {
   private readonly logger = new Logger(PermissionLookupService.name);
   private readonly memo = new Map<string, { allowed: boolean; expiresAt: number }>();
+  private readonly scopeMemo = new Map<string, { assignedOnly: boolean; expiresAt: number }>();
   private readonly fetchPermissions: PermissionFetch;
 
   constructor(
@@ -80,5 +82,40 @@ export class PermissionLookupService {
 
     this.memo.set(user.id, { allowed, expiresAt: Date.now() + MEMO_TTL_MS });
     return allowed;
+  }
+
+  /**
+   * Is this user's data scope on `resource` their own records only?
+   *
+   * Read the canonical way (`getDataScopeFilter`: Super Admin is `all`, an
+   * unconfigured resource is `assigned_only`). Fails CLOSED — a user whose
+   * permissions cannot be read is treated as `assigned_only`, because every
+   * caller uses this to NARROW what somebody may reach.
+   */
+  async isAssignedOnly(user: JwtUser, resource: string): Promise<boolean> {
+    if (!user?.id) return true;
+    const key = `${user.id}:${resource}`;
+    const hit = this.scopeMemo.get(key);
+    if (hit && hit.expiresAt > Date.now()) return hit.assignedOnly;
+
+    let assignedOnly = true;
+    try {
+      const resolved =
+        (await this.cacheReader.getPermissions(user.id, user.roleId)) ??
+        (await this.fetchPermissions(USER_SERVICE_URL, user.id));
+      if (resolved) {
+        assignedOnly =
+          getDataScopeFilter(user, resource, resolved).scope === DataScope.ASSIGNED_ONLY;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Could not resolve the ${resource} data scope for ${user.id}, treating it as assigned_only: ${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+    }
+
+    this.scopeMemo.set(key, { assignedOnly, expiresAt: Date.now() + MEMO_TTL_MS });
+    return assignedOnly;
   }
 }

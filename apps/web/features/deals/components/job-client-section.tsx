@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { MapPin, MessageSquareText, Signpost, Trash2 } from "lucide-react";
 import type { Address, Contact, Deal } from "@bitcrm/types";
 import { WzFieldGroup, WzLink, WzSectionHeader, WzSelect, WzTextField } from "@/components/workiz";
@@ -11,6 +11,8 @@ import { ClientChatSheet } from "@/features/clients/components/client-chat-sheet
 import { contactName } from "@/features/clients/lib";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import { JobDialCard } from "@/features/telephony/components/job-dial-card";
+import { useJobCode } from "@/features/telephony/config-hooks";
+import { useContact } from "@/features/clients/hooks";
 import { jobFirstPhone, jobPhones, type ClientDraft } from "../lib";
 import { addPhoneRow, addressSummary, phoneRows, removePhoneRow, type PhoneRow } from "../job-details-form";
 import { directionsHref, JobAddressPane } from "./job-address-pane";
@@ -74,6 +76,20 @@ export function JobClientSection({
   const [paneOpen, setPaneOpen] = useState(false);
   const canText = can("messages", "send");
   const set = (patch: Partial<ClientDraft>) => draft && onDraftChange({ ...draft, ...patch });
+  // How many of the job's numbers have a masked number. Counted by the
+  // server, so it holds even when the client record could not be read.
+  const jobCodes = useJobCode(deal.id);
+  const codedPhones = jobCodes.data?.phones?.length ?? (jobCodes.data ? 1 : 0);
+  // Only a settled miss draws the job-only fallback, never a load in flight.
+  const contactQuery = useContact(deal.contactId ?? "");
+  const contactMissing = !contact && !contactQuery.isLoading;
+  // A number saved since the codes were read has none yet: ask once more.
+  const shownPhones = contact?.phonesMasked ? contact.phoneCount ?? 0 : contact?.phones.length ?? 0;
+  const { refetch: refetchCodes } = jobCodes;
+  const codesLoaded = !!jobCodes.data;
+  useEffect(() => {
+    if (codesLoaded && shownPhones > codedPhones) void refetchCodes?.();
+  }, [codesLoaded, shownPhones, codedPhones, refetchCodes]);
 
   return (
     <section aria-label="Client">
@@ -110,22 +126,32 @@ export function JobClientSection({
           </DetailsRow>
 
           {contact.phonesMasked ? (
-            <MaskedClientPhones phoneCount={contact.phoneCount ?? 0} dealId={deal.id} contactId={contact.id} />
+            <MaskedClientPhones
+              phoneCount={Math.max(contact.phoneCount ?? 0, codedPhones)}
+              extensions={contact.phoneExtensionsByIndex}
+              dealId={deal.id}
+              contactId={contact.id}
+            />
           ) : (
             phoneRows(jobPhones(deal, contact), draft).map((row) => (
-              <PhoneLine
-                key={row.index}
-                row={row}
-                canEdit={canEditClient}
-                dealId={deal.id}
-                contactId={contact.id}
-                onText={canText ? () => setChatOpen(true) : undefined}
-                onPhone={(v) => set({ phones: draft.phones.map((x, j) => (j === row.index ? v : x)) })}
-                onExt={(v) =>
-                  set({ phoneExts: draft.phones.map((_, j) => (j === row.index ? normalizeExtension(v) : draft.phoneExts[j] ?? "")) })
-                }
-                onRemove={() => onDraftChange(removePhoneRow(draft, row.index))}
-              />
+              <div key={row.index}>
+                <PhoneLine
+                  row={row}
+                  canEdit={canEditClient}
+                  dealId={deal.id}
+                  contactId={contact.id}
+                  onText={canText ? () => setChatOpen(true) : undefined}
+                  onPhone={(v) => set({ phones: draft.phones.map((x, j) => (j === row.index ? v : x)) })}
+                  onExt={(v) =>
+                    set({ phoneExts: draft.phones.map((_, j) => (j === row.index ? normalizeExtension(v) : draft.phoneExts[j] ?? "")) })
+                  }
+                  onRemove={() => onDraftChange(removePhoneRow(draft, row.index))}
+                />
+                {/* Workiz: each number on file has its own masked number —
+                    our technician line and the code that rings that number.
+                    A row still being typed has none until it is saved. */}
+                {row.fileIndex >= 0 ? <JobDialCard dealId={deal.id} phoneIndex={row.fileIndex} variant="workiz" /> : null}
+              </div>
             ))
           )}
           {canEditClient && !contact.phonesMasked ? (
@@ -136,9 +162,6 @@ export function JobClientSection({
               </WzLink>
             </div>
           ) : null}
-
-          {/* Our dial-in, as Workiz shows its masked number. */}
-          <JobDialCard dealId={deal.id} variant="workiz" />
 
           <DetailsRow>
             <WzTextField
@@ -159,6 +182,17 @@ export function JobClientSection({
               onOpenChange={setChatOpen}
             />
           ) : null}
+        </>
+      ) : deal.contactId && contactMissing ? (
+        // The client could not be read (a technician's read of the contact
+        // can fail where the job's cannot). The masked numbers come from the
+        // job, so they are drawn anyway — this block used to vanish whole,
+        // and with it the technician's only way to reach the client.
+        <>
+          <p className="mb-2.5 text-[12px] leading-4 text-wz-caption">
+            The client&apos;s details could not be loaded — you can still call them through the masked numbers.
+          </p>
+          <MaskedClientPhones phoneCount={Math.max(1, codedPhones)} dealId={deal.id} contactId={deal.contactId} />
         </>
       ) : null}
 

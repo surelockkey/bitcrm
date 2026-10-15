@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { ApiError } from "@/lib/api/errors";
 import { JobDialCard } from "./job-dial-card";
 
 const mocks = vi.hoisted(() => ({
@@ -172,5 +173,60 @@ describe("JobDialCard — Workiz's compact 'Masked number'", () => {
     render(<JobDialCard dealId="deal-1" variant="workiz" />);
 
     expect(screen.getByText(/could not be issued/i)).toBeInTheDocument();
+  });
+
+  /** Workiz style: one masked number per client number, each with its own code. */
+  it("shows the code of the number it sits under", () => {
+    mocks.code = {
+      data: {
+        code: "4729",
+        phones: [
+          { phoneIndex: 0, code: "4729" },
+          { phoneIndex: 1, code: "6100" },
+        ],
+      },
+      isError: false,
+    };
+    render(<JobDialCard dealId="deal-1" variant="workiz" phoneIndex={1} />);
+
+    expect(screen.getByTestId("job-dial-in").textContent).toBe("(404) 555-0140 #6100");
+  });
+
+  /** A number the server has no code for (added a moment ago) is not given the first's. */
+  it("never shows another number's code", () => {
+    mocks.code = { data: { code: "4729", phones: [{ phoneIndex: 0, code: "4729" }] }, isError: false };
+    render(<JobDialCard dealId="deal-1" variant="workiz" phoneIndex={1} />);
+
+    expect(screen.getByTestId("job-dial-in").textContent).not.toContain("4729");
+  });
+
+  /**
+   * A technician who is not on the job's roster is refused the code (403).
+   * That used to read as "could not be issued — reload", which no reload fixes.
+   */
+  it("says plainly when the viewer is not on the job", () => {
+    mocks.code = {
+      data: undefined,
+      isError: true,
+      error: new ApiError(403, "You cannot place a call about this job"),
+    };
+    render(<JobDialCard dealId="deal-1" variant="workiz" />);
+
+    expect(screen.getByText(/only the technicians assigned to this job/i)).toBeInTheDocument();
+    expect(screen.queryByText(/could not be issued/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("JobDialCard — not on the job", () => {
+  it("says so on the boxed card too", () => {
+    mocks.config = { data: { technicianLine: "+14045550140" }, isError: false, isLoading: false };
+    mocks.code = {
+      data: undefined,
+      isError: true,
+      error: new ApiError(403, "You cannot place a call about this job"),
+    };
+    render(<JobDialCard dealId="deal-1" />);
+
+    expect(screen.getByText(/only the technicians assigned to this job/i)).toBeInTheDocument();
   });
 });

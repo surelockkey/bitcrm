@@ -27,6 +27,9 @@ import {
   type BridgeState,
 } from '../common/bridge-progress';
 import { WebhookQueue } from '../common/webhook-queue';
+import twilio from 'twilio';
+
+const VoiceResponse = twilio.twiml.VoiceResponse;
 
 export type MonitorMode = 'listen' | 'join';
 
@@ -76,6 +79,12 @@ export interface InitOutboundOptions {
    * client leg's callbacks can tell the phone how the call went.
    */
   bridgeId?: string;
+  /**
+   * Keys to press once the client answers — their extension, as Twilio's
+   * `sendDigits` (`extensionKeys`). Kept in the conference meta only, never
+   * on the call record.
+   */
+  sendDigits?: string;
 }
 
 export const confName = (primarySid: string) => `conf-${primarySid}`;
@@ -208,6 +217,7 @@ export class ConferenceService {
       ...(options.dealId && { dealId: options.dealId }),
       ...(options.origin && { origin: options.origin }),
       ...(options.bridgeId && { bridgeId: options.bridgeId }),
+      ...(options.sendDigits && { sendDigits: options.sendDigits }),
     });
 
     // Also before the reply, deliberately. The webhooks that follow this
@@ -358,20 +368,24 @@ export class ConferenceService {
     if (claimed !== 'OK') return;
 
     try {
-      const participant = await this.rest.run((c) =>
-        c.conferences(conferenceSid).participants.create({
-          to: meta.to,
-          from: meta.from || this.config.callerId,
-          earlyMedia: true,
-          endConferenceOnExit: true,
-          label: 'customer',
-          statusCallback: this.statusUrl(name, 'customer'),
-          statusCallbackMethod: 'POST',
-          statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-        }),
-      );
-      await this.redis.client.hset(metaKey, { customerSid: participant.callSid });
-      await this.calls.appendChildSid(primarySid, participant.callSid);
+      const customerSid = meta.sendDigits
+        ? await this.dialCustomerWithKeys(name, meta)
+        : (
+            await this.rest.run((c) =>
+              c.conferences(conferenceSid).participants.create({
+                to: meta.to,
+                from: meta.from || this.config.callerId,
+                earlyMedia: true,
+                endConferenceOnExit: true,
+                label: 'customer',
+                statusCallback: this.statusUrl(name, 'customer'),
+                statusCallbackMethod: 'POST',
+                statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+              }),
+            )
+          ).callSid;
+      await this.redis.client.hset(metaKey, { customerSid });
+      await this.calls.appendChildSid(primarySid, customerSid);
       await this.calls.applyLifecycle({ callSid: primarySid, status: 'ringing' });
       this.logger.log(`Conference ${name}: dialing customer ${meta.to}`);
     } catch (error) {
@@ -387,6 +401,47 @@ export class ConferenceService {
       await this.completeConference(conferenceSid);
       await this.calls.applyLifecycle({ callSid: primarySid, status: 'failed' });
     }
+  }
+
+  /**
+   * The customer leg for a client behind an extension.
+   *
+   * The Participants API cannot press keys — it has no `sendDigits` — and
+   * pulling an answered participant out to `<Play digits>` would end the room
+   * (the customer leg carries `endConferenceOnExit`). So this one leg is an
+   * ordinary call: Twilio presses the extension once the client answers, then
+   * runs the inline TwiML, which joins the same conference with the same
+   * label and flags the participant would have had. Same status callback, so
+   * `onLegStatus` cannot tell the difference. What it gives up is early
+   * media: the technician hears the room until the client answers.
+   */
+  private async dialCustomerWithKeys(
+    name: string,
+    meta: Record<string, string>,
+  ): Promise<string> {
+    const twiml = new VoiceResponse();
+    twiml.dial().conference(
+      {
+        ...this.sharedConferenceAttrs(),
+        participantLabel: 'customer',
+        startConferenceOnEnter: true,
+        endConferenceOnExit: true,
+        beep: 'false',
+      } as Parameters<InstanceType<typeof VoiceResponse.Dial>['conference']>[0],
+      name,
+    );
+    const created = await this.rest.run((c) =>
+      c.calls.create({
+        to: meta.to,
+        from: meta.from || this.config.callerId,
+        sendDigits: meta.sendDigits,
+        twiml: twiml.toString(),
+        statusCallback: this.statusUrl(name, 'customer'),
+        statusCallbackMethod: 'POST',
+        statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+      }),
+    );
+    return created.sid;
   }
 
   /**

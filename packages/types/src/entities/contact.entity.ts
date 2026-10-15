@@ -23,6 +23,13 @@ export interface Contact {
    * itself, so the phone stays dialable and the call log keeps matching it.
    */
   phoneExtensions?: Record<string, string>;
+  /**
+   * A masked viewer's extensions (`phonesMasked`): `phoneExtensions` is keyed
+   * by the number, so it is withheld with them, and this carries the same
+   * extensions by position — `[i]` belongs to hidden number `i`, '' for none.
+   * Absent when no number has one.
+   */
+  phoneExtensionsByIndex?: string[];
   emails: string[];
   /**
    * Structured postal addresses (Google-autocompleted); a client may have

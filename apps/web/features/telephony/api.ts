@@ -132,8 +132,27 @@ export const cancelBridge = (
  * harmless: it says which job, and the PIN that makes it work is never on the
  * screen.
  */
-export const fetchJobCode = (dealId: string): Promise<{ code: string }> =>
+export interface JobCodes {
+  /** The first number's code — the one code a job had before codes were per number. */
+  code: string;
+  /**
+   * One code per client number on the job, in the call buttons' `phoneIndex`
+   * order (Workiz: a masked number per phone). Absent from an older server.
+   */
+  phones?: Array<{ phoneIndex: number; code: string }>;
+}
+
+export const fetchJobCode = (dealId: string): Promise<JobCodes> =>
   http.get(`/telephony/exts/by-deal/${dealId}`);
+
+/** The code for one client number on the job, or undefined when there is none (yet). */
+export function jobCodeFor(codes: JobCodes | undefined, phoneIndex = 0): string | undefined {
+  if (!codes) return undefined;
+  const found = codes.phones?.find((p) => p.phoneIndex === phoneIndex)?.code;
+  if (found) return found;
+  // An older server answers the first number's code only.
+  return phoneIndex === 0 ? codes.code : undefined;
+}
 
 /** Retire a job's code and mint a new one. */
 export const rotateJobCode = (dealId: string): Promise<{ code: string }> =>

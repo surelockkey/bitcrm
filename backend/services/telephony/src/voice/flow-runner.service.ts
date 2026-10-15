@@ -24,6 +24,8 @@ export interface ResolvedExt {
   clientName?: string;
   /** The client's real E.164 — never spoken to the caller. */
   to: string;
+  /** That number's extension, pressed once the client answers. */
+  extension?: string;
   /** The market number the client will see. */
   from: string;
   callerIdSource?: string;
@@ -44,6 +46,7 @@ import {
   type InboundLeg,
 } from './conference.service';
 import { DialInService } from '../exts/dial-in.service';
+import { extensionKeys } from '../common/client-line';
 import { TelephonySettingsService } from '../telephony/telephony-settings.service';
 
 const VoiceResponse = twilio.twiml.VoiceResponse;
@@ -512,6 +515,7 @@ export class FlowRunnerService {
           dealId: match.dealId,
           origin: 'bridge',
           callerIdSource: match.callerIdSource as never,
+          sendDigits: extensionKeys(match.extension),
         },
       );
     } catch (error) {

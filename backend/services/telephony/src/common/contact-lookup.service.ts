@@ -85,7 +85,12 @@ export class ContactLookupService {
    */
   async phonesOf(
     contactId: string,
-  ): Promise<{ phones: string[]; name?: string } | null> {
+  ): Promise<{
+    phones: string[];
+    name?: string;
+    /** What to press on each number once it answers, keyed by the number. */
+    extensions?: Record<string, string>;
+  } | null> {
     if (!contactId) return null;
     try {
       const res = await fetch(
@@ -97,14 +102,24 @@ export class ContactLookupService {
         return null;
       }
       const body = (await res.json()) as {
-        data?: { phones?: string[]; firstName?: string; lastName?: string };
+        data?: {
+          phones?: string[];
+          firstName?: string;
+          lastName?: string;
+          phoneExtensions?: Record<string, string>;
+        };
       };
       if (!body.data) return null;
       const name = [body.data.firstName, body.data.lastName]
         .filter(Boolean)
         .join(' ')
         .trim();
-      return { phones: body.data.phones ?? [], name: name || undefined };
+      const extensions = body.data.phoneExtensions;
+      return {
+        phones: body.data.phones ?? [],
+        name: name || undefined,
+        ...(extensions && Object.keys(extensions).length > 0 && { extensions }),
+      };
     } catch (error) {
       this.logger.warn(
         `contact ${contactId} lookup failed: ${error instanceof Error ? error.message : error}`,

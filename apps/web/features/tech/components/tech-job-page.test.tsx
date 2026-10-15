@@ -79,6 +79,57 @@ describe("TechJobPage — the invoice lives on its own page, as on /deals/[id]",
   });
 });
 
+/**
+ * The technician's masked numbers — Workiz's "Masked number" under each of
+ * the client's numbers. They used to vanish whole whenever the technician's
+ * read of the client failed, taking their only way to the client with them.
+ */
+describe("TechJobPage — masked numbers", () => {
+  const twoCodes = (routes: ReturnType<typeof techJobRoutes>) =>
+    routes.map((r) =>
+      String(r.match).includes("exts\\/by-deal")
+        ? {
+            ...r,
+            reply: () => ({
+              code: "8707",
+              phones: [
+                { phoneIndex: 0, code: "8707" },
+                { phoneIndex: 1, code: "5521" },
+              ],
+            }),
+          }
+        : r,
+    );
+
+  it("shows a masked number per client number even when the client cannot be read", async () => {
+    server = installFakeServer(twoCodes(techJobRoutes()), { delayMs: 5 });
+    server.fail(/\/crm\/contacts\/c1$/);
+    renderWithClient(<TechJobPage dealId="d1" />);
+
+    await vi.waitFor(() => expect(screen.getAllByTestId("job-dial-in")).toHaveLength(2), { timeout: 3000 });
+    expect(screen.getAllByTestId("job-dial-in").map((el) => el.textContent)).toEqual([
+      "(404) 555-0140 #8707",
+      "(404) 555-0140 #5521",
+    ]);
+  });
+
+  it("tells a technician who is not on the job why there is no code", async () => {
+    server = installFakeServer(
+      techJobRoutes().map((r) =>
+        String(r.match).includes("exts\\/by-deal")
+          ? { ...r, raw: true, status: 403, reply: () => ({ success: false, message: "You cannot place a call about this job" }) }
+          : r,
+      ),
+      { delayMs: 5 },
+    );
+    renderWithClient(<TechJobPage dealId="d1" />);
+
+    expect(
+      (await screen.findAllByText(/only the technicians assigned to this job/i, {}, { timeout: 3000 })).length,
+    ).toBeGreaterThan(0);
+  });
+});
+
 describe("TechJobPage — the job page, with the visit", () => {
   it("refuses a viewer who may not see jobs", () => {
     granted = () => false;
