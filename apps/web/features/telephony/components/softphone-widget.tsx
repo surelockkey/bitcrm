@@ -7,8 +7,10 @@ import {
   Loader2,
   Mic,
   MicOff,
+  Pause,
   Phone,
   PhoneOff,
+  Play,
   UserPlus,
   X,
 } from "lucide-react";
@@ -37,6 +39,7 @@ import {
   selectInputDevice,
   sendDigit,
   startCall,
+  toggleHold,
   toggleMute,
 } from "../softphone-manager";
 
@@ -58,6 +61,8 @@ export function SoftphoneWidget() {
   const callState = useSoftphoneStore((s) => s.callState);
   const call = useSoftphoneStore((s) => s.call);
   const muted = useSoftphoneStore((s) => s.muted);
+  const held = useSoftphoneStore((s) => s.held);
+  const setHeld = useSoftphoneStore((s) => s.setHeld);
   const status = useSoftphoneStore((s) => s.status);
   const errorMessage = useSoftphoneStore((s) => s.errorMessage);
   const phoneOn = useSoftphoneStore((s) => s.phoneOn);
@@ -153,6 +158,15 @@ export function SoftphoneWidget() {
   // The record behind this call: the browser knows its own leg, the server
   // knows which call that leg belongs to.
   const activeCall = useActiveCall(callState !== "idle");
+
+  // A hold placed or lifted elsewhere (another tab of ours) reaches this one
+  // through the poll. Followed only when the server's answer CHANGES: a poll
+  // that left before this tab's own press would otherwise undo it.
+  const serverSid = activeCall.data?.callSid;
+  const serverHeld = activeCall.data?.onHold === true;
+  useEffect(() => {
+    if (serverSid) setHeld(serverHeld);
+  }, [serverSid, serverHeld, setHeld]);
 
   if (!visible) return null;
 
@@ -335,6 +349,11 @@ export function SoftphoneWidget() {
                   ? `${call.monitor === "listen" ? "Listening" : "Joined"} · ${timer}`
                   : timer)}
             </div>
+            {held && callState === "active" ? (
+              <p className="mt-1 flex items-center justify-center gap-1 text-xs font-medium text-amber-600">
+                <Pause className="size-3" aria-hidden /> On hold — they hear the hold music
+              </p>
+            ) : null}
             {micWarning ? (
               <p className="mt-1 text-xs font-medium text-amber-600">{micWarning}</p>
             ) : null}
@@ -448,17 +467,28 @@ export function SoftphoneWidget() {
                   {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
                   {muted ? "Unmute" : "Mute"}
                 </Button>
+                {/* Holds the CUSTOMER on the server (they hear the hold
+                    music), so it needs the call record, like Add/Transfer. */}
                 <Button
                   type="button"
-                  variant="destructive"
-                  onClick={() => {
-                    setEndedSid(serverCall?.callSid ?? null);
-                    hangup();
-                  }}
+                  variant={held ? "secondary" : "outline"}
+                  onClick={() => void toggleHold(activeCall.data?.callSid)}
+                  disabled={!activeCall.data?.callSid || callState !== "active"}
                 >
-                  <PhoneOff className="size-4" /> Hang up
+                  {held ? <Play className="size-4" /> : <Pause className="size-4" />}
+                  {held ? "Resume" : "Hold"}
                 </Button>
               </div>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  setEndedSid(serverCall?.callSid ?? null);
+                  hangup();
+                }}
+              >
+                <PhoneOff className="size-4" /> Hang up
+              </Button>
               {/* Handing over or pulling someone in both need the call record,
                   which the server resolves — the browser only knows its own leg. */}
               <div className="grid grid-cols-2 gap-2">

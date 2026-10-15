@@ -1,3 +1,4 @@
+import type { HoldSound } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
 
 export interface VoiceToken {
@@ -76,6 +77,17 @@ export const addCallParticipant = (
 ): Promise<{ callSid: string; handOver: boolean }> =>
   http.post(`/telephony/calls/${callSid}/participants`, body);
 
+/**
+ * Put the customer on the call you are on on hold (the company's hold music
+ * plays to them), or take them off it. The server holds their conference leg;
+ * yours stays connected.
+ */
+export const holdCall = (
+  callSid: string,
+  hold: boolean,
+): Promise<{ callSid: string; onHold: boolean }> =>
+  http.post(`/telephony/calls/${callSid}/hold`, { hold });
+
 export async function identifyNumber(
   e164: string,
 ): Promise<IdentifiedParty | null> {
@@ -149,7 +161,13 @@ export const fetchTelephonyConfig = (): Promise<{
   mainNumber?: string | null;
   /** Workiz's Fallback Number (the Call flows tab): absent on an API from before it. */
   fallbackNumber?: string | null;
+  /** The hold music; null = the default track, absent on an API from before it. */
+  holdSound?: HoldSound | null;
 }> => http.get("/telephony/config");
+
+/** Choose the company's hold music, or go back to the default track with null. */
+export const setHoldSound = (holdSound: HoldSound | null): Promise<{ holdSound: HoldSound | null }> =>
+  http.put("/telephony/config/hold-sound", { holdSound });
 
 /** Set (any format) or clear (null) the account's fallback number. */
 export const setFallbackNumber = (

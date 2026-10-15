@@ -86,6 +86,8 @@ export interface CallRecord {
   childSids?: string[];
   participants?: CallParticipant[];
   internalLegOf?: string;
+  /** The customer is on hold right now — live calls only, set only when true. */
+  onHold?: true;
 }
 
 export const PARTICIPANT_ROLE_LABEL: Record<ParticipantRole, string> = {

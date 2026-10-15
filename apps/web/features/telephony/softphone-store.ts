@@ -35,6 +35,12 @@ interface SoftphoneState {
   callState: CallState;
   call: ActiveCall | null;
   muted: boolean;
+  /**
+   * The customer is on hold (the dialer's Hold button). Set at once when the
+   * button is pressed and put back if the server refuses; kept in step with
+   * what `/calls/active` says, so another tab's hold shows here too.
+   */
+  held: boolean;
 
   /** The number used as caller id for outbound calls (E.164), or null = default. */
   activeNumber: string | null;
@@ -57,6 +63,7 @@ interface SoftphoneState {
   setCall: (state: CallState, call: ActiveCall | null) => void;
   patchCall: (patch: Partial<ActiveCall>) => void;
   setMuted: (muted: boolean) => void;
+  setHeld: (held: boolean) => void;
 }
 
 export const useSoftphoneStore = create<SoftphoneState>()(
@@ -70,6 +77,7 @@ export const useSoftphoneStore = create<SoftphoneState>()(
       callState: "idle",
       call: null,
       muted: false,
+      held: false,
       activeNumber: null,
       inputDevices: [],
       inputDeviceId: null,
@@ -83,10 +91,11 @@ export const useSoftphoneStore = create<SoftphoneState>()(
       setStatus: (status, errorMessage = null) => set({ status, errorMessage }),
       setDialerOpen: (dialerOpen) => set({ dialerOpen }),
       setPosition: (position) => set({ position }),
-      setCall: (callState, call) => set({ callState, call, muted: false }),
+      setCall: (callState, call) => set({ callState, call, muted: false, held: false }),
       patchCall: (patch) =>
         set((s) => ({ call: s.call ? { ...s.call, ...patch } : s.call })),
       setMuted: (muted) => set({ muted }),
+      setHeld: (held) => set({ held }),
     }),
     {
       name: "bitcrm-softphone",

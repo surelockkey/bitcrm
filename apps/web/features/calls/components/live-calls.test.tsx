@@ -98,4 +98,16 @@ describe("LiveCalls", () => {
     const { container } = render(<LiveCalls />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("tells a supervisor the customer is on hold", () => {
+    liveCalls.mockReturnValue({ data: [{ ...base, onHold: true }] });
+    render(<LiveCalls />);
+    expect(screen.getByText("On hold")).toBeInTheDocument();
+  });
+
+  it("says nothing about hold on a call that is talking", () => {
+    liveCalls.mockReturnValue({ data: [base] });
+    render(<LiveCalls />);
+    expect(screen.queryByText("On hold")).not.toBeInTheDocument();
+  });
 });
