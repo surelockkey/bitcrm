@@ -401,3 +401,55 @@ describe("collapseReschedules — with reschedules saved as one entry", () => {
     expect(out.text.get("c")).toBe("Rescheduled job from Wed Oct 07 2026 8:00 am - 9:00 am EDT to Wed Oct 07 2026 8:30 am - 9:00 am EDT");
   });
 });
+
+/**
+ * Owner, 2026-10-15: a status change or an arrival from the phone says where
+ * it happened — "· 120 m from the address" after Workiz's line, red past
+ * 500 m (the row draws it; the wording hands it over as `location`).
+ */
+describe("timeline rows — where the phone was", () => {
+  const fix = { lat: 41.7637, lng: -72.6851, accuracy: 9 };
+  const done = (more: Record<string, unknown>) =>
+    entry({
+      eventType: TimelineEventType.STATUS_CHANGED,
+      details: { fromStatus: JobSuperStatus.IN_PROGRESS, toStatus: JobSuperStatus.DONE, subStatusId: null, ...more },
+    });
+
+  it("a status change keeps Workiz's line and adds the distance, from the phone", () => {
+    expect(text(done({ location: fix, distanceM: 120, farFromAddress: false }))).toEqual({
+      lines: ["Status Updated - Done - "],
+      icon: "mobile",
+      location: { text: "120 m from the address", far: false },
+    });
+  });
+
+  it("a close far from the address is flagged far", () => {
+    expect(text(done({ location: fix, distanceM: 14_200, farFromAddress: true })).location).toEqual({
+      text: "14.2 km from the address",
+      far: true,
+    });
+  });
+
+  it("a fix without a distance (the address has no coordinates) is 'location recorded'", () => {
+    expect(text(done({ location: fix })).location).toEqual({ text: "location recorded", far: false });
+  });
+
+  it("a change made without a fix reads exactly as before", () => {
+    const row = text(done({}));
+    expect(row).toEqual({ lines: ["Status Updated - Done - "], icon: "web" });
+    expect(row).not.toHaveProperty("location");
+  });
+
+  it("an arrival says how far from the address the tech was", () => {
+    const arrived = entry({
+      eventType: TimelineEventType.TECH_ARRIVED,
+      details: { techId: "t2", location: fix, distanceM: 640, farFromAddress: true },
+    });
+    expect(text(arrived)).toEqual({
+      lines: ["Arrived at location"],
+      icon: "mobile",
+      location: { text: "640 m from the address", far: true },
+    });
+    expect(text(entry({ eventType: TimelineEventType.TECH_ARRIVED, details: { techId: "t2" } }))).not.toHaveProperty("location");
+  });
+});
