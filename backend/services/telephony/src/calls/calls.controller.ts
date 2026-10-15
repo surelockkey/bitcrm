@@ -99,6 +99,11 @@ class MonitorDto {
   mode!: MonitorMode;
 }
 
+class HoldDto {
+  /** true puts the customer on hold, false takes them off it. */
+  hold!: boolean;
+}
+
 class TakeCompleteDto {
   /** The legs this hand-over is replacing, as reported by `/take`. */
   previousLegs!: string[];
@@ -184,6 +189,11 @@ const CALL_FILTERS_HELP =
   'instants or prefixes), `origin`, `minDuration`/`maxDuration` (whole seconds, inclusive; a call with no ' +
   'talk time counts as 0), `masked` and `hasJob` (true/false).';
 
+/** Only a live call with a conference can have a customer on hold. */
+function mayBeHeld(call: CallRecord): call is CallRecord & { conferenceName: string } {
+  return !!call.conferenceName && !!call.status && LIVE_STATUSES.includes(call.status);
+}
+
 @ApiTags('Telephony')
 @ApiBearerAuth()
 @Controller('calls')
@@ -241,6 +251,25 @@ export class CallsController {
    */
   private async withNames(records: CallRecord[]): Promise<EnrichedCall[]> {
     return (await this.namer.name(records)).map((n) => n.call);
+  }
+
+  /**
+   * Mark the live calls whose customer is on hold. Hold lives on the
+   * conference's Redis meta, not the record — so every route that serves a
+   * live call reads it here, or an unrelated update (a tag, a job link) would
+   * redraw a held call as not held. Only live calls with a conference are
+   * asked; a failed read leaves the call unmarked.
+   */
+  private async withHold<T extends CallRecord>(calls: T[]): Promise<T[]> {
+    return Promise.all(
+      calls.map(async (call) => {
+        if (!mayBeHeld(call)) return call;
+        const held = await this.conferenceService
+          .isHeld(call.conferenceName)
+          .catch(() => false);
+        return held ? { ...call, onHold: true as const } : call;
+      }),
+    );
   }
 
   /* NOTE: static routes are declared before ':sid' so they aren't swallowed. */
@@ -441,7 +470,7 @@ export class CallsController {
   async active(@CurrentUser() user: JwtUser) {
     const call = await this.callsService.activeCallFor(user.id);
     if (!call) return { success: true, data: null };
-    const [enriched] = await this.withNames([call]);
+    const [enriched] = await this.withNames(await this.withHold([call]));
     // Ungated route, polled every 5s by the softphone widget — the one a masked
     // technician hits most, and the guard never resolved anything for it.
     return {
@@ -481,7 +510,7 @@ export class CallsController {
       'the last 24h, newest first.',
   })
   async live(@CurrentUser() user?: JwtUser) {
-    const data = await this.callsService.listLive();
+    const data = await this.withHold(await this.callsService.listLive());
     return {
       success: true,
       data: maskCalls(await this.withNames(data), await this.maySeeNumbers(user)),
@@ -516,7 +545,12 @@ export class CallsController {
       // connection outlives a permission change by hours, and the lookup is
       // memoised for 60s, so this costs one Redis read a minute per viewer and
       // caps how long a revoked viewer keeps receiving numbers.
-      void Promise.all([this.withNames([event.call]), this.maySeeNumbers(user)])
+      void Promise.all([
+        mayBeHeld(event.call)
+          ? this.withHold([event.call]).then((held) => this.withNames(held))
+          : this.withNames([event.call]),
+        this.maySeeNumbers(user),
+      ])
         .then(([[call], allowed]) =>
           res.write(
             `data: ${JSON.stringify({ ...event, call: maskCall(call, allowed) })}\n\n`,
@@ -957,6 +991,39 @@ export class CallsController {
     }
 
     return { success: true, data: { sid, movedTo: arrived } };
+  }
+
+  @Post(':sid/hold')
+  @ApiOperation({
+    summary: 'Put the customer on hold, or take them off it',
+    description:
+      'Any authenticated user, for the call they are on — like Mute, hold is ' +
+      'something you do to your own call, not a privilege. Body `{ hold: boolean }`. ' +
+      'Holds the customer\'s leg of the conference with the company\'s hold ' +
+      'music (Settings → Hold music); the agent stays connected. The live call ' +
+      'carries `onHold: true` while held (`/calls/active`, `/calls/live`, the ' +
+      'SSE stream), so other tabs and supervisors see it. 403 for a call you ' +
+      'are not on; 409 when it is not live or has nobody to hold yet.',
+  })
+  async hold(
+    @Param('sid') sid: string,
+    @Body() dto: HoldDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    // No ValidationPipe in telephony: a real boolean, or nothing happens.
+    if (typeof dto?.hold !== 'boolean') {
+      throw new BadRequestException('hold must be true or false');
+    }
+    const call = await this.mustBeMyLiveCall(sid, user.id);
+    const { held } = await this.conferenceService.holdCustomer(sid, dto.hold);
+
+    // Nothing on the record changed, so no write publishes this — say it here.
+    const { onHold: _previous, ...rest } = call;
+    this.bus.publish({
+      type: 'call.upserted',
+      call: held ? { ...rest, onHold: true } : rest,
+    });
+    return { success: true, data: { callSid: sid, onHold: held } };
   }
 
   /**

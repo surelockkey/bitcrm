@@ -32,7 +32,7 @@ describe('TelephonySettingsService — fallback number', () => {
   it('is unset until somebody adds one', async () => {
     const { service } = makeService();
     await expect(service.fallbackNumber()).resolves.toBeNull();
-    await expect(service.get()).resolves.toEqual({ technicianLine: null, fallbackNumber: null });
+    await expect(service.get()).resolves.toEqual({ technicianLine: null, fallbackNumber: null, holdSound: null });
   });
 
   it('stores whatever was typed as E.164 and reads it back', async () => {
@@ -58,12 +58,12 @@ describe('TelephonySettingsService — fallback number', () => {
   it('is removed with null, leaving the technician line alone', async () => {
     const { service, read } = makeService({ technicianLine: '+14098777774', fallbackNumber: '+18888996849' });
     const after = await service.setFallbackNumber(null);
-    expect(after).toEqual({ technicianLine: '+14098777774', fallbackNumber: null });
+    expect(after).toEqual({ technicianLine: '+14098777774', fallbackNumber: null, holdSound: null });
     expect(read()).toEqual({ technicianLine: '+14098777774', updatedAt: expect.any(String) });
   });
 
   it('reads both settings from the one row', async () => {
     const { service } = makeService({ technicianLine: '+14098777774', fallbackNumber: '+18888996849' });
-    await expect(service.get()).resolves.toEqual({ technicianLine: '+14098777774', fallbackNumber: '+18888996849' });
+    await expect(service.get()).resolves.toEqual({ technicianLine: '+14098777774', fallbackNumber: '+18888996849', holdSound: null });
   });
 });

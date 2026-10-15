@@ -39,7 +39,10 @@ function makeController(
     updateTags: jest.fn().mockResolvedValue(record({ tagIds: ['t-spam'] })),
     ...over,
   } as unknown as CallsService;
-  const bus = { stream: () => subject.asObservable() } as unknown as CallEventsBus;
+  const bus = {
+    stream: () => subject.asObservable(),
+    publish: jest.fn(),
+  } as unknown as CallEventsBus;
   const conference = {
     grantMonitor: jest.fn().mockResolvedValue(undefined),
     addParticipant: jest.fn().mockResolvedValue({ callSid: 'CAadded' }),
@@ -48,6 +51,8 @@ function makeController(
     legsOf: jest.fn().mockResolvedValue([]),
     releaseLeg: jest.fn().mockResolvedValue(undefined),
     promoteLeg: jest.fn().mockResolvedValue(undefined),
+    holdCustomer: jest.fn(async (_sid: string, hold: boolean) => ({ held: hold })),
+    isHeld: jest.fn().mockResolvedValue(false),
     ...(over.conference as object),
   } as unknown as ConferenceService;
   const userNames = {
@@ -103,6 +108,7 @@ function makeController(
     controller,
     calls,
     conference,
+    bus,
     subject,
     userNames,
     contacts,
@@ -1148,5 +1154,132 @@ describe('CallsController — the dashboard bundle', () => {
     expect(topFlows).not.toHaveBeenCalled();
     expect(Object.keys(res.data)).toEqual(['recentCalls']);
     expect(calls.list).toHaveBeenCalled();
+  });
+});
+
+describe('CallsController — hold', () => {
+  const live = record({
+    callSid: 'CA1',
+    status: 'in-progress',
+    conferenceName: 'conf-CA1',
+    agentId: 'sup-1',
+  });
+
+  it('puts the customer on hold for the agent who is on the call', async () => {
+    const { controller, conference } = makeController({
+      activeCallFor: jest.fn().mockResolvedValue(live),
+    });
+
+    const res = await controller.hold('CA1', { hold: true }, USER);
+
+    expect(conference.holdCustomer).toHaveBeenCalledWith('CA1', true);
+    expect(res).toEqual({ success: true, data: { callSid: 'CA1', onHold: true } });
+  });
+
+  it('takes them off hold', async () => {
+    const { controller, conference } = makeController({
+      activeCallFor: jest.fn().mockResolvedValue(live),
+    });
+
+    const res = await controller.hold('CA1', { hold: false }, USER);
+
+    expect(conference.holdCustomer).toHaveBeenCalledWith('CA1', false);
+    expect(res.data).toEqual({ callSid: 'CA1', onHold: false });
+  });
+
+  it('tells every other screen — the agent’s other tabs, the supervisors — at once', async () => {
+    const { controller, bus } = makeController({
+      activeCallFor: jest.fn().mockResolvedValue(live),
+    });
+
+    await controller.hold('CA1', { hold: true }, USER);
+
+    expect(bus.publish).toHaveBeenCalledWith({
+      type: 'call.upserted',
+      call: expect.objectContaining({ callSid: 'CA1', onHold: true }),
+    });
+  });
+
+  it('refuses a call the caller is not on — hold is not a supervisor tool', async () => {
+    const { controller, conference } = makeController({
+      activeCallFor: jest.fn().mockResolvedValue(record({ callSid: 'CAother' })),
+    });
+
+    await expect(controller.hold('CA1', { hold: true }, USER)).rejects.toThrow(/not on this call/i);
+    expect(conference.holdCustomer).not.toHaveBeenCalled();
+  });
+
+  it.each([[{}], [{ hold: 'yes' }], [undefined]])('refuses a body without a boolean hold (%p)', async (body) => {
+    const { controller, conference } = makeController({
+      activeCallFor: jest.fn().mockResolvedValue(live),
+    });
+
+    await expect(controller.hold('CA1', body as never, USER)).rejects.toBeInstanceOf(BadRequestException);
+    expect(conference.holdCustomer).not.toHaveBeenCalled();
+  });
+
+  it('says on the active call that the customer is on hold', async () => {
+    const { controller, conference } = makeController({
+      activeCallFor: jest.fn().mockResolvedValue(live),
+      conference: { isHeld: jest.fn().mockResolvedValue(true) },
+    });
+
+    const res = await controller.active(USER);
+
+    expect(conference.isHeld).toHaveBeenCalledWith('conf-CA1');
+    expect(res.data).toMatchObject({ callSid: 'CA1', onHold: true });
+  });
+
+  it('says nothing about hold on a call that is not held', async () => {
+    const { controller } = makeController({
+      activeCallFor: jest.fn().mockResolvedValue(live),
+    });
+
+    const res = await controller.active(USER);
+
+    expect(res.data).not.toHaveProperty('onHold');
+  });
+
+  it('marks held calls in the live list', async () => {
+    const { controller } = makeController({
+      listLive: jest.fn().mockResolvedValue([
+        live,
+        record({ callSid: 'CA2', status: 'in-progress', conferenceName: 'conf-CA2' }),
+      ]),
+      conference: { isHeld: jest.fn(async (name: string) => name === 'conf-CA1') },
+    });
+
+    const res = await controller.live(USER);
+
+    expect(res.data.map((c) => [c.callSid, (c as { onHold?: boolean }).onHold])).toEqual([
+      ['CA1', true],
+      ['CA2', undefined],
+    ]);
+  });
+
+  it('keeps a live call’s hold on every SSE frame, so another update does not clear it', async () => {
+    const { controller, subject } = makeController({
+      conference: { isHeld: jest.fn().mockResolvedValue(true) },
+    });
+    const { res, chunks } = makeRes();
+
+    controller.stream(res as never);
+    // e.g. somebody tags the call while the customer is on hold
+    subject.next({ type: 'call.upserted', call: live });
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+
+    const frame = JSON.parse(chunks[1].replace(/^data: /, ''));
+    expect(frame.call.onHold).toBe(true);
+  });
+
+  it('never asks about hold for a call that is over', async () => {
+    const { controller, subject, conference } = makeController();
+    const { res } = makeRes();
+
+    controller.stream(res as never);
+    subject.next({ type: 'call.upserted', call: record({ conferenceName: 'conf-CA1' }) });
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+
+    expect(conference.isHeld).not.toHaveBeenCalled();
   });
 });

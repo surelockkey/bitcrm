@@ -980,6 +980,62 @@ export class ConferenceService {
     }
   }
 
+  /* ------------------------------------------------------------- hold */
+
+  /**
+   * Put the customer on hold, or take them off it.
+   *
+   * It is the CUSTOMER's leg that is held — Twilio stops mixing their audio
+   * and plays them `holdUrl` (our hold-music TwiML, which loops the company's
+   * chosen track) — while the agent's leg is left alone. The customer is the
+   * leg we dialled on an outbound call and the call that made the conference
+   * on an inbound one, as in `onParticipantLeave`.
+   *
+   * A held participant is still IN the conference, so nothing about how a
+   * call ends changes: the agent hanging up leaves only the customer, and
+   * `onParticipantLeave` closes the room as it always has.
+   *
+   * The state is kept on the conference meta (`held`), written only after
+   * Twilio took the change, so a refused hold is never reported as one.
+   */
+  async holdCustomer(primarySid: string, hold: boolean): Promise<{ held: boolean }> {
+    const name = confName(primarySid);
+    const conferenceSid = await this.conferenceSidOf(name);
+    if (!conferenceSid || !(await this.isConferenceLive(conferenceSid))) {
+      throw new ConflictException('This call is not live');
+    }
+    const meta = await this.redis.client.hgetall(this.metaKey(name));
+    const customerSid =
+      meta.customerSid || (meta.type === 'inbound' ? meta.primarySid : undefined);
+    if (!customerSid) {
+      throw new ConflictException('There is nobody to hold on this call yet');
+    }
+
+    await this.rest.run((c) =>
+      c
+        .conferences(conferenceSid)
+        .participants(customerSid)
+        .update(
+          hold
+            ? {
+                hold: true,
+                holdUrl: `${this.config.publicBaseUrl}/api/telephony/voice/hold-music`,
+                holdMethod: 'GET',
+              }
+            : { hold: false },
+        ),
+    );
+    await this.redis.client.hset(this.metaKey(name), { held: hold ? '1' : '0' });
+    this.logger.log(`Conference ${name}: customer ${hold ? 'on hold' : 'off hold'}`);
+    return { held: hold };
+  }
+
+  /** Is the customer on this conference on hold right now? */
+  async isHeld(name: string): Promise<boolean> {
+    const meta = await this.redis.client.hgetall(this.metaKey(name));
+    return meta.held === '1';
+  }
+
   /** Drop someone from a live call without ending it. */
   async removeParticipant(primarySid: string, callSid: string): Promise<void> {
     const conferenceSid = await this.conferenceSidOf(confName(primarySid));

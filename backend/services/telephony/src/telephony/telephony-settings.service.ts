@@ -1,6 +1,12 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService, tryNormalizePhone } from '@bitcrm/shared';
+import {
+  DEFAULT_HOLD_SOUND_ID,
+  HOLD_SOUND_LIMITS,
+  premadeHoldSound,
+  type HoldSound,
+} from '@bitcrm/types';
 import { CALLS_TABLE } from '../common/constants/dynamo.constants';
 import { NumbersService } from '../numbers/numbers.service';
 
@@ -13,8 +19,8 @@ import { NumbersService } from '../numbers/numbers.service';
  * easier to hold as a shape than to enforce: a single row can only name a
  * single number, so setting a new one clears the old one without a sweep, a
  * transaction, or a uniqueness index that could drift. The account's fallback
- * number (Workiz's "Fallback Number" on the Call flows tab) sits on the same
- * row for the same reason.
+ * number (Workiz's "Fallback Number" on the Call flows tab) and the hold
+ * music (`holdSound`, a map) sit on the same row for the same reason.
  */
 const SETTINGS_PK = 'TELEPHONY#SETTINGS';
 const SETTINGS_SK = 'METADATA';
@@ -35,6 +41,34 @@ export interface TelephonySettings {
    * number: calls LEAVE to it, so it is not one of ours by design.
    */
   fallbackNumber: string | null;
+  /**
+   * What a caller on hold hears: a premade track or an uploaded recording.
+   * null = never chosen, which plays `DEFAULT_HOLD_SOUND_ID`.
+   */
+  holdSound: HoldSound | null;
+}
+
+/** The uuid FlowAudioService names every upload with — nothing else is ours. */
+const AUDIO_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A hold sound in the one shape we store, or null when `raw` is not one.
+ * Rebuilt field by field, so nothing a client adds rides along into the row.
+ */
+export function parseHoldSound(raw: unknown): HoldSound | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const value = raw as Record<string, unknown>;
+  if (value.kind === 'premade') {
+    const track = typeof value.id === 'string' ? premadeHoldSound(value.id) : undefined;
+    return track ? { kind: 'premade', id: track.id } : null;
+  }
+  if (value.kind === 'custom') {
+    const audioId = typeof value.audioId === 'string' ? value.audioId : '';
+    const name = typeof value.name === 'string' ? value.name.trim() : '';
+    if (!AUDIO_ID.test(audioId) || name.length > HOLD_SOUND_LIMITS.nameMaxLength) return null;
+    return { kind: 'custom', audioId, name: name || 'Uploaded recording' };
+  }
+  return null;
 }
 
 @Injectable()
@@ -60,6 +94,9 @@ export class TelephonySettingsService {
       const value: TelephonySettings = {
         technicianLine: (res.Item?.technicianLine as string | undefined) ?? null,
         fallbackNumber: (res.Item?.fallbackNumber as string | undefined) ?? null,
+        // A track since retired reads as unchosen — the default plays, rather
+        // than a URL we no longer vouch for.
+        holdSound: parseHoldSound(res.Item?.holdSound),
       };
       this.cache = { value, expiresAt: Date.now() + CACHE_TTL_MS };
       return value;
@@ -70,7 +107,7 @@ export class TelephonySettingsService {
       // Serve the last known answer rather than silently "unset" — treating a
       // blip as "there is no technician line" would send callers down the
       // ring-everyone fallback the guard exists to prevent.
-      return this.cache?.value ?? { technicianLine: null, fallbackNumber: null };
+      return this.cache?.value ?? { technicianLine: null, fallbackNumber: null, holdSound: null };
     }
   }
 
@@ -137,10 +174,50 @@ export class TelephonySettingsService {
     return { ...(await this.get()), fallbackNumber: normalized };
   }
 
+  /**
+   * Choose the hold music, or go back to the default with null. Refuses
+   * anything that is not a premade track we have or one of our uploads —
+   * Twilio fetches whatever this names, on every hold, for every caller.
+   */
+  async setHoldSound(input: HoldSound | null): Promise<TelephonySettings> {
+    let holdSound: HoldSound | null = null;
+    if (input !== null) {
+      holdSound = parseHoldSound(input);
+      if (!holdSound) {
+        throw new BadRequestException(
+          'holdSound must be null, { kind: "premade", id } with a known track, ' +
+            'or { kind: "custom", audioId, name } naming an uploaded recording',
+        );
+      }
+    }
+
+    await this.write('holdSound', holdSound);
+    this.logger.log(
+      holdSound
+        ? `Hold music set to ${holdSound.kind === 'premade' ? holdSound.id : `upload ${holdSound.audioId}`}`
+        : 'Hold music back to the default',
+    );
+    return { ...(await this.get()), holdSound };
+  }
+
+  /**
+   * The audio Twilio plays a held caller: the chosen premade track, an upload
+   * through our own audio endpoint (`voiceBase` = `<public>/api/telephony/voice`),
+   * or the default track.
+   */
+  async holdMusicUrl(voiceBase: string): Promise<string> {
+    const sound = (await this.get()).holdSound;
+    if (sound?.kind === 'custom') {
+      return `${voiceBase}/audio/${encodeURIComponent(sound.audioId)}`;
+    }
+    const id = sound?.kind === 'premade' ? sound.id : DEFAULT_HOLD_SOUND_ID;
+    return (premadeHoldSound(id) ?? premadeHoldSound(DEFAULT_HOLD_SOUND_ID)!).url;
+  }
+
   /** One attribute of the row, set or removed, with the memo dropped. */
   private async write(
-    attribute: 'technicianLine' | 'fallbackNumber',
-    value: string | null,
+    attribute: 'technicianLine' | 'fallbackNumber' | 'holdSound',
+    value: string | HoldSound | null,
   ): Promise<void> {
     await this.dynamoDb.client.send(
       new UpdateCommand({

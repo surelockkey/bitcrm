@@ -113,6 +113,15 @@ export { CallGroupDeviceMember, ResolvedCallGroupDeviceMember } from './entities
 export { CallDevice, CallDeviceType, CALL_DEVICE_TYPES, CALL_DEVICE_LIMITS } from './entities/call-device.entity';
 export { CallTag, CALL_TAG_LIMITS } from './entities/call-tag.entity';
 export { BlockedCaller, BLOCKED_CALLER_LIMITS } from './entities/blocked-caller.entity';
+// Hold music — the dialer's Hold button plays it to the caller (TELEPHONY#SETTINGS `holdSound`).
+export {
+  HoldSound,
+  PremadeHoldSoundId,
+  PREMADE_HOLD_SOUNDS,
+  DEFAULT_HOLD_SOUND_ID,
+  HOLD_SOUND_LIMITS,
+  premadeHoldSound,
+} from './entities/hold-sound.entity';
 // Reports — Workiz Call Tracking (`GET /telephony/calls/stats/tracking`)
 export {
   CALL_TRACKING_GROUP_BY,
