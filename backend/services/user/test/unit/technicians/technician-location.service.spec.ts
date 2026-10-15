@@ -1,4 +1,7 @@
-import { TechnicianLocationService } from '../../../src/technicians/location/technician-location.service';
+import {
+  LOCATION_TTL_SECONDS,
+  TechnicianLocationService,
+} from '../../../src/technicians/location/technician-location.service';
 import { type RedisService } from '@bitcrm/shared';
 import { type TechniciansService } from '../../../src/technicians/technicians.service';
 
@@ -20,7 +23,7 @@ function fakeRedis(pageSize = 100) {
           return 'OK';
         }),
         get: jest.fn(async (k: string) => store.get(k) ?? null),
-        del: jest.fn(async (k: string) => (store.delete(k) ? 1 : 0)),
+        del: jest.fn(async (...ks: string[]) => ks.filter((k) => store.delete(k)).length),
         keys: jest.fn(async () => {
           throw new Error('KEYS must not be used');
         }),
@@ -183,6 +186,121 @@ describe('TechnicianLocationService', () => {
       const all = await service.listLocations();
 
       expect(all.map((l) => l.userId)).toEqual(['tech-1']);
+    });
+  });
+
+  /**
+   * Whether the phone lets the app read its location at all (owner,
+   * 2026-10-15): the dispatcher must see at once whose phone is not sharing,
+   * instead of reading a pin that simply stopped moving. One state per
+   * technician beside the position, never a history.
+   */
+  describe('the phone’s location permission', () => {
+    const NOW = Date.parse('2026-10-15T14:00:00.000Z');
+    const setCalls = () => (redis.service.client.set as jest.Mock).mock.calls;
+
+    beforeEach(() => jest.useFakeTimers({ now: NOW, doNotFake: ['nextTick', 'setImmediate'] }));
+    afterEach(() => jest.useRealTimers());
+
+    it('stores what the phone says, under its own key, kept as long as the position', async () => {
+      const stored = await service.setLocationState('tech-1', { permission: 'denied' });
+
+      expect(stored).toEqual({ userId: 'tech-1', permission: 'denied', updatedAt: '2026-10-15T14:00:00.000Z' });
+      expect(JSON.parse(redis.store.get('tech:location-state:tech-1')!)).toEqual(stored);
+      expect(setCalls()[0].slice(2)).toEqual(['EX', LOCATION_TTL_SECONDS]);
+    });
+
+    it('keeps precise and background when the phone sends them', async () => {
+      await service.setLocationState('tech-1', { permission: 'granted', precise: false, background: true });
+
+      expect(await service.listLocationStates()).toEqual([
+        { userId: 'tech-1', permission: 'granted', precise: false, background: true, updatedAt: '2026-10-15T14:00:00.000Z' },
+      ]);
+    });
+
+    // "Location off on the phone · 25 min ago" counts from when it went off:
+    // a phone that says the same thing on every launch must not reset that.
+    it('a repeat of the same state keeps when it began, and refreshes the expiry', async () => {
+      await service.setLocationState('tech-1', { permission: 'denied' });
+      jest.setSystemTime(NOW + 25 * 60_000);
+
+      const again = await service.setLocationState('tech-1', { permission: 'denied' });
+
+      expect(again?.updatedAt).toBe('2026-10-15T14:00:00.000Z');
+      expect(setCalls()).toHaveLength(2);
+      expect(setCalls()[1].slice(2)).toEqual(['EX', LOCATION_TTL_SECONDS]);
+    });
+
+    it('a change of state starts its own clock', async () => {
+      await service.setLocationState('tech-1', { permission: 'granted', precise: true });
+      jest.setSystemTime(NOW + 5 * 60_000);
+
+      const changed = await service.setLocationState('tech-1', { permission: 'granted', precise: false });
+
+      expect(changed?.updatedAt).toBe('2026-10-15T14:05:00.000Z');
+    });
+
+    it('accepts and drops the state of someone who is not tracked — a subcontractor, or Track location off', async () => {
+      await service.setLocationState('sub-1', { permission: 'denied' });
+      service = build(['sub-1']);
+
+      const stored = await service.setLocationState('sub-1', { permission: 'denied' });
+
+      expect(stored).toBeNull();
+      expect(redis.store.has('tech:location-state:sub-1')).toBe(false);
+      expect(policy.isLocationTracked).toHaveBeenCalledWith('sub-1');
+    });
+
+    it('lists every tracked technician’s state for the map, walking every SCAN page and never KEYS', async () => {
+      redis = fakeRedis(2);
+      service = build();
+      for (let i = 1; i <= 3; i += 1) {
+        await service.setLocationState(`tech-${i}`, { permission: i === 2 ? 'denied' : 'granted' });
+      }
+      service = build(['tech-3']);
+
+      const all = await service.listLocationStates();
+
+      expect(all.map((s) => [s.userId, s.permission])).toEqual([
+        ['tech-1', 'granted'],
+        ['tech-2', 'denied'],
+      ]);
+      const scan = redis.service.client.scan as jest.Mock;
+      expect(scan.mock.calls[0]).toEqual(['0', 'MATCH', 'tech:location-state:*', 'COUNT', expect.any(Number)]);
+      expect(scan).toHaveBeenCalledTimes(2);
+      expect(redis.service.client.keys).not.toHaveBeenCalled();
+    });
+
+    it('lists a state SCAN returns twice only once', async () => {
+      await service.setLocationState('tech-1', { permission: 'denied' });
+      (redis.service.client.scan as jest.Mock)
+        .mockResolvedValueOnce(['7', ['tech:location-state:tech-1']])
+        .mockResolvedValueOnce(['0', ['tech:location-state:tech-1']]);
+
+      expect(await service.listLocationStates()).toHaveLength(1);
+    });
+
+    it('returns an empty list when no phone has said anything', async () => {
+      expect(await service.listLocationStates()).toEqual([]);
+    });
+
+    it('keeps states and positions apart: neither listing picks up the other’s keys', async () => {
+      await service.setLocation('tech-1', { lat: 1, lng: 1 });
+      await service.setLocationState('tech-2', { permission: 'denied' });
+
+      expect((await service.listLocations()).map((l) => l.userId)).toEqual(['tech-1']);
+      expect((await service.listLocationStates()).map((s) => s.userId)).toEqual(['tech-2']);
+    });
+
+    // Signed out, the phone shares nothing for a reason that is not its
+    // setting: the map must not keep saying "Location off on the phone".
+    it('going offline (sign-out) clears the state with the position', async () => {
+      await service.setLocation('tech-1', { lat: 1, lng: 1 });
+      await service.setLocationState('tech-1', { permission: 'denied' });
+
+      await service.clearLocation('tech-1');
+
+      expect(await service.listLocationStates()).toEqual([]);
     });
   });
 });
