@@ -145,6 +145,29 @@ describe('CallsController.startBridge — the progress the phone will read', () 
     await expect(bridge.ringingLeg(data.bridgeId)).resolves.toBe('CAtech');
   });
 
+  /**
+   * 2026-10-15: no key press on the technician's handset. Twilio's
+   * answering-machine detection runs before the answer URL is fetched and
+   * posts `AnsweredBy`, which bridge-join reads instead of a <Gather>.
+   */
+  it('rings the technician with answering-machine detection, not a key press', async () => {
+    const { controller } = make();
+
+    await start(controller);
+
+    expect(mockTwilio.callsCreate).toHaveBeenCalledTimes(1);
+    const opts = mockTwilio.callsCreate.mock.calls[0][0];
+    expect(opts).toMatchObject({
+      to: '+380501234567',
+      from: '+14045550100',
+      machineDetection: 'Enable',
+      machineDetectionTimeout: 8,
+    });
+    expect(opts.url).toMatch(/\/api\/telephony\/voice\/bridge-join\?b=[^&]+&whisper=1$/);
+    // Synchronous detection: the answer URL waits for the verdict.
+    expect(opts.asyncAmd).toBeUndefined();
+  });
+
   it('a leg Twilio refuses outright leaves a failure, not a phone ringing for nobody', async () => {
     const { controller, bridge, redis } = make();
     mockTwilio.callsCreate.mockRejectedValue(new Error('Account not authorized to call +380501234567'));

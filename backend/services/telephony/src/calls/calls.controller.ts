@@ -63,12 +63,19 @@ const SSE_HEARTBEAT_MS = 25_000;
  * How long the technician's own handset rings on a masked bridge. Twilio adds
  * up to a 5-second buffer to this, so the effective ring is ~20s — under the
  * ~25s at which most carriers hand over to voicemail. That margin is a nicety,
- * not a defence: the whisper gather is what actually stops a voicemail box
- * taking the call.
+ * not a defence: answering-machine detection is what actually stops a
+ * voicemail box taking the call.
  */
 const BRIDGE_RING_SECONDS = Number(
   process.env.TELEPHONY_BRIDGE_RING_SECONDS ?? 15,
 );
+/**
+ * How long Twilio's answering-machine detection may listen to the technician's
+ * leg before it gives up with `AnsweredBy=unknown` (which connects). Twilio's
+ * default is 30 s of a technician hearing silence; a person saying "Hello?"
+ * is recognised in a second or two, a silent one after ~5 s.
+ */
+const BRIDGE_AMD_TIMEOUT_SECONDS = 8;
 
 /** The body of POST /calls/bridge — a handle, never a phone number. */
 /** Which end of the call rings the person placing it. */
@@ -1045,9 +1052,10 @@ export class CallsController {
       '`{state, reason?}`. `state` moves `ringing_you` → `you_answered` → ' +
       '`connecting_client` → `connected` → `ended`, or stops at `failed` with a ' +
       '`reason` to show as is ("Your phone did not answer", "Your number could not ' +
-      'be reached from the company line", "The client\'s line is busy", …), read ' +
-      'off both legs\' Twilio status callbacks (CallStatus, SipResponseCode, ' +
-      'ErrorCode). Kept 5 minutes after the last change. The phone polls it every ' +
+      'be reached from the company line", "Your voicemail answered, so the client ' +
+      'was not called", "The client\'s line is busy", …), read off both legs\' ' +
+      'Twilio status callbacks (CallStatus, SipResponseCode, ErrorCode, ' +
+      'AnsweredBy). Kept 5 minutes after the last change. The phone polls it every ' +
       '2 s after a `cell` bridge.',
   })
   async bridgeStatus(
@@ -1077,8 +1085,8 @@ export class CallsController {
       throw new ForbiddenException('That is not your call');
     }
 
-    // The answer claim names the leg only once a key was pressed; while the
-    // handset still rings, the leg is the one ringTechnician placed.
+    // The answer claim names the leg only once bridge-join connected it;
+    // while the handset still rings, the leg is the one ringTechnician placed.
     const legSid =
       (await this.bridge.answerClaim(bridgeId)) ??
       (await this.bridge.ringingLeg(bridgeId));
@@ -1126,8 +1134,15 @@ export class CallsController {
           from: ctx.from,
           url: `${base}/api/telephony/voice/bridge-join?b=${encodeURIComponent(bridgeId)}&whisper=1`,
           method: 'POST',
-          // Twilio adds up to a 5s buffer, so the effective ring is ~20s. The
-          // whisper gather is the real voicemail defence, not this.
+          // The voicemail defence (2026-10-15, instead of "press any key"):
+          // synchronous detection, so Twilio fetches `url` only with a
+          // verdict in `AnsweredBy`, and bridge-join hangs up on a machine
+          // before the client is dialled. This leg only — no other leg we
+          // place is screened this way.
+          machineDetection: 'Enable',
+          machineDetectionTimeout: BRIDGE_AMD_TIMEOUT_SECONDS,
+          // Twilio adds up to a 5s buffer, so the effective ring is ~20s.
+          // Detection is the real voicemail defence, not this.
           timeout: BRIDGE_RING_SECONDS,
           statusCallback: `${base}/api/telephony/voice/status?bridge=${encodeURIComponent(bridgeId)}`,
           statusCallbackMethod: 'POST',

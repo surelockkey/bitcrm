@@ -19,7 +19,7 @@ import {
   type BridgeState,
 } from './bridge-progress';
 
-/** Long enough for a technician to answer and press a key, and no longer. */
+/** Long enough for a technician to answer and be screened for voicemail, and no longer. */
 const CONTEXT_TTL_SECONDS = 300;
 /**
  * Covers the window between minting a bridge and the leg reaching a terminal

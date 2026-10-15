@@ -11,6 +11,7 @@ import { ConferenceService, confName } from './conference.service';
 import { FlowRunnerService } from './flow-runner.service';
 import { agentFromEndpoint, CallsService } from '../calls/calls.service';
 import { BridgeService } from '../common/bridge.service';
+import { answeredByMachine, BRIDGE_REASONS } from '../common/bridge-progress';
 import { TelephonySettingsService } from '../telephony/telephony-settings.service';
 import { BlockedCallersService } from '../blocked-callers/blocked-callers.service';
 
@@ -423,14 +424,19 @@ export class VoiceService {
    * `initiated` for ten minutes. Making the webhook self-sufficient closes
    * that window entirely.
    *
-   * The whisper is the load-bearing defence against carrier voicemail: a
-   * voicemail box cannot press a key, so it hangs up and the client is never
-   * dialled. The ring timeout is not that defence — Twilio adds up to a
+   * The defence against carrier voicemail is Twilio's answering-machine
+   * detection, not a key press (2026-10-15 — the technician presses nothing).
+   * The leg is placed with `machineDetection` (CallsController.ringTechnician),
+   * so Twilio fetches this URL only once it has a verdict, in `AnsweredBy`:
+   * a machine or a fax is hung up on and the client is never dialled; a
+   * person, `unknown`, or no verdict at all (a leg placed before detection, or
+   * a <Gather> action from one) is told who they are being connected to and
+   * joined. The ring timeout is not that defence — Twilio adds up to a
    * 5-second buffer to it, which leaves no useful margin.
    */
   async buildBridgeJoin(
     bridgeId: string,
-    body: { CallSid?: string; Digits?: string },
+    body: { CallSid?: string; Digits?: string; AnsweredBy?: string },
     whisper: boolean,
   ): Promise<string> {
     const twiml = new VoiceResponse();
@@ -443,22 +449,14 @@ export class VoiceService {
       return twiml.toString();
     }
 
-    if (whisper && !body.Digits) {
-      const who = ctx.clientName ? ` for ${ctx.clientName}` : '';
-      const job = ctx.dealNumber ? ` about job ${ctx.dealNumber}` : '';
-      const gather = twiml.gather({
-        numDigits: 1,
-        timeout: 15,
-        action:
-          `${this.config.publicBaseUrl}/api/telephony/voice/bridge-join` +
-          `?b=${encodeURIComponent(bridgeId)}&whisper=1`,
-        method: 'POST',
-      });
-      gather.say(
-        `Call${who}${job}. This call is recorded. Press any key to connect.`,
-      );
-      // No key pressed: hang this leg up rather than joining silently. The
-      // client is never dialled, because initOutbound never runs.
+    if (whisper && answeredByMachine(body.AnsweredBy)) {
+      // Voicemail (or a fax) took the technician's leg: hang it up. The
+      // client is never dialled, because initOutbound never runs. Awaited,
+      // unlike the human branch: the leg's `completed` callback follows this
+      // hang-up, and the phone must read the voicemail outcome, not "ended".
+      await this.bridge!
+        .advance(bridgeId, () => ({ state: 'failed', reason: BRIDGE_REASONS.voicemail }))
+        .catch(() => undefined);
       twiml.hangup();
       return twiml.toString();
     }
@@ -469,7 +467,13 @@ export class VoiceService {
       return twiml.toString();
     }
 
-    // The key was pressed: the phone that asked for this call switches to
+    if (whisper && !body.Digits) {
+      const who = ctx.clientName || 'the client';
+      const job = ctx.dealNumber ? ` about job ${ctx.dealNumber}` : '';
+      twiml.say(`Connecting you to ${who}${job}. This call is recorded.`);
+    }
+
+    // A person answered: the phone that asked for this call switches to
     // "Connecting you to …". Not awaited — nothing in this TwiML depends on
     // it, Twilio is waiting for it, and a failed write must not drop the call.
     void this.bridge!.advance(bridgeId, () => ({ state: 'connecting_client' }))

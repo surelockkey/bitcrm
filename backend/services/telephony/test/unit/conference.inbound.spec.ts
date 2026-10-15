@@ -21,6 +21,9 @@ describe('ConferenceService — inbound flow', () => {
     expect(first.from).toBe('+380958601427');
     expect(first.url).toContain('/api/telephony/voice/agent-join?conf=conf-CAcust1');
     expect(first.timeout).toBe(25);
+    // Only the masked call's technician leg is screened by Twilio's
+    // answering-machine detection; a ring leg keeps its key-press whisper.
+    expect(first.machineDetection).toBeUndefined();
     expect(first.statusCallback).toContain(
       '/api/telephony/voice/status?conf=conf-CAcust1&role=agent',
     );
