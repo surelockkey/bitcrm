@@ -9,6 +9,7 @@ import {
   type TechnicianPosition,
   type TechStatus,
 } from "../lib";
+import { locationIssue, type LocationIssue, type TechnicianLocationState } from "../location-state";
 
 /** Online first, then by name — the dispatcher cares about who's actually out there. */
 const STATUS_ORDER: Record<TechStatus, number> = { live: 0, stale: 1, derived: 2, offline: 3 };
@@ -34,7 +35,15 @@ export interface TechRow {
   status: TechStatus;
   label: string;
   locatable: boolean;
+  /** What their phone says about location, when it is a problem: "Location off" / "Approximate location only". */
+  notice?: { text: string; tone: LocationIssue["tone"] };
 }
+
+/** The notice's colour: the map's red for "off", the readable amber for "approximate". */
+const NOTICE_TONE: Record<LocationIssue["tone"], string> = {
+  danger: "text-wz-danger",
+  warning: "text-warning-text",
+};
 
 /**
  * The Techs tab's people: everyone on the roster, online or not — a
@@ -47,6 +56,7 @@ export function techRows({
   userMap,
   now,
   query = "",
+  states,
 }: {
   /** Every technician's userId, so offline ones appear too. */
   userIds: string[];
@@ -55,19 +65,23 @@ export function techRows({
   /** What a live fix's age is counted from: when the fixes were read. */
   now: number;
   query?: string;
+  /** userId → what their phone says about location (`GET /users/technicians/location-states`). */
+  states?: Map<string, TechnicianLocationState>;
 }): TechRow[] {
   const byId = new Map(positions.map((p) => [p.userId, p]));
   const q = query.trim().toLowerCase();
   return userIds
-    .map((userId) => {
+    .map((userId): TechRow => {
       const position = byId.get(userId);
       const status = technicianStatus(position);
+      const issue = locationIssue(states?.get(userId));
       return {
         userId,
         name: personName(userMap.get(userId)) ?? "Technician",
         status,
         label: statusLabel(status, position, now),
         locatable: Boolean(position),
+        ...(issue && { notice: { text: issue.label, tone: issue.tone } }),
       };
     })
     .filter((row) => !q || row.name.toLowerCase().includes(q))
@@ -77,7 +91,8 @@ export function techRows({
 /*
  * The Map's tech cards (pg_dispatch_wz_11_techs): 16px in, a #dfe2e3 rule,
  * the name 14px/16px semibold. Ours adds the live status and the street under
- * it in the sidebar's slate 13px — Workiz keeps those for the pin's card.
+ * it in the sidebar's slate 13px — Workiz keeps those for the pin's card —
+ * and, right under the name, a phone that shares no location (2026-10-15).
  */
 export function TechList({
   rows,
@@ -119,6 +134,11 @@ export function TechList({
             )}
           >
             <span className="text-sm leading-4 font-semibold text-wz-strong">{row.name}</span>
+            {row.notice ? (
+              <span className={cn("text-[13px] leading-[19px] font-medium", NOTICE_TONE[row.notice.tone])}>
+                {row.notice.text}
+              </span>
+            ) : null}
             <span className="text-[13px] leading-[19px] text-wz-slate">{row.label}</span>
             {address ? <span className="truncate text-[13px] leading-[19px] text-wz-slate">{address}</span> : null}
           </button>

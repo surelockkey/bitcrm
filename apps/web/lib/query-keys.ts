@@ -301,6 +301,7 @@ export const queryKeys = {
     audit: (id: string) => ["technicians", id, "audit"] as const,
     userMap: () => ["users", "all-map"] as const,
     locations: () => ["technicians", "locations"] as const,
+    locationStates: () => ["technicians", "location-states"] as const,
   },
 
   calendarEvents: {

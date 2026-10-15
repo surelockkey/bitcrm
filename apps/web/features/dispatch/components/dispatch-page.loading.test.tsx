@@ -184,6 +184,12 @@ const routes: FakeRoute[] = [
     reply: () => [{ userId: "t-live", lat: 33.52, lng: -84.22, accuracy: 10, updatedAt: new Date().toISOString() }],
     delayMs: 60,
   },
+  // Ola's phone refused location (owner, 2026-10-15) — the slowest of the team's answers.
+  {
+    match: /\/users\/technicians\/location-states$/,
+    reply: () => [{ userId: "t-off", permission: "denied", updatedAt: new Date(Date.now() - 25 * 60_000).toISOString() }],
+    delayMs: 70,
+  },
   { match: /\/deals\/service-areas$/, reply: () => [], delayMs: 20 },
   { match: /\/deals\/job-types$/, reply: () => [{ id: "jt-lockout", name: "Lockout", active: true, priority: 1 }], delayMs: 50 },
 ];
@@ -366,6 +372,33 @@ describe("DispatchPage — one load, not waves", () => {
     watch.stop();
     expect(watch.frame()).toMatchObject({ techNames: true, liveStatus: true, techAddresses: 2 });
     expect(screen.queryByTestId("map-list-skeleton")).toBeNull();
+  });
+
+  // The phone's location setting is part of the team (2026-10-15): a row that
+  // grew "Location off" a moment after it was drawn, and a count that
+  // appeared over the list, would be the waves this file exists to stop.
+  it("the Techs tab's first frame already says whose phone shares no location — the row and the count", async () => {
+    server = installFakeServer(
+      routes.map((r) =>
+        String(r.match) === String(/\/users\/technicians\/location-states$/) ? { ...r, delayMs: 400 } : r,
+      ),
+    );
+    renderWithClient(<DispatchPage />);
+    await boardUp();
+    const watch = watchFirstFrame(
+      () => document.querySelectorAll('[data-testid^="tech-row-"]').length > 0,
+      () => ({
+        offRow: !!screen.queryByTestId("tech-row-t-off")?.textContent?.includes("Location off"),
+        count: !!screen.queryByRole("button", { name: /1 without location/ }),
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Techs" }));
+    await screen.findByTestId("tech-row-t-off", {}, { timeout: 3000 });
+    watch.stop();
+
+    expect(watch.frame()).toEqual({ offRow: true, count: true });
+    expect(server.requests.filter((r) => r === "/users/technicians/location-states")).toHaveLength(1);
   });
 
   it("asks for each thing once", async () => {

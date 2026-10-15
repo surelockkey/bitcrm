@@ -26,8 +26,9 @@ import { JobPinCard } from "./job-pin-card";
 import { TechPinCard } from "./tech-pin-card";
 import { MapDateBox } from "./map-date-box";
 import { MapFiltersPanel } from "./map-filters-panel";
-import { MapSidebar, MapToggleRow, type MapTab } from "./map-sidebar";
+import { MapSidebar, MapToggleRow, WithoutLocationToggle, type MapTab } from "./map-sidebar";
 import { splitByLocation, techJobsToday, todayISO, type LocatedDeal } from "../lib";
+import { withoutLocation } from "../location-state";
 import { useDispatchBoard, type DispatchBoard } from "../use-dispatch-board";
 import { mapRangeWindow, mapToday, shiftMapRange, type MapRange } from "../map-range";
 import {
@@ -101,6 +102,7 @@ const NO_BOARD: DispatchBoard = {
   profiles: [],
   technicians: [],
   fixesAt: 0,
+  locationStates: new Map(),
   addresses: new Map(),
   areas: [],
 };
@@ -141,6 +143,8 @@ function DispatchBoardPage() {
   const [panNonce, setPanNonce] = useState(0);
   const [editing, setEditing] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  // The Techs tab narrowed to the phones that share no location (the header's count).
+  const [offOnly, setOffOnly] = useState(false);
 
   const { search, filters, range, showTechs, showAreas } = prefs;
   const patch = (p: Partial<MapPrefs>) => setPrefs((s) => ({ ...s, ...p }));
@@ -166,6 +170,7 @@ function DispatchBoardPage() {
     setSelectedId(null);
     setHoveredId(null);
     setFiltersOpen(false);
+    setOffOnly(false);
   };
 
   // Technician profiles are manager+ only — firing the query regardless would
@@ -205,6 +210,7 @@ function DispatchBoardPage() {
     profiles,
     technicians,
     fixesAt,
+    locationStates,
     addresses,
     areas: serviceAreasData,
   } = board ?? NO_BOARD;
@@ -229,6 +235,13 @@ function DispatchBoardPage() {
   );
   const { mapped, unmapped } = useMemo(() => splitByLocation(filtered), [filtered]);
 
+  // Whose phone shares no location, among the whole team (whatever the search).
+  const offIds = useMemo(
+    () => withoutLocation(profiles.map((p) => p.userId), locationStates),
+    [profiles, locationStates],
+  );
+  // Once nobody is left without location, the narrowing has nothing to show.
+  const offFilter = offOnly && offIds.size > 0;
   const people = useMemo(
     () =>
       techRows({
@@ -237,8 +250,9 @@ function DispatchBoardPage() {
         userMap: users,
         now: fixesAt,
         query: tab === "techs" ? search : "",
-      }),
-    [profiles, technicians, users, fixesAt, tab, search],
+        states: locationStates,
+      }).filter((row) => !offFilter || offIds.has(row.userId)),
+    [profiles, technicians, users, fixesAt, tab, search, locationStates, offFilter, offIds],
   );
 
   // The map's layers: the Jobs tab draws jobs (and the team when asked), the
@@ -341,6 +355,7 @@ function DispatchBoardPage() {
       name={nameOf(position.userId)}
       address={addresses.get(position.userId)}
       now={fixesAt}
+      locationState={locationStates.get(position.userId)}
       jobs={techJobsToday(todayDeals, position.userId, todayISO())}
       zoneOf={zoneOf}
       title={titleOf}
@@ -392,6 +407,11 @@ function DispatchBoardPage() {
           ) : undefined
         }
         found={found}
+        foundAside={
+          tab === "techs" && offIds.size > 0 ? (
+            <WithoutLocationToggle count={offIds.size} pressed={offFilter} onToggle={() => setOffOnly((on) => !on)} />
+          ) : undefined
+        }
         onRefresh={() => query.refetch()}
         refreshing={query.isFetching}
         refreshTitle={board.updatedAt ? lastUpdatedText(board.updatedAt) : undefined}

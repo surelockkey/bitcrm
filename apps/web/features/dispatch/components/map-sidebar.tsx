@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { RefreshCw, Settings2 } from "lucide-react";
+import { MapPinOff, RefreshCw, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { WzSearchBox } from "@/components/workiz";
 import { WzMiniToggle, WzSwitchTabs } from "@/components/workiz/switch-tabs";
@@ -43,6 +43,37 @@ export function MapToggleRow({
 }
 
 /**
+ * Ours (owner, 2026-10-15): how many of the team's phones share no location,
+ * beside the Techs tab's "Found N users" — so nobody opens every pin to find
+ * them. Pressed, the list (and the map) narrows to them; pressed again, back.
+ */
+export function WithoutLocationToggle({
+  count,
+  pressed,
+  onToggle,
+}: {
+  count: number;
+  pressed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onToggle}
+      title={pressed ? "Show the whole team" : "Show only them"}
+      className={cn(
+        "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-chip px-1.5 py-0.5 text-[13px] leading-[19px] font-semibold text-wz-danger outline-none hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring/50",
+        pressed && "bg-destructive/10",
+      )}
+    >
+      <MapPinOff className="size-4" strokeWidth={1.8} aria-hidden />
+      {count} without location
+    </button>
+  );
+}
+
+/**
  * The Map's 386px sidebar (Sidebar-module, pg_dispatch_wz_02_loaded): the
  * Search box with "Filter by" beside it (Jobs only), the "Jobs | Techs"
  * switch, then the scrolling list — the tab's description, "Found …" with
@@ -58,6 +89,7 @@ export function MapSidebar({
   onFilters,
   filtersPanel,
   found,
+  foundAside,
   onRefresh,
   refreshing,
   refreshTitle,
@@ -76,6 +108,8 @@ export function MapSidebar({
   filtersPanel?: ReactNode;
   /** "Found 265 out of 530 open jobs" / "Found 29 users". */
   found: string;
+  /** Beside "Found …": the Techs tab's "2 without location". */
+  foundAside?: ReactNode;
   onRefresh: () => void;
   refreshing: boolean;
   refreshTitle?: string;
@@ -110,7 +144,10 @@ export function MapSidebar({
             <div className={cn("-mx-[9px] min-h-0 flex-1 overflow-y-auto", showTabs && "mt-3")}>
               <p className="border-b border-border px-4 pt-1 pb-3 text-sm leading-[21px] text-wz-slate">{DESCRIPTION[tab]}</p>
               <div className="flex items-center justify-between border-b border-border px-4 py-3 text-wz-slate">
-                <p className="text-[13px] leading-[19px] font-medium">{found}</p>
+                <div className="flex min-w-0 items-center gap-2">
+                  <p className="text-[13px] leading-[19px] font-medium">{found}</p>
+                  {foundAside}
+                </div>
                 <button
                   type="button"
                   onClick={onRefresh}
