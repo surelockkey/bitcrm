@@ -14,6 +14,8 @@ const ICE = [
 
 const mocks = vi.hoisted(() => ({
   fetchVoiceToken: vi.fn(),
+  holdCall: vi.fn(),
+  toastError: vi.fn(),
   devices: [] as FakeDeviceShape[],
 }));
 
@@ -69,7 +71,9 @@ vi.mock("./api", () => ({
   fetchVoiceToken: mocks.fetchVoiceToken,
   identifyNumber: vi.fn(async () => null),
   setPresence: vi.fn(async () => {}),
+  holdCall: mocks.holdCall,
 }));
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 vi.mock("@/features/calls/api", () => ({
   requestTakeCall: vi.fn(async () => ({ conferenceName: "conf-CA1", previousLegs: ["CA0"] })),
   completeTakeCall: vi.fn(async () => {}),
@@ -157,5 +161,69 @@ describe("softphone-manager — TURN servers from the voice token", () => {
     const device = await freshManager(TOKEN);
     await m.startCall("+12125550123");
     expect(device.connect.mock.calls[0][0]).not.toHaveProperty("rtcConfiguration");
+  });
+});
+
+describe("softphone-manager — hold", () => {
+  /**
+   * Hold works like Mute from the agent's side — one button, flips at once —
+   * but it is the server that holds the customer's leg (and plays them the
+   * company's hold music), so the flip is optimistic and undone if the server
+   * says no.
+   */
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    await freshManager(TOKEN);
+    const { useSoftphoneStore } = await import("./softphone-store");
+    useSoftphoneStore.getState().setCall("active", { direction: "outbound", number: "+12125550123" });
+  });
+
+  const held = async () => (await import("./softphone-store")).useSoftphoneStore.getState().held;
+
+  it("holds the call the server knows, and shows it held at once", async () => {
+    let finish!: () => void;
+    mocks.holdCall.mockReturnValue(new Promise<void>((r) => (finish = () => r())));
+
+    const pending = m.toggleHold("CA1");
+    expect(await held()).toBe(true);
+    expect(mocks.holdCall).toHaveBeenCalledWith("CA1", true);
+
+    finish();
+    await pending;
+    expect(await held()).toBe(true);
+  });
+
+  it("resumes a held call", async () => {
+    mocks.holdCall.mockResolvedValue({ callSid: "CA1", onHold: true });
+    await m.toggleHold("CA1");
+    mocks.holdCall.mockResolvedValue({ callSid: "CA1", onHold: false });
+
+    await m.toggleHold("CA1");
+
+    expect(mocks.holdCall).toHaveBeenLastCalledWith("CA1", false);
+    expect(await held()).toBe(false);
+  });
+
+  it("puts the button back and says why when the server refuses", async () => {
+    mocks.holdCall.mockRejectedValue(new Error("This call is not live"));
+
+    await m.toggleHold("CA1");
+
+    expect(await held()).toBe(false);
+    expect(mocks.toastError).toHaveBeenCalledWith("This call is not live");
+  });
+
+  it("does nothing without a call record to hold", async () => {
+    await m.toggleHold(undefined);
+    expect(mocks.holdCall).not.toHaveBeenCalled();
+    expect(await held()).toBe(false);
+  });
+
+  it("forgets the hold when the call ends", async () => {
+    mocks.holdCall.mockResolvedValue({});
+    await m.toggleHold("CA1");
+    const { useSoftphoneStore } = await import("./softphone-store");
+    useSoftphoneStore.getState().setCall("idle", null);
+    expect(await held()).toBe(false);
   });
 });

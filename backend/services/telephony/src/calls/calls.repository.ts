@@ -171,6 +171,13 @@ export interface CallRecord {
    */
   internalLegOf?: string;
   /**
+   * The customer is on hold right now (the dialer's Hold button). Never
+   * stored: read off the live conference's Redis meta by the routes that
+   * serve live calls (`/calls/active`, `/calls/live`, the SSE stream) and set
+   * only when true.
+   */
+  onHold?: true;
+  /**
    * How the call was placed. `bridge` is a masked, server-originated call —
    * the technician never held the client's number. Drives the "via company
    * line" badge and the "is anyone still dialling clients directly?" filter.

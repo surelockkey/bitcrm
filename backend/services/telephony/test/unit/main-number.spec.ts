@@ -72,14 +72,25 @@ describe('MainNumberService', () => {
 });
 
 describe('TelephonyController.telephonyConfig', () => {
-  it('serves the main number beside the technician line and the fallback number, to any signed-in user', async () => {
-    const settings = { get: jest.fn().mockResolvedValue({ technicianLine: '+15550002222', fallbackNumber: '+18888996849' }) };
+  it('serves the main number beside the technician line, the fallback number and the hold music, to any signed-in user', async () => {
+    const settings = {
+      get: jest.fn().mockResolvedValue({
+        technicianLine: '+15550002222',
+        fallbackNumber: '+18888996849',
+        holdSound: { kind: 'premade', id: 'ambient' },
+      }),
+    };
     const main = { mainNumber: jest.fn().mockResolvedValue('+12034036303') };
     const controller = new TelephonyController({} as never, settings as never, main as never);
 
     await expect(controller.telephonyConfig()).resolves.toEqual({
       success: true,
-      data: { technicianLine: '+15550002222', mainNumber: '+12034036303', fallbackNumber: '+18888996849' },
+      data: {
+        technicianLine: '+15550002222',
+        mainNumber: '+12034036303',
+        fallbackNumber: '+18888996849',
+        holdSound: { kind: 'premade', id: 'ambient' },
+      },
     });
   });
 });

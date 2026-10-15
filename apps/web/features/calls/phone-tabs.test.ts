@@ -20,6 +20,8 @@ describe("phoneTabs", () => {
       { id: "blocked", label: "Blocked callers", href: "/calls/blocked-callers" },
 
       { id: "devices", label: "Devices", href: "/calls/devices" },
+      // Ours, not Workiz's: what a held caller hears.
+      { id: "hold", label: "Hold music", href: "/calls/hold-music" },
       { id: "texting", label: "Texting", href: "/calls/texting" },
     ]);
   });
@@ -31,7 +33,7 @@ describe("phoneTabs", () => {
 
   it("keeps the call log from a viewer without calls.view", () => {
     const settingsOnly = (resource: string) => resource === "settings";
-    expect(phoneTabs(settingsOnly).map((t) => t.id)).toEqual(["numbers", "flows", "groups", "devices", "texting"]);
+    expect(phoneTabs(settingsOnly).map((t) => t.id)).toEqual(["numbers", "flows", "groups", "devices", "hold", "texting"]);
   });
 
   it("shows Blocked callers only with calls.block — the log alone is not enough", () => {
@@ -51,6 +53,7 @@ describe("activePhoneTab", () => {
     ["/calls/blocked-callers", "blocked"],
 
     ["/calls/devices", "devices"],
+    ["/calls/hold-music", "hold"],
     ["/calls/texting", "texting"],
   ])("%s is the %s tab", (path, id) => {
     expect(activePhoneTab(path)).toBe(id);

@@ -3,13 +3,16 @@ import {
   Controller,
   Delete,
   Get,
+  NotFoundException,
   Param,
   Post,
   Put,
+  Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { type Response } from 'express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission, CurrentUser } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
@@ -48,6 +51,22 @@ export class CallFlowsController {
     @CurrentUser() user: JwtUser,
   ) {
     return { success: true, data: await this.audio.upload(file, user) };
+  }
+
+  @Get('audio/:id')
+  @RequirePermission('settings', 'view')
+  @ApiOperation({
+    summary: 'Listen to an uploaded recording',
+    description:
+      '**Guard:** `settings.view`. The file as uploaded — what the settings ' +
+      'pages preview (the hold music). `/voice/audio/:id` serves the same file ' +
+      'to Twilio and answers signed requests only. 404 for an unknown id.',
+  })
+  async playAudio(@Param('id') id: string, @Res() res: Response): Promise<void> {
+    const found = await this.audio.read(id);
+    if (!found) throw new NotFoundException('No such recording');
+    res.set({ 'Content-Type': found.contentType, 'Cache-Control': 'private, max-age=3600' });
+    found.body.pipe(res);
   }
 
   @Get()

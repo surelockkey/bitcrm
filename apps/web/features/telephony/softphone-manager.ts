@@ -1,8 +1,11 @@
 import type { Call, Device } from "@twilio/voice-sdk";
+import { toast } from "sonner";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { normalizePhone } from "@/lib/phone";
 import { useSoftphoneStore } from "./softphone-store";
 import {
   fetchVoiceToken,
+  holdCall,
   identifyNumber,
   setPresence,
 } from "./api";
@@ -442,6 +445,25 @@ export function toggleMute() {
   const next = !store().muted;
   currentCall.mute(next);
   store().setMuted(next);
+}
+
+/**
+ * Hold or resume the customer on the call this tab has. Like Mute from the
+ * agent's side — the button flips at once — but the hold happens on the
+ * server (the customer's conference leg, with the company's hold music), so
+ * it needs the call record's sid, and a refusal puts the button back.
+ */
+export async function toggleHold(callSid: string | undefined): Promise<void> {
+  if (!callSid) return;
+  const next = !store().held;
+  store().setHeld(next);
+  try {
+    await holdCall(callSid, next);
+  } catch (e) {
+    // Only undo our own flip — the call may have ended (and reset) meanwhile.
+    if (store().held === next) store().setHeld(!next);
+    toast.error(getApiErrorMessage(e, next ? "Could not hold the call" : "Could not resume the call"));
+  }
 }
 
 export function sendDigit(digit: string) {

@@ -11,6 +11,7 @@ import {
   ListPlus,
   Phone,
   PhoneCall,
+  Music,
   PhoneForwarded,
   Users,
   UsersRound,
@@ -269,6 +270,14 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         href: "/calls/devices",
         description: "Desk phones and shop lines a call group or a call flow can ring.",
         icon: PhoneForwarded,
+        resource: "settings",
+      },
+      {
+        // Ours: the dialer's Hold button plays it. Opens its /calls tab.
+        label: "Hold Music",
+        href: "/calls/hold-music",
+        description: "What a caller hears while you have them on hold — a ready-made track or your own recording.",
+        icon: Music,
         resource: "settings",
       },
       {

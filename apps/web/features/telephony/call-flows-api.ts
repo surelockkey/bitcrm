@@ -75,6 +75,19 @@ export async function uploadFlowAudio(file: File): Promise<CallFlowAudio> {
   return body.data as CallFlowAudio;
 }
 
+/**
+ * An uploaded recording, to listen to. `<audio src>` cannot carry the Bearer
+ * header (and Twilio's own `/voice/audio/:id` answers signed requests only),
+ * so it is fetched as a blob and played through an object URL.
+ */
+export async function fetchFlowAudioBlob(id: string): Promise<Blob> {
+  const res = await fetch(`${env.apiBaseUrl}${BASE}/audio/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${getIdToken() ?? ""}` },
+  });
+  if (!res.ok) throw new Error("Recording unavailable");
+  return res.blob();
+}
+
 export const deleteCallFlow = (
   id: string,
 ): Promise<{ id: string; deleted: true }> =>

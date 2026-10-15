@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Header,
+  Inject,
   Optional,
   Param,
   Post,
@@ -12,7 +13,14 @@ import {
 } from '@nestjs/common';
 import { type Response } from 'express';
 import { ApiTags, ApiExcludeEndpoint } from '@nestjs/swagger';
+import twilio from 'twilio';
 import { Public, TwilioSignatureGuard } from '@bitcrm/shared';
+import { DEFAULT_HOLD_SOUND_ID, premadeHoldSound } from '@bitcrm/types';
+import { TelephonySettingsService } from '../telephony/telephony-settings.service';
+import {
+  TELEPHONY_CONFIG,
+  type TelephonyConfig,
+} from '../telephony/telephony.config';
 import {
   VoiceService,
   type InboundBody,
@@ -59,6 +67,10 @@ export class VoiceController {
     // Optional so a spec can build the controller without it; absent, the
     // handlers run before the reply, as they used to.
     @Optional() private readonly queue?: WebhookQueue,
+    // Optional so the older specs keep constructing the controller without
+    // them; without settings the hold music is the default track.
+    @Optional() private readonly settings?: TelephonySettingsService,
+    @Optional() @Inject(TELEPHONY_CONFIG) private readonly config?: TelephonyConfig,
   ) {}
 
   /**
@@ -142,6 +154,28 @@ export class VoiceController {
       'Cache-Control': 'public, max-age=3600',
     });
     (found.body as unknown as NodeJS.ReadableStream).pipe(res);
+  }
+
+  /**
+   * What a held caller hears — the `holdUrl` ConferenceService.holdCustomer
+   * gives the customer's leg. Twilio fetches it (GET, signed like every
+   * webhook — the class guard covers it) when the hold starts; `loop="0"`
+   * repeats the track for as long as the hold lasts. The company's choice
+   * (Settings → Hold music), else the default track — a settings read that
+   * fails still plays music rather than silence.
+   */
+  @Get('hold-music')
+  @Header('Content-Type', 'text/xml')
+  @ApiExcludeEndpoint()
+  async holdMusic(): Promise<string> {
+    const fallback = premadeHoldSound(DEFAULT_HOLD_SOUND_ID)!.url;
+    const voiceBase = `${this.config?.publicBaseUrl ?? ''}/api/telephony/voice`;
+    const url = this.settings
+      ? await this.settings.holdMusicUrl(voiceBase).catch(() => fallback)
+      : fallback;
+    const twiml = new twilio.twiml.VoiceResponse();
+    twiml.play({ loop: 0 }, url);
+    return twiml.toString();
   }
 
   /** A voicemail finished recording. */

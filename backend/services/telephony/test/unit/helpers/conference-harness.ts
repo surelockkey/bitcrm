@@ -93,6 +93,8 @@ export function makeFakeTwilio() {
   /** Who is in the room — set per test to drive the participant-leave sweep. */
   const participantsList = jest.fn().mockResolvedValue([]);
   const conferenceUpdate = jest.fn().mockResolvedValue({});
+  /** One participant's update (hold, endConferenceOnExit…), as (callSid, params). */
+  const participantUpdate = jest.fn().mockResolvedValue({});
   const conferenceFetch = jest.fn().mockResolvedValue({ status: 'in-progress' });
   const callsCreate = jest.fn().mockImplementation(async ({ to }: { to: string }) => ({
     sid: `CAleg-${to.replace('client:', '')}`,
@@ -105,7 +107,11 @@ export function makeFakeTwilio() {
     conferences: Object.assign(
       (sid: string) => ({
         participants: Object.assign(
-          (callSid: string) => ({ update: jest.fn().mockResolvedValue({}), remove: jest.fn().mockResolvedValue({}), callSid }),
+          (callSid: string) => ({
+            update: (params: unknown) => participantUpdate(callSid, params),
+            remove: jest.fn().mockResolvedValue({}),
+            callSid,
+          }),
           { create: participantsCreate, list: participantsList },
         ),
         update: conferenceUpdate,
@@ -124,6 +130,7 @@ export function makeFakeTwilio() {
     client,
     participantsCreate,
     participantsList,
+    participantUpdate,
     callFetch,
     conferenceUpdate,
     conferenceFetch,

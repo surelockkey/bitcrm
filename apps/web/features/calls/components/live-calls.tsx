@@ -142,6 +142,10 @@ function LiveCallRow({ call, canJoin }: { call: CallRecord; canJoin: boolean }) 
         )}
         <div className="mt-1 text-[11px] leading-4 text-foreground">
           Duration: <span className="font-medium tabular-nums">{call.answeredAt ? workizClock(timer) : "—"}</span>
+          {/* The agent pressed Hold: the customer is hearing the hold music. */}
+          {call.onHold ? (
+            <span className="ml-2 rounded-sm bg-amber-100 px-1.5 py-px text-[10px] font-semibold text-amber-800">On hold</span>
+          ) : null}
         </div>
         {canJoin ? (
           <div className="mt-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>

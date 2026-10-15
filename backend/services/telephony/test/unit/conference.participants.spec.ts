@@ -230,3 +230,112 @@ describe('ConferenceService — a conference ending is not always a call ending'
     expect(applied.map((a: { status?: string }) => a.status)).toContain('canceled');
   });
 });
+
+describe('ConferenceService — hold', () => {
+  /**
+   * Hold is the CUSTOMER's leg being put on hold in the conference: Twilio
+   * stops mixing their audio and plays them the hold music from `holdUrl`,
+   * while the agent's leg stays where it is. The other way round would leave
+   * the agent listening to music and the customer to silence.
+   */
+  const HOLD_URL = 'https://example.ngrok-free.dev/api/telephony/voice/hold-music';
+
+  async function outboundCall() {
+    const harness = makeHarness();
+    await harness.service.initOutbound('CAout', 'agent-A', '+380958601427', '+15412830739');
+    // The agent joins; the service dials the customer as CAcustomerLeg.
+    await harness.service.onParticipantJoin('conf-CAout', 'CF1', 'CAout');
+    return harness;
+  }
+
+  it('holds the customer leg of an outbound call, with our hold music', async () => {
+    const { service, twilio } = await outboundCall();
+
+    await expect(service.holdCustomer('CAout', true)).resolves.toEqual({ held: true });
+
+    expect(twilio.participantUpdate).toHaveBeenCalledWith('CAcustomerLeg', {
+      hold: true,
+      holdUrl: HOLD_URL,
+      holdMethod: 'GET',
+    });
+    await expect(service.isHeld('conf-CAout')).resolves.toBe(true);
+  });
+
+  it('holds the caller of an inbound call — the call that made the conference', async () => {
+    const { service, twilio } = makeHarness();
+    await service.initInbound('CAin', '+380958601427', '+15412830739', [
+      { endpoint: 'client:agent-B', callerId: '+380958601427' },
+    ]);
+    await service.onConferenceStart('conf-CAin', 'CF2');
+
+    await service.holdCustomer('CAin', true);
+
+    expect(twilio.participantUpdate).toHaveBeenCalledWith(
+      'CAin',
+      expect.objectContaining({ hold: true, holdUrl: HOLD_URL }),
+    );
+  });
+
+  it('takes them off hold again', async () => {
+    const { service, twilio } = await outboundCall();
+    await service.holdCustomer('CAout', true);
+
+    await expect(service.holdCustomer('CAout', false)).resolves.toEqual({ held: false });
+
+    expect(twilio.participantUpdate).toHaveBeenLastCalledWith('CAcustomerLeg', { hold: false });
+    await expect(service.isHeld('conf-CAout')).resolves.toBe(false);
+  });
+
+  it('is not held until somebody holds it', async () => {
+    const { service } = await outboundCall();
+    await expect(service.isHeld('conf-CAout')).resolves.toBe(false);
+  });
+
+  it('refuses a call whose conference is over, and touches nothing', async () => {
+    const { service, twilio } = await outboundCall();
+    twilio.conferenceFetch.mockResolvedValue({ status: 'completed' });
+
+    await expect(service.holdCustomer('CAout', true)).rejects.toThrow(/not live/i);
+    expect(twilio.participantUpdate).not.toHaveBeenCalled();
+    await expect(service.isHeld('conf-CAout')).resolves.toBe(false);
+  });
+
+  it('refuses an outbound call whose customer has not been dialled yet', async () => {
+    const { service, twilio } = makeHarness();
+    await service.initOutbound('CAout', 'agent-A', '+380958601427', '+15412830739');
+    await service.onConferenceStart('conf-CAout', 'CF1');
+
+    await expect(service.holdCustomer('CAout', true)).rejects.toThrow(/nobody to hold/i);
+    expect(twilio.participantUpdate).not.toHaveBeenCalled();
+  });
+
+  it('does not record a hold Twilio refused', async () => {
+    const { service, twilio } = await outboundCall();
+    twilio.participantUpdate.mockRejectedValueOnce(new Error('participant not found'));
+
+    await expect(service.holdCustomer('CAout', true)).rejects.toThrow();
+    await expect(service.isHeld('conf-CAout')).resolves.toBe(false);
+  });
+
+  it('still ends the call when the agent hangs up on a held customer', async () => {
+    // A held participant is still IN the conference — so the agent leaving
+    // leaves only the customer, and the room is closed rather than playing
+    // them hold music until the four-hour TTL.
+    const { service, twilio } = await outboundCall();
+    await service.holdCustomer('CAout', true);
+    twilio.participantsList.mockResolvedValue([{ callSid: 'CAcustomerLeg', hold: true }]);
+
+    await service.onParticipantLeave('conf-CAout', 'CF1');
+
+    expect(twilio.conferenceUpdate).toHaveBeenCalledWith({ status: 'completed' });
+  });
+
+  it('forgets the hold once the call is over', async () => {
+    const { service } = await outboundCall();
+    await service.holdCustomer('CAout', true);
+
+    await service.onConferenceEnd('conf-CAout');
+
+    await expect(service.isHeld('conf-CAout')).resolves.toBe(false);
+  });
+});

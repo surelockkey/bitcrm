@@ -3,7 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { fetchJobCode, fetchTelephonyConfig, setFallbackNumber } from "./api";
+import type { HoldSound } from "@bitcrm/types";
+import { fetchJobCode, fetchTelephonyConfig, setFallbackNumber, setHoldSound } from "./api";
 
 /**
  * Workiz's Fallback Number (the first row of its Call flows tab): where a
@@ -17,6 +18,19 @@ export function useSetFallbackNumber() {
     onSuccess: (_data, phoneNumber) => {
       qc.invalidateQueries({ queryKey: ["telephony-config"] });
       toast.success(phoneNumber ? "Fallback number saved" : "Fallback number removed");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/** The company's hold music: a ready-made track, an upload, or null for the default. */
+export function useSetHoldSound() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (holdSound: HoldSound | null) => setHoldSound(holdSound),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["telephony-config"] });
+      toast.success("Hold music saved");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
