@@ -258,8 +258,8 @@ export class DealProductsRepository {
       sourceTechId: item.sourceTechId as string | undefined,
       fulfillment:
         (item.fulfillment as DealProductFulfillment | undefined) ?? 'sourced',
-      // Only the Workiz importer sets this; left undefined it means "the
-      // catalog/override flow wrote this line" and the ±15% band applies.
+      // Provenance: `imported` (the Workiz importer) or `group` (an item group);
+      // absent on every single line BitCRM writes. No rule reads it here.
       priceSource: item.priceSource as DealProductPriceSource | undefined,
       orderedAt: item.orderedAt as string | undefined,
       // Legacy lines predate billing: an absent flag means taxable (Workiz default).

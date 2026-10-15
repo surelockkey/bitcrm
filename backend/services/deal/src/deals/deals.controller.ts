@@ -579,7 +579,8 @@ export class DealsController {
       "product's inventory type must match — services only as `service` lines. " +
       "The line's `costCompany` is the price book's unless the caller holds `financials.view` and sends one " +
       "(Workiz's Cost box); `costForTech` is always the price book's; `soldBy` (Workiz \"Sold by\") is a user id. " +
-      "a technician's `priceClient` must stay within ±15% of the price book's price (400 otherwise); the office sets any price, below zero too. " +
+      '`priceClient` is the line\'s own: any number, below zero too (a credit line), from a technician or the office ' +
+      'alike (owner, 2026-10-15) — never judged against the price book, and the price book is never changed by it. ' +
       '**Container rule** for a technician (`deals` scope `assigned_only`): a stock-managed product ' +
       "(type `product`, `manageStock` not false) only `sourced` from HIS OWN container — " +
       '`sourceTechId` absent defaults to him; `to_order` or another van is 400 "<name> isn\'t in your ' +
@@ -608,8 +609,8 @@ export class DealsController {
       'technician not on the job). Every member of the group (`GET /inventory/item-groups/:id`) becomes ' +
       "its own line in one call: the group's `quantity`, `priceClient`, `taxable`, `description` and " +
       "`customAttributes` (the group's over the product's); `costCompany` / `costForTech` from the price " +
-      "book. The group's prices are NOT judged by the ±15% band — lines carry `priceSource: 'group'` and " +
-      '`itemGroupId`, and keep that exemption on an in-place edit at the same price. Exempt from the ' +
+      "book. Lines carry `priceSource: 'group'` and `itemGroupId`; the marker stays on an in-place edit at " +
+      'the same price and is dropped when a new price is typed or the item swapped. Exempt from the ' +
       "technician's container rule: a service is a `service` line; a stock-managed product comes out of " +
       'the source container (`sourced`) when it holds enough and is `to_order` otherwise (short, or no ' +
       'container); a product whose stock is not counted is `sourced` without a deduction. Source: a ' +
@@ -642,8 +643,7 @@ export class DealsController {
       "a quantity only needs the delta in the van. The line keeps its own `costCompany` unless the caller holds " +
       "`financials.view` and sends one (a swap takes the new item's price book cost); `soldBy` absent keeps the " +
       'line\'s own, `""` clears it. ' +
-      "a technician's ±15% band holds as on add, except for an imported Workiz line (or an item group line) edited in place " +
-      'at its recorded price. The container rule of add binds a technician whenever the edit changes the ' +
+      'Any `priceClient`, below zero too, from anyone — as on add. The container rule of add binds a technician whenever the edit changes the ' +
       'product, the quantity or the source; an edit of text, price, taxable or custom fields alone passes. ' +
       "`customAttributes` absent → the line keeps its own (a swap: the new product's).",
   })

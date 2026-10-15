@@ -15,25 +15,22 @@ export type DealProductFulfillment =
   | 'imported';
 
 /**
- * Where the line's client price came from:
+ * Where the line's client price came from — provenance only. No rule judges a
+ * line's price: a technician and the office alike set any price, below zero
+ * too, and it never changes the price book (owner, 2026-10-15; the ±15% band
+ * is gone).
  * - `catalog`  — the product's list price, unchanged.
- * - `override` — set by hand; the add-item dialog holds a technician to the
- *   ±15% band, the office to nothing (web `priceBandBinds`).
- * - `imported` — recorded by Workiz. 128 460 of the 156 612 matched historical
- *   lines differ from today's catalog price and 110 865 sit outside ±15%, so
- *   the band must not judge them.
- *
+ * - `override` — set by hand.
+ * - `imported` — recorded by Workiz (the importer writes it on the service
+ *   lines, which keep `fulfillment: 'service'`).
  * - `group`    — the item group's own price for the member (`POST
- *   /deals/:id/item-groups/:groupId`). A group sets its prices apart from the
- *   price book, so the band does not judge them either — while the line keeps
- *   that price.
+ *   /deals/:id/item-groups/:groupId`), while the line keeps that price.
  *
- * Absent on every single line BitCRM writes — readers must cope, and
- * "absent" is what they must treat as "the ±15% band applies".
+ * Absent on every single line BitCRM writes — readers must cope.
  *
  * Written today: `imported` (the Workiz importer) and `group` (an item group
- * added to a job). `catalog` and `override` are reserved for the add-item
- * dialog and are not produced by any current code path, so do not branch on them.
+ * added to a job). `catalog` and `override` are not produced by any current
+ * code path, so do not branch on them.
  */
 export type DealProductPriceSource = 'catalog' | 'override' | 'imported' | 'group';
 

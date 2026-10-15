@@ -38,6 +38,36 @@ describe('dealTotalsSnapshot', () => {
     });
   });
 
+  // Owner, 2026-10-15: a line may carry any price, below zero too — a credit
+  // line works as a discount: it comes off the subtotal and is never clamped.
+  it('takes a job with one negative line off the subtotal and taxes only the taxable lines', () => {
+    const deal = createMockDeal({ taxRatePercent: 10 });
+    const lines = [
+      createMockDealProduct({ quantity: 2, priceClient: 50, costCompany: 15, taxable: true }),
+      createMockDealProduct({ quantity: 1, priceClient: 100, costCompany: 40, taxable: false }),
+      createMockDealProduct({ quantity: 1, priceClient: -20, costCompany: 0, taxable: false }),
+    ];
+
+    expect(dealTotalsSnapshot(deal, lines)).toEqual({
+      subtotal: 180,
+      discount: 0,
+      tax: 10,
+      total: 190,
+      cost: 70,
+      taxableBase: 100,
+    });
+  });
+
+  it('lowers the taxed amount when the negative line is itself taxable', () => {
+    const deal = createMockDeal({ taxRatePercent: 10 });
+    const lines = [
+      createMockDealProduct({ quantity: 1, priceClient: 100, costCompany: 0, taxable: true }),
+      createMockDealProduct({ quantity: 1, priceClient: -20, costCompany: 0, taxable: true }),
+    ];
+
+    expect(dealTotalsSnapshot(deal, lines)).toMatchObject({ subtotal: 80, taxableBase: 80, tax: 8, total: 88 });
+  });
+
   it('is all zeros for a job without lines', () => {
     expect(dealTotalsSnapshot(createMockDeal(), [])).toEqual({
       subtotal: 0, discount: 0, tax: 0, total: 0, cost: 0, taxableBase: 0,

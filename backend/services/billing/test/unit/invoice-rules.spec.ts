@@ -171,6 +171,15 @@ describe('invoice totals + derived status', () => {
     expect(totals).toMatchObject({ tax: 13.72, total: 185.4, balanceDue: 0 });
   });
 
+  it('totals a job with a negative line (owner, 2026-10-15: any price) without clamping it', () => {
+    const totals = computeInvoiceTotals({
+      deal: baseDeal,
+      items: [line(), line({ productId: 'credit', priceClient: -20, taxable: false })],
+    });
+    expect(totals).toMatchObject({ subtotal: 80, taxableBase: 100, tax: 10, total: 90, balanceDue: 90 });
+    expect(deriveInvoiceStatus({ totals, dueDate: '2026-12-01', today: '2026-10-15' })).toBe('due');
+  });
+
   it('takes amountPaid from actualTotal when the job is paid', () => {
     const totals = computeInvoiceTotals({
       deal: { ...baseDeal, paymentStatus: 'paid', actualTotal: 60 },

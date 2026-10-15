@@ -59,7 +59,6 @@ import {
 import { isMissingIndexError } from './needs-invoice-index';
 import {
   assertFromOwnContainer,
-  assertPriceInBand,
   catalogCosts,
   lineCosts,
   editChangesStock,
@@ -67,7 +66,6 @@ import {
   isTechnicianScope,
   keepsGroupPrice,
   lineCustomAttributes,
-  priceBandApplies,
 } from './deal-line-rules';
 import { techRateOverrideUpdate, touchesTechRate } from './tech-rate-override';
 import { assertDealInScope } from './deal-scope';
@@ -2519,9 +2517,9 @@ export class DealsService {
     const dto = this.withOwnVan(request, fulfillment, technician, caller.id);
 
     const product = await this.validateProductFulfillment(dto, fulfillment);
-    // The ±15% band holds a technician to the price book; the office sets any
-    // price, below zero too (the owner's rule, 2026-10-14).
-    if (technician) assertPriceInBand(dto.priceClient, product.priceClient);
+    // The price is the line's own: whoever writes it — technician or office —
+    // sets any price, below zero too, and the price book is never changed by
+    // it (owner, 2026-10-15). Nothing here judges `dto.priceClient`.
     // A technician's stock comes out of his own van, or not at all.
     if (technician) assertFromOwnContainer({ ...dto, fulfillment }, product, caller.id);
 
@@ -2638,11 +2636,9 @@ export class DealsService {
     const isSwap = dto.productId !== existing.productId;
 
     const product = await this.validateProductFulfillment(dto, fulfillment);
-    // A technician is held to the band, except on an imported Workiz line
-    // edited in place at the price Workiz recorded; the office sets any price.
-    if (technician && priceBandApplies(dto, existing)) assertPriceInBand(dto.priceClient, product.priceClient);
-    // The container rule judges what the edit takes from a van — a new product,
-    // a new quantity or a new source; text, price or custom fields alone pass.
+    // Any price, as on add (owner, 2026-10-15). The container rule judges what
+    // the edit takes from a van — a new product, a new quantity or a new
+    // source; text, price or custom fields alone pass.
     if (technician && editChangesStock(existing, { ...dto, fulfillment })) {
       assertFromOwnContainer({ ...dto, fulfillment }, product, caller.id);
     }
@@ -2727,8 +2723,8 @@ export class DealsService {
       taxable,
       // A Workiz service fee edited in place stays out of the discount.
       ...(!isSwap && existing.discountable === false && { discountable: false }),
-      // An item group's line keeps its group; its price stays the group's
-      // (out of the band) only while the edit keeps that price.
+      // An item group's line keeps its group; it is marked as priced by the
+      // group only while the edit keeps that price.
       ...(!isSwap && existing.itemGroupId && { itemGroupId: existing.itemGroupId }),
       ...(keepsGroupPrice(dto, existing) && { priceSource: 'group' as const }),
       ...(description !== undefined && { description }),
@@ -2775,9 +2771,10 @@ export class DealsService {
    * Workiz "Add group": every member of an item group becomes its own line, in
    * one call — the group's quantity, price, taxable flag, description and
    * custom field values (the group's over the product's); the costs from the
-   * price book. The group's prices are its own, so the ±15% band does not judge
-   * them (`priceSource: 'group'`), and a group is exempt from the technician's
-   * container rule: a stock-managed member comes out of the source container
+   * price book. The lines carry `priceSource: 'group'` (the price is the
+   * group's — provenance only, no rule judges a line's price), and a group is
+   * exempt from the technician's container rule: a stock-managed member comes
+   * out of the source container
    * when it holds enough, and is added to order otherwise (a short van, or no
    * container at all). Everything is read before any stock moves; a failure
    * after that puts back what was taken. One timeline entry, one event.

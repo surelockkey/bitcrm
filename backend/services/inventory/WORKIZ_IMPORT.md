@@ -273,46 +273,33 @@ before writing** — sum the quantities of the lines that share a `dealId` +
 group it collapsed so the merge is reviewable. Do not invent a synthetic
 `productId` to keep them apart.
 
-### 3.1 The ±15 % price band
+### 3.1 The import markers (the ±15 % price band is gone)
 
-The add-item dialog blocks any client price further than ±15 % from the
-catalog price (`PRICE_BAND` in `apps/web/features/deals/lib.ts`; the backend
-`AddDealProductDto` accepts any price — the rule is UI-only). 128 460 of the
-156 612 matched Workiz lines differ from today's catalog price and 110 865 sit
-outside the band, so without an exemption every one of those lines would open
-in a dialog whose **Save** button is permanently disabled.
-
-**The band does not judge an imported line.** `priceBandApplies(line)` is false
-when either marker is present, and the importer must set one on every
-historical line:
+Until 2026-10-15 a technician's client price had to stay within ±15 % of the
+catalog price, and imported lines were exempt through the markers below. The
+owner removed the band: a technician and the office alike set any price on a
+line, below zero too, and the price never changes the price book. The markers
+stay — the importer must still set one on every historical line:
 
 | Workiz line | Marker to write | Count |
 |---|---|---|
 | `type = product` / `other` | `fulfillment: "imported"` | 47 976 + 770 |
 | `type = service` | `fulfillment: "service"` **and** `priceSource: "imported"` | 107 890 |
 
-- `'imported'` is a new `DealProductFulfillment` value. It is **not accepted by
-  the API** (`AddDealProductDto` still only allows `sourced` / `to_order` /
-  `service`) — only the importer writes it.
-- An imported line never moved BitCRM stock, and the code already agrees:
+- `'imported'` is a `DealProductFulfillment` value **not accepted by the API**
+  (`AddDealProductDto` only allows `sourced` / `to_order` / `service`) — only
+  the importer writes it.
+- An imported line never moved BitCRM stock, and the code agrees:
   `removeProduct` and `replaceProduct` restore only a `sourced` line, so the
   35 243 historical stock lines already folded into the 2026-09-11 opening
   snapshot are not double-counted.
-- `priceSource` is `'catalog' | 'override' | 'imported'`, optional, and absent
-  on every row BitCRM has written so far — readers treat "absent" as "the band
-  applies".
-- The exemption covers **the price Workiz recorded, not a new one**. The
-  dialog waives the band only while the client-price field still reads the
-  stored value; type a different number and the ±15 % rule is back and Save
-  is blocked outside it. Swapping the item for a different catalog product
-  re-applies it too. (Same rule as the product editor's waived caps: a value
-  is loose only for as long as it comes back unchanged.)
+- `priceSource` (`'catalog' | 'override' | 'imported' | 'group'`, optional) is
+  provenance only; no server or web rule reads it. The mobile app still reads
+  it to waive its own client-side band until that band is removed there too
+  (and older installed builds keep reading it after), so keep writing it.
 - Saving turns an imported line into an ordinary one (`fulfillment` becomes
-  `sourced` / `to_order` / `service`, `priceSource` is dropped), so the band
-  applies unconditionally from then on.
-- The line list badges an imported line "Imported"; the configure step says
-  "Imported from Workiz — the ±15% band doesn't apply" and shows the catalog
-  price for reference.
+  `sourced` / `to_order` / `service`, `priceSource` is dropped).
+- The line list badges an imported line "Imported".
 
 ## 4. Product type and unknown attributes
 
