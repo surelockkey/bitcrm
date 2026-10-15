@@ -48,12 +48,15 @@ export const SECTIONS: PolicySection[] = [
   {
     heading: "Location",
     body: [
-      "The app uses your location for two things:",
+      "Technicians share their location with their company's dispatch office while they work. The app uses it in these ways:",
       [
-        "To show dispatch where you are. While the app is open on your screen, it sends your position to the office about every thirty seconds, and the dispatcher sees you as a pin on the map with the time it was last seen. Only your current position is kept; there is no history of where you have been.",
+        "While the app is open on your screen, it sends your position to the office about every thirty seconds, and the dispatcher sees you as a pin on the map with the time it was last seen.",
+        "When you allow it (\"Always\" on iPhone, \"Allow all the time\" on Android), it also shares your position while the app is in the background or closed, during your working hours as your employer sets them (7:00 a.m. to 8:00 p.m. Eastern time when none are set), so the office can send the nearest technician to a job. While it does, your iPhone shows the blue location indicator and Android shows a \"Sharing your location with dispatch\" notification.",
+        "Each job update you make from the app (starting or finishing a job, arriving) records where it happened and how far that was from the job's address, on the job's record. When you reach a job's address the app can mark you as arrived by itself.",
         "While you take a card with Tap to Pay. Apple and Stripe require the phone's location to accept a contactless payment.",
       ],
-      "Nothing is sent in the background: when the app is closed or behind another app, no position leaves the phone, and the app never tracks you in the background. You can turn the sharing off in the app's Settings (\"Share my location with dispatch\"), and you can decline the permission in your phone's settings; the office then sees you by the address of your last job instead. Tap to Pay does not work without location.",
+      "For the map, only your current position is kept: each new position replaces the last one and is deleted after 7 days; no route or movement history is stored, on your phone or on our servers. The positions recorded with job updates stay with those jobs, like the rest of the job record. The app also tells the office whether location is allowed on your phone, so a dispatcher can see when it is off.",
+      "You can stop sharing in the app's Settings (\"Share my location with dispatch\") or in your phone's settings, and your employer can turn it off for you; it is never on for subcontractors. Updating a job and taking a card payment need location, so they are not available while it is off. Signing out removes your position from the dispatch map.",
     ],
   },
   {

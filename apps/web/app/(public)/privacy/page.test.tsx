@@ -27,18 +27,23 @@ describe("Privacy Policy page", () => {
     expect(SECTIONS.length).toBeGreaterThanOrEqual(8);
   });
 
-  // What the page promises must match app.json's permission string and what
-  // the app does: live position for dispatch while the app is open (stage 1,
-  // 2026-10-14), a switch in Settings, Tap to Pay, nothing in the background.
-  it("says the position is shared with dispatch while the app is open, can be switched off, and never in the background", () => {
+  // What the page promises must match the app (2026-10-15): position for
+  // dispatch while the app is open and, with "Always", during working hours in
+  // the background; where each job update happened; Tap to Pay; the switch.
+  it("says when location is shared, in the background too, what is kept, and how to turn it off", () => {
     const { container } = render(<PrivacyPolicyPage />);
     const text = container.textContent ?? "";
     expect(text).toMatch(/while the app is open/i);
-    expect(text).toMatch(/dispatch/);
-    expect(text).toMatch(/Settings/);
+    expect(text).toMatch(/working hours/i);
+    expect(text).toMatch(/background or closed/i);
+    expect(text).toMatch(/Always/);
+    expect(text).toMatch(/job update/i);
+    expect(text).toMatch(/7 days/);
+    expect(text).toMatch(/blue location indicator/i);
+    expect(text).toMatch(/Share my location with dispatch/);
     expect(text).toMatch(/Tap to Pay/);
-    expect(text).toMatch(/never .{0,40}in the background/i);
-    expect(text).not.toMatch(/Arrived/);
+    expect(text).toMatch(/subcontractor/i);
+    expect(text).not.toMatch(/never .{0,40}in the background/i);
   });
 
   it("says card data goes to Stripe and is never stored by us, and that nothing is sold or used for ads", () => {
