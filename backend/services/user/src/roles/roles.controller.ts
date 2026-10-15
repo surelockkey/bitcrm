@@ -8,8 +8,8 @@ import {
   Param,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RequirePermission } from '@bitcrm/shared';
-import { RESOURCE_REGISTRY } from '@bitcrm/types';
+import { CurrentUser, RequirePermission } from '@bitcrm/shared';
+import { type JwtUser, RESOURCE_REGISTRY } from '@bitcrm/types';
 import { RolesService } from './roles.service';
 import { UsersRepository } from '../users/users.repository';
 import { CreateRoleDto } from './dto/create-role.dto';
@@ -33,8 +33,8 @@ export class RolesController {
       'Creates a new custom role with a full permission matrix, data scope rules, and deal stage transitions. ' +
       'Role name must be unique. Cannot create system roles.',
   })
-  async create(@Body() dto: CreateRoleDto) {
-    const data = await this.rolesService.create(dto);
+  async create(@Body() dto: CreateRoleDto, @CurrentUser() user: JwtUser) {
+    const data = await this.rolesService.create(dto, user);
     return { success: true, data };
   }
 
@@ -86,8 +86,8 @@ export class RolesController {
       'Cannot edit the immutable Super Admin system role. ' +
       'When permissions/dataScope/transitions are updated, all users with this role have their permission cache invalidated.',
   })
-  async update(@Param('id') id: string, @Body() dto: UpdateRoleDto) {
-    const data = await this.rolesService.update(id, dto);
+  async update(@Param('id') id: string, @Body() dto: UpdateRoleDto, @CurrentUser() user: JwtUser) {
+    const data = await this.rolesService.update(id, dto, user);
     return { success: true, data };
   }
 
@@ -99,8 +99,8 @@ export class RolesController {
       '**Guard:** `roles.delete` permission required.\n\n' +
       'Cannot delete system roles. Cannot delete a role that has users assigned — reassign users first (409 Conflict).',
   })
-  async delete(@Param('id') id: string) {
-    await this.rolesService.delete(id);
+  async delete(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    await this.rolesService.delete(id, user);
     return { success: true, data: null };
   }
 

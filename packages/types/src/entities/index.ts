@@ -47,3 +47,10 @@ export {
   UpdateSecuritySettingsRequest,
   DEFAULT_SECURITY_SETTINGS,
 } from './security-settings.entity';
+export {
+  ADMIN_AUDIT_ACTIONS,
+  AdminAuditAction,
+  AdminAuditTargetType,
+  AdminAuditChange,
+  AdminAuditEntry,
+} from './admin-audit.entity';

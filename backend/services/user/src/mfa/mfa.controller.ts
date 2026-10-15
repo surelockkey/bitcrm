@@ -56,7 +56,7 @@ export class MfaController {
       '**Guard:** `users.edit` permission required. Off for anyone (a lost phone); on only for ' +
       'someone with a phone on their profile — their next sign-in texts it. 400 otherwise.',
   })
-  async setForUser(@Param('id') id: string, @Body() dto: SetMfaDto) {
-    return { success: true, data: await this.mfa.setByAdmin(id, dto.enabled) };
+  async setForUser(@Param('id') id: string, @Body() dto: SetMfaDto, @CurrentUser() user: JwtUser) {
+    return { success: true, data: await this.mfa.setByAdmin(id, dto.enabled, user) };
   }
 }

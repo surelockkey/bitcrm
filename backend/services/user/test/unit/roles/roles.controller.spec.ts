@@ -5,6 +5,9 @@ import { RolesService } from '../../../src/roles/roles.service';
 import { UsersRepository } from '../../../src/users/users.repository';
 import { createMockRole, createMockUser } from '../mocks';
 
+/** Who is changing the role — the service records it in the admin trail. */
+const CALLER = { id: 'u-admin', cognitoSub: 's', email: 'a@x.y', roleId: 'role-admin', department: 'office' };
+
 describe('RolesController', () => {
   let controller: RolesController;
   let rolesService: Record<string, jest.Mock>;
@@ -39,10 +42,10 @@ describe('RolesController', () => {
     const dto = { name: 'New Role', permissions: {}, dataScope: {}, dealStageTransitions: [], priority: 40 } as any;
     rolesService.create.mockResolvedValue(role);
 
-    const result = await controller.create(dto);
+    const result = await controller.create(dto, CALLER);
 
     expect(result).toEqual({ success: true, data: role });
-    expect(rolesService.create).toHaveBeenCalledWith(dto);
+    expect(rolesService.create).toHaveBeenCalledWith(dto, CALLER);
   });
 
   it('findAll should return success wrapper with all roles', async () => {
@@ -76,19 +79,19 @@ describe('RolesController', () => {
     const dto = { description: 'Updated' } as any;
     rolesService.update.mockResolvedValue(role);
 
-    const result = await controller.update('role-1', dto);
+    const result = await controller.update('role-1', dto, CALLER);
 
     expect(result).toEqual({ success: true, data: role });
-    expect(rolesService.update).toHaveBeenCalledWith('role-1', dto);
+    expect(rolesService.update).toHaveBeenCalledWith('role-1', dto, CALLER);
   });
 
   it('delete should return success wrapper with null data', async () => {
     rolesService.delete.mockResolvedValue(undefined);
 
-    const result = await controller.delete('role-1');
+    const result = await controller.delete('role-1', CALLER);
 
     expect(result).toEqual({ success: true, data: null });
-    expect(rolesService.delete).toHaveBeenCalledWith('role-1');
+    expect(rolesService.delete).toHaveBeenCalledWith('role-1', CALLER);
   });
 
   it('findUsersByRole should verify role exists then return users', async () => {

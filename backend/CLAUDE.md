@@ -256,6 +256,11 @@ DEAL#<id> / PRODUCT#<lineId> (lines) sparse GSI7 DONELINES#<YYYY-MM> / <day>#DEA
                                      DONELINESINDEX / STATE gates it (backfill:done-lines-index)
 CALDAY#<YYYY-MM> / <startDate>#TECH#<techId>#<eventId>   users table: a copy of a calendar event per month it
                                      touches (no GSI keys), written in the event's TransactWrite; CALMONTHINDEX / STATE
+ADMINAUDIT#<YYYY-MM> | ADMINAUDIT#<USER|ROLE>#<id> | ADMINAUDIT#ACTOR#<userId> / <at>#<id>   users table: the
+                                     admin trail — one entry (`AdminAuditEntry`: who, what, to whom, field changes, traceId)
+                                     written to all three partitions in one TransactWrite after the action succeeded
+                                     (`audit/`); read by `GET /users/audit` (`users.edit`). No GSI keys. Not `AUDIT#<id>`:
+                                     that is the technician documents' access log
 USER#<id> / METADATA (users)        … GSI3 USERS#ALL / USER#<id> (TechnicianIndex) — every user, for the directory
                                      and roster without a Scan; USERSALLINDEX / STATE gates it
 CONTACT#<id> / METADATA (contacts)  sparse GSI2 CONTACTS#ACTIVE / <name lowercased>#<id> — the client list A→Z;
@@ -719,6 +724,17 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   report read it. It is a client's number, so `JobNumberInterceptor` strips it from
   `DealsController` / `DealBillingController` answers without `contacts.view_numbers`
   (the dispatch map strips it with `phones`); `@Internal` reads keep it.
+- **Who did it: request lines carry the caller, admin actions carry an audit entry.** Every
+  "request completed" line has `userId` / `roleId` (never the email) once `CognitoAuthGuard` has
+  run — set by `requestLogProps`, pino-http's `customProps`, which runs again when the response
+  finishes; the `req` serializer is bound on arrival, before any guard, so a caller read there is
+  always empty (it was, until 2026-10-15). user-service records every sensitive admin action —
+  create / edit / deactivate / reactivate / type / role / permission overrides / invite / an
+  admin's MFA switch, and role create / edit / delete — through `AdminAuditService.record(caller,
+  …)` AFTER it succeeded: a log line starting `AUDIT` (CloudWatch filter `"AUDIT"`) and the
+  `ADMINAUDIT#` rows (§5). Recording never fails the action. A new sensitive action gets a
+  `record` call, an `ADMIN_AUDIT_ACTIONS` entry in `@bitcrm/types` and a test that a refused
+  attempt records nothing.
 - **Who is online (Admin → Users) is a Redis sorted set, not a column.** `CognitoAuthGuard`
   stamps every signed-in request's user into `users:last-seen` (score = epoch ms) through the
   shared `UserActivityTracker` — at most once a minute per user per process, fire-and-forget —

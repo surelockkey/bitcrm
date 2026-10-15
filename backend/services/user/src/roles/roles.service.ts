@@ -7,13 +7,19 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
-import { type Role, RESOURCE_REGISTRY } from '@bitcrm/types';
+import { type JwtUser, type Role, RESOURCE_REGISTRY } from '@bitcrm/types';
 import { RolesRepository } from './roles.repository';
 import { RolesCacheService } from './roles-cache.service';
 import { UsersRepository } from '../users/users.repository';
 import { DEFAULT_ROLES } from './constants/default-roles';
 import { reconcileRolePermissions } from './reconcile-role-permissions';
+import { AdminAuditService } from '../audit/admin-audit.service';
+import { diffFields } from '../audit/audit-diff';
+
+/** The parts of a role its audit line compares. */
+const AUDITED_ROLE_FIELDS = ['name', 'description', 'priority', 'permissions', 'dataScope', 'dealStageTransitions'] as const;
 
 /**
  * In-process copy of a role, in front of the shared Redis one. Short on
@@ -34,6 +40,7 @@ export class RolesService implements OnModuleInit {
     private readonly rolesRepository: RolesRepository,
     private readonly rolesCache: RolesCacheService,
     private readonly usersRepository: UsersRepository,
+    @Optional() private readonly audit?: AdminAuditService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -52,7 +59,7 @@ export class RolesService implements OnModuleInit {
     dataScope: Record<string, string>;
     dealStageTransitions: string[];
     priority: number;
-  }): Promise<Role> {
+  }, caller?: JwtUser): Promise<Role> {
     // Validate name uniqueness
     const existing = await this.rolesRepository.findByName(dto.name);
     if (existing) {
@@ -82,10 +89,18 @@ export class RolesService implements OnModuleInit {
 
     await this.rolesRepository.create(role);
     await this.forgetRole(role.id);
+    if (caller) {
+      await this.audit?.record(
+        caller,
+        'role.created',
+        { type: 'role', id: role.id, label: role.name },
+        diffFields({}, role, AUDITED_ROLE_FIELDS),
+      );
+    }
     return role;
   }
 
-  async update(id: string, dto: Partial<Role>): Promise<Role> {
+  async update(id: string, dto: Partial<Role>, caller?: JwtUser): Promise<Role> {
     const existing = await this.rolesRepository.findById(id);
     if (!existing) {
       throw new NotFoundException(`Role with id "${id}" not found`);
@@ -96,6 +111,10 @@ export class RolesService implements OnModuleInit {
     }
 
     const updated = await this.rolesRepository.update(id, dto);
+    const changes = diffFields(existing, updated, AUDITED_ROLE_FIELDS);
+    if (caller && changes) {
+      await this.audit?.record(caller, 'role.updated', { type: 'role', id, label: existing.name }, changes);
+    }
 
     // Invalidate role cache (the resolved matrix and the cached role row)
     await this.forgetRole(id);
@@ -111,7 +130,7 @@ export class RolesService implements OnModuleInit {
     return updated;
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string, caller?: JwtUser): Promise<void> {
     const existing = await this.rolesRepository.findById(id);
     if (!existing) {
       throw new NotFoundException(`Role with id "${id}" not found`);
@@ -129,6 +148,7 @@ export class RolesService implements OnModuleInit {
 
     await this.rolesRepository.delete(id);
     await this.forgetRole(id);
+    if (caller) await this.audit?.record(caller, 'role.deleted', { type: 'role', id, label: existing.name });
   }
 
   /**

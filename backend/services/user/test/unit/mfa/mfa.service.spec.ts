@@ -194,6 +194,28 @@ describe('MfaService — switching it on and off', () => {
 });
 
 describe('MfaService.setByAdmin', () => {
+  it('records who switched it, and from what', async () => {
+    const { svc, audit } = make(user({ smsMfaEnabled: true }));
+    const admin = { id: 'u-admin', cognitoSub: 's', email: 'a@x.y', roleId: 'role-admin', department: 'office' };
+
+    await svc.setByAdmin('u-1', false, admin);
+
+    expect(audit.record).toHaveBeenCalledWith(
+      admin,
+      'user.mfa_changed',
+      expect.objectContaining({ type: 'user', id: 'u-1' }),
+      { smsMfaEnabled: { from: true, to: false } },
+    );
+  });
+
+  it('a refused switch records nothing', async () => {
+    const { svc, audit } = make(user({ phone: undefined }));
+    const admin = { id: 'u-admin', cognitoSub: 's', email: 'a@x.y', roleId: 'role-admin', department: 'office' };
+
+    await expect(svc.setByAdmin('u-1', true, admin)).rejects.toBeInstanceOf(BadRequestException);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
   it('switches someone off — a lost phone', async () => {
     const { svc, repository } = make(user({ smsMfaEnabled: true }));
 

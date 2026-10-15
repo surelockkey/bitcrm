@@ -19,6 +19,7 @@ import { AuthModule } from './auth/auth.module';
 import { RolesModule } from './roles/roles.module';
 import { TechniciansModule } from './technicians/technicians.module';
 import { SecurityModule } from './security/security.module';
+import { AuditModule } from './audit/audit.module';
 
 @Module({
   imports: [
@@ -51,6 +52,9 @@ import { SecurityModule } from './security/security.module';
           : {},
       },
     }),
+    // AuditModule (global) before everything with a `GET /:id`: its
+    // `GET /api/users/audit` must not be read as a user id.
+    AuditModule,
     // SecurityModule first: its `GET /api/users/security-settings` must be
     // registered ahead of the users module's `GET /api/users/:id`, which the
     // modules below pull in through their forwardRef imports of UsersModule.
