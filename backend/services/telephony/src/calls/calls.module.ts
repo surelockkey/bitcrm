@@ -27,6 +27,7 @@ import { CallFinalizer } from './call-finalizer';
 import { RecentCallsStore } from './recent-calls.store';
 import { CallCountersRepository } from './call-counters.repository';
 import { RecordingArchiveService } from './recording-archive.service';
+import { ClientNumberHistory } from './client-number-history';
 @Module({
   // VoiceModule provides ConferenceService (monitor grants) and itself imports
   // CallsModule for the record writer — hence the forwardRef pair.
@@ -71,6 +72,9 @@ import { RecordingArchiveService } from './recording-archive.service';
     CallCountersRepository,
     // Twilio recording → our bucket, on VoiceModule's WebhookQueue.
     RecordingArchiveService,
+    // The masked call's caller id: the company numbers a client has been
+    // talking to (their calls + messaging's SMS thread), for BridgeService.
+    ClientNumberHistory,
   ],
   exports: [CallsService, CallEventsBus, BridgeService],
 })

@@ -161,14 +161,18 @@ export class VoiceController {
     return '<Response/>';
   }
 
-  /** Answer webhook for the technician's leg on a masked bridge. */
+  /**
+   * Answer webhook for the technician's leg on a masked bridge. With
+   * `whisper=1` (the leg CallsController.ringTechnician places with
+   * answering-machine detection) the body carries `AnsweredBy`.
+   */
   @Post('bridge-join')
   @Header('Content-Type', 'text/xml')
   @ApiExcludeEndpoint()
   bridgeJoin(
     @Query('b') bridgeId: string,
     @Query('whisper') whisper: string | undefined,
-    @Body() body: { CallSid?: string; Digits?: string },
+    @Body() body: { CallSid?: string; Digits?: string; AnsweredBy?: string },
   ): Promise<string> {
     return this.voiceService.buildBridgeJoin(
       bridgeId ?? '',

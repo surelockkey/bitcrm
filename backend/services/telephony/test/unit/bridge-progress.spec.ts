@@ -82,13 +82,36 @@ describe('technicianLegProgress — the technician’s own handset', () => {
     });
   });
 
-  it('completed before any key was pressed means the client was never called', () => {
-    // The whisper hangs up when nobody presses a key — a voicemail box, or a
-    // technician who put the phone down. Either way nobody rang the client.
-    expect(technicianLegProgress({ CallStatus: 'completed' }, 'you_answered')).toEqual({
-      state: 'failed',
-      reason: BRIDGE_REASONS.noKeyPressed,
-    });
+  /**
+   * No key press any more (2026-10-15): Twilio's answering-machine detection
+   * decides, and a voicemail box is hung up before the client is dialled.
+   * The completed callback carries the same `AnsweredBy`.
+   */
+  it.each(['machine_start', 'machine_end_beep', 'fax'])(
+    'completed before the client was dialled, answered by %s, is the voicemail outcome',
+    (AnsweredBy) => {
+      expect(
+        technicianLegProgress({ CallStatus: 'completed', AnsweredBy }, 'you_answered'),
+      ).toEqual({
+        state: 'failed',
+        reason: 'Your voicemail answered, so the client was not called',
+      });
+      expect(BRIDGE_REASONS.voicemail).toBe('Your voicemail answered, so the client was not called');
+    },
+  );
+
+  it('completed before the client was dialled, by a person, is them hanging up — not a failure', () => {
+    // The technician answered and put the phone down while it was still
+    // listening: nothing went wrong, so nothing is reported as a failure.
+    for (const AnsweredBy of ['human', 'unknown', undefined]) {
+      expect(
+        technicianLegProgress({ CallStatus: 'completed', AnsweredBy }, 'you_answered'),
+      ).toEqual({ state: 'ended' });
+    }
+  });
+
+  it('never blames a missing key press any more', () => {
+    expect(Object.values(BRIDGE_REASONS).join(' ')).not.toMatch(/key/i);
   });
 
   it('canceled is the Cancel button, not a failure', () => {

@@ -36,6 +36,21 @@ export class MessagesController {
     };
   }
 
+  @Get('conversations/internal/by-party/:kind/:id/business-number')
+  @Internal()
+  @ApiOperation({
+    summary: 'The company number a party last texted with (internal)',
+    description:
+      '**Guard:** Internal service-to-service only (`x-internal-secret` header required). ' +
+      '`{ businessNumber, at? }` — the company number (E.164) on the newest SMS of the party\'s ' +
+      'thread that was not a failed send, and when; `at` is absent when that message is older than ' +
+      'the newest 50. `null` when the party has no thread or no message ever carried a company number. ' +
+      'Telephony reads it for the masked call\'s caller id ("call me about this job").',
+  })
+  async internalBusinessNumber(@Param('kind') kind: string, @Param('id') id: string) {
+    return { success: true, data: await this.messages.lastBusinessNumberInternal(kind, id) };
+  }
+
   @Get('conversations/:id/messages')
   @RequirePermission('messages', 'view')
   @ApiOperation({

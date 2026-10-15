@@ -78,17 +78,31 @@ describe('ConferenceService — the technician’s handset moves the bridge alon
     expect(await status(bridge)).toEqual({ state: 'failed', reason: 'Your phone did not answer' });
   });
 
-  it('answered, then hung up without a key, says the client was never called', async () => {
+  it('answered by voicemail, then over, says the voicemail answered and the client was never called', async () => {
+    const { service, bridge } = make();
+    await bridge.track(BRIDGE, OWNER);
+    await service.onBridgeLegStatus(BRIDGE, { CallSid: 'CAtech', CallStatus: 'in-progress' });
+
+    await service.onBridgeLegStatus(BRIDGE, {
+      CallSid: 'CAtech',
+      CallStatus: 'completed',
+      AnsweredBy: 'machine_start',
+    });
+
+    expect(await status(bridge)).toEqual({
+      state: 'failed',
+      reason: 'Your voicemail answered, so the client was not called',
+    });
+  });
+
+  it('answered by a person who hung up before the client was dialled is the end, not a failure', async () => {
     const { service, bridge } = make();
     await bridge.track(BRIDGE, OWNER);
     await service.onBridgeLegStatus(BRIDGE, { CallSid: 'CAtech', CallStatus: 'in-progress' });
 
     await service.onBridgeLegStatus(BRIDGE, { CallSid: 'CAtech', CallStatus: 'completed' });
 
-    expect(await status(bridge)).toEqual({
-      state: 'failed',
-      reason: 'No key was pressed on your phone, so the client was not called',
-    });
+    expect(await status(bridge)).toEqual({ state: 'ended' });
   });
 
   it('hanging up after a connected call is the end, not a failure', async () => {

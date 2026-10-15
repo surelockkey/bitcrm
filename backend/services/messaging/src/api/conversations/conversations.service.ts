@@ -112,6 +112,18 @@ export class ConversationsService {
     return maskConversation(conversation, viewer.seesNumbers);
   }
 
+  /**
+   * The thread of a party, raw and unmasked, or null — no caller, no scope.
+   * For internal routes only (telephony's masked call asks which company
+   * number a client has been texting).
+   */
+  async getByPartyInternal(kind: string, id: string): Promise<Conversation | null> {
+    if (!(CONVERSATION_POINTER_KINDS as readonly string[]).includes(kind)) {
+      throw new BadRequestException(`kind must be one of ${CONVERSATION_POINTER_KINDS.join(', ')}`);
+    }
+    return this.conversations.getByParty(kind as ConversationPointerKind, id);
+  }
+
   /** A9 — the thread an E.164 number or email routes to. */
   async getByAddress(address: string, user: JwtUser, perms?: ResolvedPermissions): Promise<MaybeMaskedConversation> {
     const viewer = this.scope.viewerFor(user, perms);

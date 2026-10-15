@@ -74,7 +74,7 @@ function makeService(
     userPhones as never,
   );
 
-  return { service, exts, deals, contacts, bridge, counters, userPhones };
+  return { service, exts, deals, contacts, bridge, counters, userPhones, callerIds };
 }
 
 describe('DialInService.resolve', () => {
@@ -91,6 +91,20 @@ describe('DialInService.resolve', () => {
       to: '+14045551234',
       from: '+14045550100',
     });
+  });
+
+  /**
+   * Pin (2026-10-15): only the masked call ("call me about this job") puts the
+   * client's recent numbers ahead of the market. The dial-in keeps the
+   * market chain — it hands the resolver no history.
+   */
+  it('keeps the market caller id chain — no client history', async () => {
+    const { service, callerIds } = makeService();
+
+    await service.resolve('4729', '+14045550134');
+
+    expect(callerIds.forServerLeg).toHaveBeenCalledTimes(1);
+    expect(callerIds.forServerLeg.mock.calls[0]).toEqual([DEAL]);
   });
 
   it('connects to the job’s own first number when it has one ("This job only")', async () => {

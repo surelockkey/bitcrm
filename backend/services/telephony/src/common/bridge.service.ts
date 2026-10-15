@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { RedisService } from '@bitcrm/shared';
@@ -13,13 +14,14 @@ import { DealReadService, type DealForCall } from './deal-read.service';
 import { ContactLookupService } from './contact-lookup.service';
 import { CallerIdResolver } from '../voice/caller-id.resolver';
 import { CallsService } from '../calls/calls.service';
+import { ClientNumberHistory } from '../calls/client-number-history';
 import {
   nextProgress,
   type BridgeProgress,
   type BridgeState,
 } from './bridge-progress';
 
-/** Long enough for a technician to answer and press a key, and no longer. */
+/** Long enough for a technician to answer and be screened for voicemail, and no longer. */
 const CONTEXT_TTL_SECONDS = 300;
 /**
  * Covers the window between minting a bridge and the leg reaching a terminal
@@ -62,7 +64,7 @@ export interface BridgeContext {
   technicianId: string;
   /** The client's real E.164 — the only place it lives during a bridge. */
   to: string;
-  /** The market number the client will see. */
+  /** The number the client will see: the one they have been talking to, else the market's. */
   from: string;
   callerIdSource?: string;
   dealId: string;
@@ -91,6 +93,7 @@ export class BridgeService {
     private readonly contacts: ContactLookupService,
     private readonly callerIds: CallerIdResolver,
     private readonly calls: CallsService,
+    @Optional() private readonly history?: ClientNumberHistory,
   ) {}
 
   /**
@@ -173,7 +176,11 @@ export class BridgeService {
         throw new ConflictException('You are already on a call');
       }
 
-      const { callerId, source } = await this.callerIds.forServerLeg(deal);
+      // The client is rung from the number they have been talking to
+      // (2026-10-15), else the job's market. Only this path passes the
+      // history — the technician dial-in keeps market first.
+      const recent = await this.recentNumbers(req.contactId);
+      const { callerId, source } = await this.callerIds.forServerLeg(deal, recent);
 
       const context: BridgeContext = {
         technicianId: user.id,
@@ -206,6 +213,24 @@ export class BridgeService {
       // Never leave the user locked out because preparation failed.
       await this.release(user.id, bridgeId);
       throw error;
+    }
+  }
+
+  /**
+   * The company numbers this client has been talking to, newest first. Never
+   * a reason to refuse the call: unreadable history is no history.
+   */
+  private async recentNumbers(contactId: string): Promise<string[]> {
+    if (!this.history) return [];
+    try {
+      return await this.history.numbersFor(contactId);
+    } catch (error) {
+      this.logger.warn(
+        `client ${contactId}: recent numbers unreadable, market caller id instead: ${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+      return [];
     }
   }
 

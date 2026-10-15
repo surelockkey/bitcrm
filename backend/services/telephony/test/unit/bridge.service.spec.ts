@@ -57,6 +57,8 @@ function makeService(
     phones?: { phones: string[]; name?: string } | null;
     callerId?: { callerId?: string; source?: string };
     activeCall?: unknown;
+    /** What the client's call/SMS history answers; an Error makes it fail. */
+    history?: string[] | Error;
   } = {},
 ) {
   const redis = fakeRedis();
@@ -80,14 +82,21 @@ function makeService(
   const calls = {
     activeCallFor: jest.fn().mockResolvedValue(over.activeCall ?? null),
   };
+  const history = {
+    numbersFor: jest.fn(async () => {
+      if (over.history instanceof Error) throw over.history;
+      return over.history ?? [];
+    }),
+  };
   const service = new BridgeService(
     redis as never,
     deals as never,
     contacts as never,
     callerIds as never,
     calls as never,
+    history as never,
   );
-  return { service, redis, deals, contacts, callerIds, calls };
+  return { service, redis, deals, contacts, callerIds, calls, history };
 }
 
 describe('BridgeService.mayReachDeal', () => {
@@ -167,6 +176,35 @@ describe('BridgeService.prepare', () => {
     const ctx = redis.hashes.get(`telephony:bridge:${out.bridgeId}`)!;
     expect(ctx.from).toBe('+14045550100');
     expect(ctx.callerIdSource).toBe('area');
+  });
+
+  /**
+   * 2026-10-15, variant 2 of the masked call: the client is rung "from the
+   * number the client has been talking to". The bridge hands the client's
+   * history to the resolver, which keeps the first number we still own.
+   */
+  it('shows the client the company number they have been talking to', async () => {
+    const { service, redis, history, callerIds } = makeService({
+      history: ['+15555550000', '+14045550100'],
+      callerId: { callerId: '+15555550000', source: 'recent' },
+    });
+
+    const out = await service.prepare(TECH, { dealId: 'deal-1', contactId: 'contact-1' });
+
+    expect(history.numbersFor).toHaveBeenCalledWith('contact-1');
+    expect(callerIds.forServerLeg).toHaveBeenCalledWith(DEAL, ['+15555550000', '+14045550100']);
+    const ctx = redis.hashes.get(`telephony:bridge:${out.bridgeId}`)!;
+    expect(ctx.from).toBe('+15555550000');
+    expect(ctx.callerIdSource).toBe('recent');
+  });
+
+  it('a history that cannot be read never costs the call — the market chain, as before', async () => {
+    const { service, callerIds } = makeService({ history: new Error('dynamo down') });
+
+    const out = await service.prepare(TECH, { dealId: 'deal-1', contactId: 'contact-1' });
+
+    expect(out.bridgeId).toBeDefined();
+    expect(callerIds.forServerLeg).toHaveBeenCalledWith(DEAL, []);
   });
 
   it('refuses a technician who is not on the job', async () => {
