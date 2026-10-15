@@ -39,7 +39,7 @@ function seedProductQueries(client: QueryClient) {
     queryKeys.inventory.products.stock("p1"),
   ];
   const kept = [
-    queryKeys.inventory.products.map(),
+    queryKeys.inventory.products.search(""),
     queryKeys.inventory.products.photo("p1"),
   ];
   for (const key of [...moved, ...kept]) client.setQueryData(key, {});

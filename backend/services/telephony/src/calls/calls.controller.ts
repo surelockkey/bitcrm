@@ -49,6 +49,7 @@ import { UserPhoneLookupService } from '../common/user-phone-lookup.service';
 import { UserDirectoryService } from '../common/user-directory.service';
 import { PermissionLookupService } from '../common/permission-lookup.service';
 import { BridgeService } from '../common/bridge.service';
+import { technicianLegProgress } from '../common/bridge-progress';
 import { PresenceService } from '../presence/presence.service';
 import { TwilioRest } from '@bitcrm/shared';
 import { maskCall, maskCalls } from './call-masking';
@@ -62,12 +63,19 @@ const SSE_HEARTBEAT_MS = 25_000;
  * How long the technician's own handset rings on a masked bridge. Twilio adds
  * up to a 5-second buffer to this, so the effective ring is ~20s — under the
  * ~25s at which most carriers hand over to voicemail. That margin is a nicety,
- * not a defence: the whisper gather is what actually stops a voicemail box
- * taking the call.
+ * not a defence: answering-machine detection is what actually stops a
+ * voicemail box taking the call.
  */
 const BRIDGE_RING_SECONDS = Number(
   process.env.TELEPHONY_BRIDGE_RING_SECONDS ?? 15,
 );
+/**
+ * How long Twilio's answering-machine detection may listen to the technician's
+ * leg before it gives up with `AnsweredBy=unknown` (which connects). Twilio's
+ * default is 30 s of a technician hearing silence; a person saying "Hello?"
+ * is recognised in a second or two, a silent one after ~5 s.
+ */
+const BRIDGE_AMD_TIMEOUT_SECONDS = 8;
 
 /** The body of POST /calls/bridge — a handle, never a phone number. */
 /** Which end of the call rings the person placing it. */
@@ -979,7 +987,8 @@ export class CallsController {
       'never reaches the browser. `via` picks which end rings the caller ' +
       '(`cell` rings their handset, then dials the client; `softphone` opens ' +
       'a browser leg); omitted, presence decides. Returns immediately with a ' +
-      'bridgeId; watch GET /calls/active for progress.',
+      'bridgeId; a `cell` bridge reports its progress on ' +
+      'GET /calls/bridge/:bridgeId.',
   })
   async startBridge(
     @Body() dto: StartBridgeDto,
@@ -1033,12 +1042,38 @@ export class CallsController {
     };
   }
 
+  @Get('bridge/:bridgeId')
+  @ApiOperation({
+    summary: 'Where a masked call stands',
+    description:
+      '**Guard:** Authenticated (any role), exactly like `POST /calls/bridge` — and ' +
+      'only for the user who started the bridge: anyone else gets 404, as does an ' +
+      'unknown or expired id, so a bridge id cannot be probed. Returns ' +
+      '`{state, reason?}`. `state` moves `ringing_you` → `you_answered` → ' +
+      '`connecting_client` → `connected` → `ended`, or stops at `failed` with a ' +
+      '`reason` to show as is ("Your phone did not answer", "Your number could not ' +
+      'be reached from the company line", "Your voicemail answered, so the client ' +
+      'was not called", "The client\'s line is busy", …), read off both legs\' ' +
+      'Twilio status callbacks (CallStatus, SipResponseCode, ErrorCode, ' +
+      'AnsweredBy). Kept 5 minutes after the last change. The phone polls it every ' +
+      '2 s after a `cell` bridge.',
+  })
+  async bridgeStatus(
+    @Param('bridgeId') bridgeId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const progress = await this.bridge.statusFor(bridgeId, user.id);
+    if (!progress) throw new NotFoundException('Call not found');
+    return { success: true, data: progress };
+  }
+
   @Delete('bridge/:bridgeId')
   @ApiOperation({
     summary: 'Cancel a bridge that is still ringing',
     description:
-      'The creator or the technician being rung. A mis-tap must be abortable ' +
-      'before the client is ever dialled.',
+      'The creator or the technician being rung. Hangs up the technician\'s ' +
+      'leg while it rings: a mis-tap must be abortable before the client is ' +
+      'ever dialled.',
   })
   async cancelBridge(
     @Param('bridgeId') bridgeId: string,
@@ -1050,9 +1085,14 @@ export class CallsController {
       throw new ForbiddenException('That is not your call');
     }
 
-    const legSid = await this.bridge.answerClaim(bridgeId);
+    // The answer claim names the leg only once bridge-join connected it;
+    // while the handset still rings, the leg is the one ringTechnician placed.
+    const legSid =
+      (await this.bridge.answerClaim(bridgeId)) ??
+      (await this.bridge.ringingLeg(bridgeId));
     if (legSid) await this.cancelLeg(legSid);
     await this.bridge.release(ctx.technicianId, bridgeId);
+    await this.bridge.advance(bridgeId, () => ({ state: 'ended' }));
     return { success: true, data: { cancelled: true } };
   }
 
@@ -1085,20 +1125,31 @@ export class CallsController {
 
     const base = this.config.publicBaseUrl;
     try {
+      // Before the leg exists: Twilio can report a leg it refused before
+      // calls.create has returned, and that `failed` needs somewhere to land.
+      await this.bridge.track(bridgeId, ctx.actorId);
       const created = await new TwilioRest(this.config).run((c) =>
         c.calls.create({
           to: phone,
           from: ctx.from,
           url: `${base}/api/telephony/voice/bridge-join?b=${encodeURIComponent(bridgeId)}&whisper=1`,
           method: 'POST',
-          // Twilio adds up to a 5s buffer, so the effective ring is ~20s. The
-          // whisper gather is the real voicemail defence, not this.
+          // The voicemail defence (2026-10-15, instead of "press any key"):
+          // synchronous detection, so Twilio fetches `url` only with a
+          // verdict in `AnsweredBy`, and bridge-join hangs up on a machine
+          // before the client is dialled. This leg only — no other leg we
+          // place is screened this way.
+          machineDetection: 'Enable',
+          machineDetectionTimeout: BRIDGE_AMD_TIMEOUT_SECONDS,
+          // Twilio adds up to a 5s buffer, so the effective ring is ~20s.
+          // Detection is the real voicemail defence, not this.
           timeout: BRIDGE_RING_SECONDS,
           statusCallback: `${base}/api/telephony/voice/status?bridge=${encodeURIComponent(bridgeId)}`,
           statusCallbackMethod: 'POST',
           statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
         }),
       );
+      await this.bridge.rememberLeg(bridgeId, created.sid);
 
       await this.callsService.applyLifecycle({
         callSid: created.sid,
@@ -1113,6 +1164,13 @@ export class CallsController {
       return created.sid;
     } catch (error) {
       await this.bridge.release(ctx.technicianId, bridgeId);
+      // Nobody will poll a bridge whose POST failed; this only keeps the
+      // record from saying "ringing" for a phone that never rang.
+      await this.bridge
+        .advance(bridgeId, (current) =>
+          technicianLegProgress({ CallStatus: 'failed' }, current),
+        )
+        .catch(() => undefined);
       throw error;
     }
   }

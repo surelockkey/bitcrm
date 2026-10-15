@@ -106,3 +106,15 @@ describe('TechNoticesService.late', () => {
     await expect(makeService({ settings: { lateMsgNotify: false } }).service.late({ dealId: 'd1', minutes: 5 }, techCaller)).rejects.toBeInstanceOf(AutomationDisabledException);
   });
 });
+
+describe('TechNoticesService.texts', () => {
+  it('answers the three settings texts the phone renders its preview from', async () => {
+    const { service } = makeService({ settings: { companyName: 'Sure Lock & Key' } });
+    await expect(service.texts()).resolves.toEqual({ onMyWayMsg: ON_MY_WAY, lateMsg: LATE, companyName: 'Sure Lock & Key' });
+  });
+
+  it('answers empty strings, never undefined, for fields the settings record lacks', async () => {
+    const { service } = makeService({ settings: { onMyWayMsg: undefined, lateMsg: undefined } });
+    await expect(service.texts()).resolves.toEqual({ onMyWayMsg: '', lateMsg: '', companyName: '' });
+  });
+});

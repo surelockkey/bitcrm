@@ -46,19 +46,21 @@ export class AddDealProductDto {
   @Min(1)
   quantity!: number;
 
-  // The line's costs are the price book's, read by the server from inventory
-  // (`costCompany` / `costTech`). Inventory leaves `costCompany` out of every
-  // catalog answer for a caller without `financials.view` — a technician, a
-  // dispatcher — so requiring it here made adding an item impossible for them.
-  // No client ever sent anything but the catalog's own numbers, so the fields
-  // are accepted for old clients and ignored.
+  // Workiz "Add job item" has a Cost box: the line's own cost, prefilled from
+  // the price book. Inventory leaves `costCompany` out of every catalog answer
+  // for a caller without `financials.view` — a technician, a dispatcher — so
+  // only a caller with it may set the cost; from anyone else it is ignored.
   @ApiPropertyOptional({
     example: 15.0,
-    deprecated: true,
-    description: "Ignored — the server copies the price book's `costCompany`.",
+    description:
+      "The line's cost to the company (Workiz \"Cost\"). Honoured for a caller with `financials.view`; " +
+      "otherwise, and when absent, the price book's `costCompany` on add or a swap, and the line's own " +
+      'on an in-place edit (Workiz freezes the cost on the line). Σ quantity × cost over the lines is the ' +
+      "job's Company Cost and the commissions report's Company Parts.",
   })
   @IsOptional()
   @IsNumber()
+  @Min(0)
   costCompany?: number;
 
   @ApiPropertyOptional({
@@ -73,8 +75,10 @@ export class AddDealProductDto {
   @ApiProperty({
     example: 45.0,
     description:
-      "The client price. Must stay within ±15% of the price book's `priceClient` (400 " +
-      'otherwise) — except on an imported Workiz line edited in place at its recorded price.',
+      "The client price; below zero is a credit line (Workiz \"Approved Discount\"). A technician " +
+      "(deals scope `assigned_only`) must stay within ±15% of the price book's `priceClient` (400 " +
+      'otherwise) — except on an imported Workiz line edited in place at its recorded price; the office ' +
+      'sets any price.',
   })
   @IsNumber()
   priceClient!: number;
@@ -94,6 +98,16 @@ export class AddDealProductDto {
   @IsString()
   @MaxLength(2000)
   description?: string;
+
+  @ApiPropertyOptional({
+    example: 'user-uuid',
+    description:
+      'Workiz "Sold by": the user credited with this line. Absent on add → nobody; absent on an edit → ' +
+      'the line keeps its own; `""` clears it.',
+  })
+  @IsOptional()
+  @IsString()
+  soldBy?: string;
 
   @ApiPropertyOptional({
     type: 'object',

@@ -44,6 +44,12 @@ export interface DealTotalsSnapshot {
    * drops it). Read by `unpaid=true` until billing has asserted `amountPaid`.
    */
   amountDue?: number;
+  /**
+   * The total was typed by hand (the quick view's Finance box, Workiz
+   * `job_total_price`) on a job with no line items; the first line priced
+   * here replaces the snapshot.
+   */
+  manual?: boolean;
 }
 
 export interface Deal {
@@ -141,6 +147,25 @@ export interface Deal {
   invoiceId?: string;
   estimatedTotal?: number;
   actualTotal?: number;
+  /**
+   * Workiz "Tech Cost" (`parts`): what the technician spent on the job out
+   * of pocket, in dollars; and "Company Cost" (`company_parts`): what the
+   * company spent. Job-level amounts typed in the quick view's Finance box,
+   * read by the commissions figures. An imported job carries Workiz's.
+   */
+  techCost?: number;
+  companyCost?: number;
+  /**
+   * Workiz "Custom Tech Rate" (the job's "Commission rate" block, permission
+   * "Override Rates"): this job pays its technician a rate of its own — `%`
+   * of the commission split, or a fixed `$` — instead of his settings' and
+   * his job-type rules. Off, the rate is kept for next time; the commissions
+   * report takes it only while on. The importer writes Workiz's
+   * (`use_tech_special_rate`, `tech_special_rate` "45-precent" / "330-dollar").
+   */
+  useTechSpecialRate?: boolean;
+  techSpecialRate?: number;
+  techSpecialRateUnit?: '%' | '$';
   /**
    * Billing's flag for the job board: `unpaid` | `partial` | `paid`, asserted
    * from the ledger on every payment change. An imported job carries Workiz's

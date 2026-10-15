@@ -123,7 +123,7 @@ describe("InvoicesPage — Workiz's /root/invoices/", () => {
       "Invoice NO.", "Invoice Name", "Client", "Created", "Subtotal", "Tax", "Discount", "Amount", "Due", "Status", "Job", "Job name",
     ]);
     // Created carries Workiz's sort bar (newest first).
-    expect(within(grid()).getByRole("columnheader", { name: "Created" })).toHaveAttribute("aria-sort", "descending");
+    expect(within(document.querySelector("[data-slot=wz-report-grid-head]") as HTMLElement).getByRole("columnheader", { name: "Created" })).toHaveAttribute("aria-sort", "descending");
 
     const r = row(/1042/);
     const c = cells(r);

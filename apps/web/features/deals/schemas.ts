@@ -87,6 +87,15 @@ export type UpdateDealValues = Partial<
     businessProfileId: string | null;
     /** Workiz "Job name" (≤ 200 chars, stored trimmed); null clears it. */
     jobName: string | null;
+    /** Finance "Total" typed by hand — only while the job has no line items; null clears it. */
+    total: number | null;
+    /** Workiz "Tech Cost" / "Company Cost" (parts / company_parts); null clears. */
+    techCost: number | null;
+    companyCost: number | null;
+    /** Workiz "Custom Tech Rate": on needs a rate; a null rate clears it and turns it off. Needs commission.edit. */
+    useTechSpecialRate: boolean;
+    techSpecialRate: number | null;
+    techSpecialRateUnit: "%" | "$";
   }
 >;
 
@@ -106,13 +115,20 @@ export const addProductSchema = z
     name: z.string(),
     sku: z.string(),
     quantity: z.coerce.number().int().min(1, "At least 1"),
-    costCompany: z.number(),
-    costForTech: z.number(),
-    priceClient: z.coerce.number().min(0),
+    // The line's cost (Workiz "Cost"): the server honours it only from a
+    // caller with financials.view, and the catalog hides it from anyone else.
+    costCompany: z.number().min(0).optional(),
+    costForTech: z.number().optional(),
+    // May go below zero: a credit line (Workiz "Approved Discount"); a technician's band is the dialog's.
+    priceClient: z.coerce.number(),
     // Whether the job's tax applies to this line (absent ⇒ taxable).
     taxable: z.boolean().optional(),
     // Optional client-facing description shown on estimates/invoices.
     description: z.string().trim().max(1000).optional(),
+    // Workiz "Sold by": a user id; "" clears it on an edit.
+    soldBy: z.string().optional(),
+    // The line's custom field values, by field name (the item catalog's).
+    customAttributes: z.record(z.string(), z.string()).optional(),
   })
   .refine((v) => v.fulfillment !== "sourced" || !!v.sourceTechId, {
     message: "Pick a technician",

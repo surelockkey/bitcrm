@@ -867,3 +867,16 @@ describe("DealsTable — Connecticut time, labelled", () => {
     expect(cellOf("Created").textContent).toBe("Oct 8, 2026 EDT");
   });
 });
+
+/**
+ * The quick view opens whole, not as a spinner and then a jump: the cursor
+ * resting on a Job ID is the moment to warm the preview's data.
+ */
+describe("DealsTable — warming the quick view", () => {
+  it("tells the page which job the cursor is on", () => {
+    const onPeek = vi.fn();
+    render(<DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} onPeek={onPeek} />);
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Quick view 1042" }).closest("td")!);
+    expect(onPeek).toHaveBeenCalledWith(expect.objectContaining({ dealNumber: "1042" }));
+  });
+});

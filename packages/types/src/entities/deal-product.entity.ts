@@ -17,7 +17,8 @@ export type DealProductFulfillment =
 /**
  * Where the line's client price came from:
  * - `catalog`  — the product's list price, unchanged.
- * - `override` — set by hand within the ±15% band the add-item dialog enforces.
+ * - `override` — set by hand; the add-item dialog holds a technician to the
+ *   ±15% band, the office to nothing (web `priceBandBinds`).
  * - `imported` — recorded by Workiz. 128 460 of the 156 612 matched historical
  *   lines differ from today's catalog price and 110 865 sit outside ±15%, so
  *   the band must not judge them.
@@ -48,6 +49,13 @@ export interface DealProduct {
   name: string;
   sku: string;
   quantity: number;
+  /**
+   * What the line costs the company — Workiz's "Cost" on the job item. The
+   * price book's `costCompany` when the line is added, unless the office
+   * (`financials.view`) typed another; a line keeps its own cost from then
+   * on. Σ quantity × costCompany over the lines is the job's Company Cost
+   * (`Deal.companyCost`, the commissions report's Company Parts).
+   */
   costCompany: number;
   costForTech: number;
   priceClient: number;
@@ -86,6 +94,11 @@ export interface DealProduct {
   customAttributes?: Record<string, string>;
   /** The item group the line was added from (`ItemGroup.id`). */
   itemGroupId?: string;
+  /**
+   * Workiz "Sold by": the user credited with the sale of this line (a user
+   * id). Absent when nobody is. The importer writes Workiz's `sold_by`.
+   */
+  soldBy?: string;
   addedBy: string;
   addedAt: string;
   /** Set when the line was last edited (quantity/price change or product swap). */

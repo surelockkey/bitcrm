@@ -126,7 +126,12 @@ export function TechnicianForm({
   }
   return (
     <Form
-      key={profile.updatedAt}
+      // A fresh form per technician AND per saved version: the id, because
+      // the same page stays mounted from one card to the next and 89 of 93
+      // imported profiles share one updatedAt (the import's clock) — keyed by
+      // that alone, the next technician's card opened on the previous one's
+      // values and Save sent his phone ("… is already on X's profile").
+      key={`${technicianId}:${profile.updatedAt}`}
       technicianId={technicianId}
       profile={profile}
       user={user}
@@ -444,9 +449,13 @@ function Form({
                   </button>
                 ) : null}
               </div>
-              <span id={id("contact-why")} className="sr-only">
-                {NOT_YOURS}
-              </span>
+              {/* Only when something above points at it: in the DOM for everyone
+                  it read as a lock on an editable card (QA 2026-10-14 #10). */}
+              {contactWhy ? (
+                <span id={id("contact-why")} className="sr-only">
+                  {contactWhy}
+                </span>
+              ) : null}
 
               {/* "Call masking": they see the client's name and call through
                   the system, never the number. It writes through the
@@ -578,9 +587,11 @@ function Form({
               <div className="mt-6">
                 <OnboardingSection technicianId={technicianId} />
               </div>
-              <span id={id("work-why")} className="sr-only">
-                {MANAGER_ONLY}
-              </span>
+              {workWhy ? (
+                <span id={id("work-why")} className="sr-only">
+                  {workWhy}
+                </span>
+              ) : null}
             </div>
           </div>
         </div>

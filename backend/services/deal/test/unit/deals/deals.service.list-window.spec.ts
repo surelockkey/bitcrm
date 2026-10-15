@@ -78,9 +78,28 @@ describe('DealsService.list — the schedule window', () => {
     );
   });
 
-  it('a window wider than 31 days is refused', async () => {
+  // The schedule's Month view reads the calendar month plus the day before it
+  // (a job on an early-morning visit sits on the previous Connecticut day), so a
+  // 31-day month asks for 32 days — and a six-week month grid for up to 42.
+  it('a six-week window is served: a 31-day month plus the day before it', async () => {
+    await service.list({ scheduledFrom: '2026-09-30', scheduledTo: '2026-10-31' } as any, caller);
+    expect((repo as any).findBySchedule).toHaveBeenCalledWith(
+      expect.anything(),
+      { from: '2026-09-30', to: '2026-10-31', unscheduled: false },
+      expect.anything(),
+      undefined,
+      expect.any(Object),
+      expect.anything(),
+    );
+    await service.list({ scheduledFrom: '2026-09-28', scheduledTo: '2026-11-08' } as any, caller);
+  });
+
+  it('a window wider than six weeks is refused', async () => {
     await expect(
-      service.list({ scheduledFrom: '2026-01-01', scheduledTo: '2026-02-15' } as any, caller),
+      service.list({ scheduledFrom: '2026-09-28', scheduledTo: '2026-11-09' } as any, caller),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.list({ scheduledFrom: '2026-01-01', scheduledTo: '2026-03-15' } as any, caller),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect((repo as any).findBySchedule).not.toHaveBeenCalled();
   });

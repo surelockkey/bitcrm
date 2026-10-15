@@ -26,7 +26,7 @@ import { useUsers, useUsersCount } from "@/features/users/hooks";
 import type { UserFilter } from "@/features/users/api";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
 import { useDropStaleParams } from "@/features/inventory/use-popup";
-import { useAssignUserContainer, useUserContainers } from "../hooks";
+import { useAssignUserContainer, useLocationRoster, useUserContainers } from "../hooks";
 import type { AssignUserContainerBody } from "../api";
 import { assignmentOf, locationChoices } from "../lib";
 import { USER_CONTAINERS_TABLE_KEY, UserContainersTable, type UserContainerRow } from "./user-containers-table";
@@ -48,14 +48,15 @@ export function UserContainersPage() {
   if (denied("containers", "view")) {
     return <NoAccess text="You don't have permission to view containers." />;
   }
-  // The rows are the users directory; without it there is nothing to list.
-  if (denied("users", "view")) {
-    return <NoAccess text="Assigning containers needs permission to view users." />;
-  }
+  // Without the user directory (Logistics) the people come from the van
+  // roster — name and role only — so the page works with containers.view.
   return <Assignments />;
 }
 
-function matches(u: User, term: string): boolean {
+/** What a row needs of a person: the directory's user, or the roster's entry (no email). */
+type Person = Pick<User, "id" | "firstName" | "lastName"> & Partial<Pick<User, "email" | "roleId" | "workizName" | "status">>;
+
+function matches(u: Person, term: string): boolean {
   const hay = `${u.firstName ?? ""} ${u.lastName ?? ""} ${u.email ?? ""}`.toLowerCase();
   return hay.includes(term.toLowerCase());
 }
@@ -67,19 +68,30 @@ function Assignments() {
   const term = useDebouncedValue(search.trim(), 300);
   const searching = term.length > 0;
 
+  // Who may open the user directory. Without it (Logistics) the people come
+  // from the van roster: every active user by name and role, one request,
+  // paged and searched here.
+  const canUsers = !permsLoading && can("users", "view");
+  const roster = useLocationRoster(!permsLoading && !canUsers);
+
   // A page at a time from the server — the users service filters by status.
   // A new page size keeps the page on screen, dimmed, until the next lands.
-  const usersQ = useUsers(ACTIVE, pageSize, { keepPrevious: true });
-  const count = useUsersCount(ACTIVE);
+  const usersQ = useUsers(ACTIVE, pageSize, { keepPrevious: true, enabled: permsLoading || canUsers });
+  const count = useUsersCount(ACTIVE, permsLoading || canUsers);
   // It can't search, though, and filtering the one page on screen would miss
   // everyone on the others: a search reads the whole directory (the same
   // cache every name lookup in the app shares) and pages what matches.
   const directory = useQuery({
     queryKey: queryKeys.technicians.userMap(),
     queryFn: fetchAllUsers,
-    enabled: searching,
+    enabled: searching && canUsers,
     staleTime: 5 * 60 * 1000,
   });
+  const fromRoster = !permsLoading && !canUsers;
+  const rosterShown = useMemo<Person[]>(
+    () => (fromRoster ? (roster.data ?? []).filter((u) => !searching || matches(u, term)) : []),
+    [fromRoster, roster.data, searching, term],
+  );
   const searched = searching && !!directory.data;
   const found = useMemo(
     () =>
@@ -91,12 +103,15 @@ function Assignments() {
     [searched, directory.data, term],
   );
 
-  const pager = usePager(searched ? arraySource(found, pageSize) : pagedSource(usersQ), {
-    total: searched ? found.length : count.data?.total,
-    totalIsFloor: searched ? false : count.data?.atLeast,
-    pageSize,
-    resetKey: JSON.stringify({ term: searched ? term : "", pageSize }),
-  });
+  const pager = usePager<Person>(
+    fromRoster ? arraySource(rosterShown, pageSize) : searched ? arraySource(found, pageSize) : pagedSource(usersQ),
+    {
+      total: fromRoster ? rosterShown.length : searched ? found.length : count.data?.total,
+      totalIsFloor: fromRoster || searched ? false : count.data?.atLeast,
+      pageSize,
+      resetKey: JSON.stringify({ term: searched || fromRoster ? term : "", pageSize }),
+    },
+  );
 
   // Every assignment in one request, joined here by user id; a user without
   // one falls back to the van that names them as its technician.
@@ -128,14 +143,13 @@ function Assignments() {
   // screen, dimmed.
   const ready = useInventoryPageReady(
     !permsLoading &&
-      settled(usersQ) &&
-      settled(count) &&
+      (fromRoster ? settled(roster) : settled(usersQ) && settled(count)) &&
       settled(assignments) &&
       !locations.isLoading &&
       (!canRoles || settled(roles)),
   );
-  const stale = pager.isStale || (searching && !directory.data);
-  const failed = searching ? directory.isError : usersQ.isError && !usersQ.data;
+  const stale = fromRoster ? false : pager.isStale || (searching && !directory.data);
+  const failed = fromRoster ? roster.isError : searching ? directory.isError : usersQ.isError && !usersQ.data;
 
   // Each pick saves at once; the row's controls wait while it does.
   const assign = useAssignUserContainer();

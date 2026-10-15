@@ -1,16 +1,31 @@
 "use client";
 
+import { useCallback } from "react";
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./attachments-api";
 
-export function useAttachments(dealId: string) {
+export function useAttachments(dealId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.deals.attachments(dealId),
     queryFn: () => api.listAttachments(dealId),
+    enabled,
   });
+}
+
+/**
+ * The job's files changed outside the Attachments tab — a file custom field
+ * uploads through the same presigned route — so the tab's list and the tab
+ * bar's "N attachments" are read again rather than waiting on a reload.
+ */
+export function useRefreshAttachments(dealId: string) {
+  const qc = useQueryClient();
+  return useCallback(
+    () => void qc.invalidateQueries({ queryKey: queryKeys.deals.attachments(dealId) }),
+    [qc, dealId],
+  );
 }
 
 /**

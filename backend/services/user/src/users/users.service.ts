@@ -74,6 +74,19 @@ export interface TechnicianEligibilityInfo {
 }
 
 /**
+ * One person on Inventory → User locations: who they are and their role — no
+ * email, no phone. What a role that works the vans (`containers.view`) sees of
+ * the team without the user directory (`users.view`).
+ */
+export interface UserRosterEntry {
+  id: string;
+  firstName: string;
+  lastName: string;
+  workizName?: string;
+  roleId: string;
+}
+
+/**
  * A teammate reduced to what a name join needs. Deliberately NOT a `Partial<User>`
  * — the point is that nothing else can be added by accident.
  */
@@ -470,9 +483,10 @@ export class UsersService implements OnModuleInit {
     await this.cache.setUser(user);
     this.businessMetrics?.entityCreated.inc({ entity_type: 'user' });
     this.publishUserEvent('user.activated', user);
-    // Workiz's "Track Location" seeds the card; a subcontractor has no app to track.
+    // Workiz's "Track Location" seeds the card — on unless the request says no
+    // (owner, 2026-10-15); a subcontractor has no app to track.
     await this.ensureTechnicianProfile(user, {
-      gpsTrackingEnabled: !subcontractor && dto.gpsTrackingEnabled === true,
+      gpsTrackingEnabled: !subcontractor && dto.gpsTrackingEnabled !== false,
     });
     await this.audit?.record(caller, 'user.created', auditTargetOf(user), diffFields({}, user, CREATED_FIELDS));
     return user;
@@ -766,6 +780,22 @@ export class UsersService implements OnModuleInit {
    *    particular not a teammate's personal phone, which the call log treats
    *    as identifying.
    */
+  /** The active people for Inventory → User locations, by name — see `UserRosterEntry`. */
+  async locationRoster(): Promise<UserRosterEntry[]> {
+    const shown = (u: { workizName?: string; firstName?: string; lastName?: string }) =>
+      (u.workizName || `${u.firstName ?? ''} ${u.lastName ?? ''}`).trim().toLowerCase();
+    return (await this.listAllUsers())
+      .filter((u) => u.status === UserStatus.ACTIVE)
+      .sort((a, b) => shown(a).localeCompare(shown(b)))
+      .map((u) => ({
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        ...(u.workizName && { workizName: u.workizName }),
+        roleId: u.roleId,
+      }));
+  }
+
   async namesByIds(ids: string[]): Promise<UserName[]> {
     const wanted = [...new Set((ids ?? []).filter((id) => typeof id === 'string' && id))]
       .slice(0, MAX_NAME_LOOKUP);
@@ -853,8 +883,10 @@ export class UsersService implements OnModuleInit {
     const changes = diffFields(existingUser, attrs, Object.keys(attrs));
     if (changes) await this.audit?.record(caller, 'user.updated', auditTargetOf(existingUser), changes);
 
-    // Sync department to Cognito if changed
-    if (dto.department) {
+    // Sync department to Cognito if changed — when there is an account to
+    // sync: an imported person has none until the invite makes it, and the
+    // invite writes the claim from this record.
+    if (dto.department && existingUser.cognitoSub) {
       await this.cognitoAdmin.updateUserAttributes(
         existingUser.cognitoSub,
         { 'custom:department': dto.department },
@@ -899,14 +931,16 @@ export class UsersService implements OnModuleInit {
       // The sign-in goes FIRST, and a failure stops the change: a person
       // marked a subcontractor who can still sign in is the one outcome this
       // must never leave behind. (Locked out but still a User is recoverable.)
-      await this.cognitoAdmin.disableUser(user.cognitoSub);
+      // A person with no account yet has no sign-in to take away.
+      if (user.cognitoSub) await this.cognitoAdmin.disableUser(user.cognitoSub);
       await this.permissionCacheReader.setUserDisabled(id);
     }
     const updated = await this.repository.update(id, { userType: type });
     if (type === 'regular' && user.status !== UserStatus.INACTIVE) {
       // After the write, for the same reason the other way round: a failure
       // here leaves a User who cannot sign in yet — Reactivate gives it back.
-      await this.cognitoAdmin.enableUser(user.cognitoSub);
+      // No account yet: the invite below makes one, switched on.
+      if (user.cognitoSub) await this.cognitoAdmin.enableUser(user.cognitoSub);
       await this.permissionCacheReader.removeUserDisabled(id);
       await this.cognitoAdmin.resendInvite(user.email).catch((err: Error) =>
         this.logger.log(
@@ -932,8 +966,12 @@ export class UsersService implements OnModuleInit {
 
     await this.assertCallerCanManageUser(caller, user);
 
+    // The account first: a refused Cognito call (an IAM gap, dev 2026-10-14)
+    // must not leave a record that says "inactive" over a person who can
+    // still sign in. The record follows only once sign-in is really off.
+    // A person with no account yet (imported, never invited) has none to switch off.
+    if (user.cognitoSub) await this.cognitoAdmin.disableUser(user.cognitoSub);
     await this.repository.update(id, { status: UserStatus.INACTIVE });
-    await this.cognitoAdmin.disableUser(user.cognitoSub);
     await this.permissionCacheReader.setUserDisabled(id);
     await this.cache.invalidateUser(id);
     await this.audit?.record(caller, 'user.deactivated', auditTargetOf(user));
@@ -946,10 +984,13 @@ export class UsersService implements OnModuleInit {
 
     await this.assertCallerCanManageUser(caller, user);
 
-    await this.repository.update(id, { status: UserStatus.ACTIVE });
-    // A subcontractor comes back to the team, not to the sign-in page.
-    if (!isSubcontractor(user)) {
+    // A subcontractor comes back to the team, not to the sign-in page. The
+    // account first, the record after — as deactivate does it.
+    if (!isSubcontractor(user) && user.cognitoSub) {
       await this.cognitoAdmin.enableUser(user.cognitoSub);
+    }
+    await this.repository.update(id, { status: UserStatus.ACTIVE });
+    if (!isSubcontractor(user)) {
       await this.permissionCacheReader.removeUserDisabled(id);
     }
     await this.cache.invalidateUser(id);
@@ -1062,9 +1103,12 @@ export class UsersService implements OnModuleInit {
       permissionOverrides: carried,
     });
 
-    await this.cognitoAdmin.updateUserAttributes(targetUser.cognitoSub, {
-      'custom:role_id': roleId,
-    });
+    // No account yet: the invite writes the role claim from the record.
+    if (targetUser.cognitoSub) {
+      await this.cognitoAdmin.updateUserAttributes(targetUser.cognitoSub, {
+        'custom:role_id': roleId,
+      });
+    }
 
     await this.cache.invalidateUser(userId);
     await this.rolesCache.invalidateUserPermissions(userId);
@@ -1192,7 +1236,8 @@ export class UsersService implements OnModuleInit {
         userId,
         ...(isSubcontractor(user) ? { technicianType: 'subcontractor' as const } : {}),
         callMaskingEnabled: false,
-        gpsTrackingEnabled: seed.gpsTrackingEnabled === true,
+        // On by default (owner, 2026-10-15); never for a subcontractor.
+        gpsTrackingEnabled: !isSubcontractor(user) && seed.gpsTrackingEnabled !== false,
         mobileAppInstalled: false,
         status: 'pending',
         createdAt: now,

@@ -44,7 +44,7 @@ function renderTable({
 describe("CompaniesTable — the Workiz Clients grid for companies", () => {
   it("draws the saved columns in their order", () => {
     renderTable({ columns: ["phone", "name", "website"] });
-    const heads = screen.getAllByRole("columnheader").map((th) => th.getAttribute("aria-label"));
+    const heads = within(document.querySelector("[data-slot=wz-report-grid-head]") as HTMLElement).getAllByRole("columnheader").map((th) => th.getAttribute("aria-label"));
     expect(heads).toEqual(["Phone", "Name", "Website"]);
   });
 
@@ -96,7 +96,7 @@ describe("CompaniesTable — the Workiz Clients grid for companies", () => {
     await userEvent.click(screen.getByRole("button", { name: "Sort by Name" }));
     expect(onSort).toHaveBeenCalledWith("name");
     expect(screen.queryByRole("button", { name: "Sort by Address" })).toBeNull();
-    expect(screen.getByRole("columnheader", { name: "Created" })).toHaveAttribute("aria-sort", "descending");
+    expect(within(document.querySelector("[data-slot=wz-report-grid-head]") as HTMLElement).getByRole("columnheader", { name: "Created" })).toHaveAttribute("aria-sort", "descending");
   });
 
   it("says No Records Found over the blank rows when nothing matches", () => {

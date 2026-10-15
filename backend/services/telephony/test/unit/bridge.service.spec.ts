@@ -57,6 +57,8 @@ function makeService(
     phones?: { phones: string[]; name?: string } | null;
     callerId?: { callerId?: string; source?: string };
     activeCall?: unknown;
+    /** What the client's call/SMS history answers; an Error makes it fail. */
+    history?: string[] | Error;
   } = {},
 ) {
   const redis = fakeRedis();
@@ -80,14 +82,21 @@ function makeService(
   const calls = {
     activeCallFor: jest.fn().mockResolvedValue(over.activeCall ?? null),
   };
+  const history = {
+    numbersFor: jest.fn(async () => {
+      if (over.history instanceof Error) throw over.history;
+      return over.history ?? [];
+    }),
+  };
   const service = new BridgeService(
     redis as never,
     deals as never,
     contacts as never,
     callerIds as never,
     calls as never,
+    history as never,
   );
-  return { service, redis, deals, contacts, callerIds, calls };
+  return { service, redis, deals, contacts, callerIds, calls, history };
 }
 
 describe('BridgeService.mayReachDeal', () => {
@@ -167,6 +176,35 @@ describe('BridgeService.prepare', () => {
     const ctx = redis.hashes.get(`telephony:bridge:${out.bridgeId}`)!;
     expect(ctx.from).toBe('+14045550100');
     expect(ctx.callerIdSource).toBe('area');
+  });
+
+  /**
+   * 2026-10-15, variant 2 of the masked call: the client is rung "from the
+   * number the client has been talking to". The bridge hands the client's
+   * history to the resolver, which keeps the first number we still own.
+   */
+  it('shows the client the company number they have been talking to', async () => {
+    const { service, redis, history, callerIds } = makeService({
+      history: ['+15555550000', '+14045550100'],
+      callerId: { callerId: '+15555550000', source: 'recent' },
+    });
+
+    const out = await service.prepare(TECH, { dealId: 'deal-1', contactId: 'contact-1' });
+
+    expect(history.numbersFor).toHaveBeenCalledWith('contact-1');
+    expect(callerIds.forServerLeg).toHaveBeenCalledWith(DEAL, ['+15555550000', '+14045550100']);
+    const ctx = redis.hashes.get(`telephony:bridge:${out.bridgeId}`)!;
+    expect(ctx.from).toBe('+15555550000');
+    expect(ctx.callerIdSource).toBe('recent');
+  });
+
+  it('a history that cannot be read never costs the call — the market chain, as before', async () => {
+    const { service, callerIds } = makeService({ history: new Error('dynamo down') });
+
+    const out = await service.prepare(TECH, { dealId: 'deal-1', contactId: 'contact-1' });
+
+    expect(out.bridgeId).toBeDefined();
+    expect(callerIds.forServerLeg).toHaveBeenCalledWith(DEAL, []);
   });
 
   it('refuses a technician who is not on the job', async () => {
@@ -268,5 +306,111 @@ describe('BridgeService.context', () => {
   it('returns null for an unknown or expired bridge', async () => {
     const { service } = makeService();
     await expect(service.context('nope')).resolves.toBeNull();
+  });
+});
+
+/**
+ * The bridge's progress, which the phone polls after "Call client". It lives
+ * beside the context, not in it: the context (with the client's real number)
+ * is deleted on every terminal leg status, and a `failed` that vanished with
+ * it would leave the phone saying nothing — the bug this exists to fix.
+ */
+describe('BridgeService — progress', () => {
+  const STATE_KEY = 'telephony:bridge:state:b-1';
+
+  it('opens at "ringing your phone", owned by whoever started it, on the context TTL', async () => {
+    const { service, redis } = makeService();
+
+    await service.track('b-1', 'tech-1');
+
+    expect(redis.hashes.get(STATE_KEY)).toEqual({ state: 'ringing_you', ownerId: 'tech-1' });
+    expect(redis.client.expire).toHaveBeenCalledWith(STATE_KEY, 300);
+    await expect(service.statusFor('b-1', 'tech-1')).resolves.toEqual({ state: 'ringing_you' });
+  });
+
+  // Progress is a courtesy to the polling phone, never a dependency of the
+  // call: ringTechnician writes it around calls.create, and a Redis blip there
+  // must not fail the POST — after calls.create that would release the bridge
+  // while the technician's phone is already ringing.
+  it('never fails the call over a progress write: track and rememberLeg swallow a Redis error', async () => {
+    const { service, redis } = makeService();
+    (redis.client.hset as jest.Mock).mockRejectedValueOnce(new Error('ECONNRESET'));
+    await expect(service.track('b-1', 'tech-1')).resolves.toBeUndefined();
+
+    (redis.client.hset as jest.Mock).mockRejectedValueOnce(new Error('ECONNRESET'));
+    await expect(service.rememberLeg('b-1', 'CA-1')).resolves.toBeUndefined();
+  });
+
+  it('answers only the user who started the bridge', async () => {
+    const { service } = makeService();
+    await service.track('b-1', 'tech-1');
+
+    await expect(service.statusFor('b-1', 'tech-2')).resolves.toBeNull();
+  });
+
+  it('answers nothing for an unknown or expired bridge', async () => {
+    const { service } = makeService();
+
+    await expect(service.statusFor('nope', 'tech-1')).resolves.toBeNull();
+    await expect(service.statusFor('', 'tech-1')).resolves.toBeNull();
+  });
+
+  it('moves forward with the reason, and never back', async () => {
+    const { service } = makeService();
+    await service.track('b-1', 'tech-1');
+
+    await service.advance('b-1', () => ({ state: 'connecting_client' }));
+    await service.advance('b-1', () => ({ state: 'you_answered' })); // late
+    expect(await service.statusFor('b-1', 'tech-1')).toEqual({ state: 'connecting_client' });
+
+    await service.advance('b-1', () => ({ state: 'failed', reason: 'The client did not answer' }));
+    await service.advance('b-1', () => ({ state: 'ended' }));
+    expect(await service.statusFor('b-1', 'tech-1')).toEqual({
+      state: 'failed',
+      reason: 'The client did not answer',
+    });
+  });
+
+  it('hands the step the stage it is at', async () => {
+    const { service } = makeService();
+    await service.track('b-1', 'tech-1');
+    const step = jest.fn(() => null);
+
+    await service.advance('b-1', step);
+
+    expect(step).toHaveBeenCalledWith('ringing_you');
+  });
+
+  it('leaves a bridge nobody is tracking alone (a softphone bridge, an expired one)', async () => {
+    const { service, redis } = makeService();
+
+    await service.advance('b-untracked', () => ({ state: 'connected' }));
+
+    expect(redis.hashes.has('telephony:bridge:state:b-untracked')).toBe(false);
+  });
+
+  it('outlives release — the outcome is read after the legs are over', async () => {
+    const { service } = makeService();
+    await service.track('b-1', 'tech-1');
+    await service.advance('b-1', () => ({ state: 'failed', reason: 'Your phone did not answer' }));
+
+    await service.release('tech-1', 'b-1');
+
+    expect(await service.statusFor('b-1', 'tech-1')).toEqual({
+      state: 'failed',
+      reason: 'Your phone did not answer',
+    });
+  });
+
+  it('remembers the technician’s ringing leg, so Cancel can hang it up', async () => {
+    const { service } = makeService();
+    await service.track('b-1', 'tech-1');
+
+    await service.rememberLeg('b-1', 'CAtech');
+
+    await expect(service.ringingLeg('b-1')).resolves.toBe('CAtech');
+    await expect(service.ringingLeg('nope')).resolves.toBeNull();
+    // Never part of what the phone is told.
+    expect(await service.statusFor('b-1', 'tech-1')).toEqual({ state: 'ringing_you' });
   });
 });

@@ -1,21 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import {
-  ChevronDown,
-  ExternalLink,
-  Loader2,
-  Mail,
-  MapPin,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { useState } from "react";
+import { Check, Mail, MapPin, SquareArrowOutUpRight, X } from "lucide-react";
+import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "sonner";
+import type { Contact, Deal } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
 import {
   contactName,
@@ -25,25 +15,45 @@ import {
   formatPhoneWithExtension,
   primaryEmail,
 } from "@/features/clients/lib";
+import { useContact } from "@/features/clients/hooks";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import { useJobTypeName } from "@/features/job-types/lib";
-import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
-import { JobStatusSelect } from "@/features/job-statuses/components/job-status-select";
-import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
-import { useCustomFields } from "@/features/custom-fields/hooks";
-import { applicableFields } from "@/features/custom-fields/lib";
-import { useDeal, useDealProducts, useMoveStatus, useSetDealTags, useUserMap } from "../hooks";
-import { useContact } from "@/features/clients/hooks";
-import { dealClientName, dealTotal, formatMoney, isUrgent, jobFirstPhone } from "../lib";
-import { labelled, workizScheduleCell } from "../schedule-cell";
+import { JobStatusMenu } from "@/features/job-statuses/components/job-status-menu";
 import { useJobZoneOf } from "@/features/service-areas/hooks";
-import type { Deal } from "@bitcrm/types";
-import { DEFAULT_TZ } from "@/lib/timezone";
+import { cn } from "@/lib/utils";
+import { useAssignTechs, useDeal, useMoveStatus, useSetDealTags, useUpdateDeal } from "../hooks";
+import { dealJobName, jobNamePatch, storedTagOrder } from "../job-shell";
+import { isUrgent, jobFirstPhone } from "../lib";
 import { PriorityFlag } from "./deal-badges";
-import { TechChips } from "./assigned-techs";
-import { noteToText } from "../note-html";
+import { WzTeamSelect } from "./workiz";
+import { QvIconButton, QvLabel, QvTitle, QvValue } from "./quick-view/parts";
+import { ScheduleJobBlock } from "./quick-view/schedule";
+import { DescriptionBlock } from "./quick-view/description";
+import { NotesBlock } from "./quick-view/notes";
+import { FinanceBlock } from "./quick-view/finance";
+import { CustomFieldsTab } from "./quick-view/custom-fields";
+import { ItemsTab } from "./quick-view/items";
 
+const TABS = [
+  { value: "details", label: "Details" },
+  { value: "custom", label: "Custom fields" },
+  { value: "items", label: "Items" },
+] as const;
+type Tab = (typeof TABS)[number]["value"];
+
+/**
+ * Workiz's job Quick view (jobs list → Job ID → "Quick view"; captured
+ * 2026-10-14 as quickview_wz_* in the parser kit): a 440px white pane with
+ * "Job ID: …", the job in a new tab and ×, three tabs — Details · Custom
+ * fields · Items — and, on Details, every block editable where the job page
+ * is: Status, Tags, Schedule job, Team, Description, Notes, Finance.
+ *
+ * It opens whole: the list warms its data while the cursor is on the Job ID
+ * (`prefetchQuickView`), and the body is drawn once the job and its client
+ * are in hand — a skeleton of the same frame until then, never a spinner
+ * that gives way to a taller pane.
+ */
 export function DealQuickView({
   dealId,
   open,
@@ -55,227 +65,300 @@ export function DealQuickView({
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-[440px] max-w-[94vw] flex-col gap-0 p-0 sm:max-w-[440px]">
-        {open && dealId ? <QuickViewBody dealId={dealId} /> : <SheetTitle className="sr-only">Job</SheetTitle>}
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        className="w-[440px] max-w-[94vw] gap-0 bg-white p-0 text-[#404040] sm:max-w-[440px]"
+      >
+        {open && dealId ? <QuickView dealId={dealId} /> : <SheetTitle className="sr-only">Job</SheetTitle>}
       </SheetContent>
     </Sheet>
   );
 }
 
-/**
- * The visit as the jobs list prints it (audit L18): "Mon Nov 16, 2026 04:30 pm
- * EST" on the account's (Connecticut's) clock, then — when the job keeps its
- * own zone (its `jobTimezone`, else its service area's) — the place and its
- * own clock, each naming its zone. Never the stored "15:30-15:30".
- */
-function QuickViewSchedule({ deal }: { deal: Deal }) {
-  const zoneOf = useJobZoneOf();
-  const c = workizScheduleCell(
-    {
-      scheduledDate: deal.scheduledDate,
-      scheduledTimeSlot: deal.allDay ? undefined : deal.scheduledTimeSlot,
-      city: deal.address?.city,
-      zone: zoneOf(deal),
-    },
-    DEFAULT_TZ,
-  );
-  return (
-    <div className="text-sm">
-      <div>{labelled(c.when, c.abbr)}</div>
-      {c.area ? (
-        <div className="text-xs text-muted-foreground">{`${c.area.place}: ${labelled(c.area.when, c.area.abbr)}`}</div>
-      ) : null}
-    </div>
-  );
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      {children}
-    </div>
-  );
-}
-
-function QuickViewBody({ dealId }: { dealId: string }) {
+function QuickView({ dealId }: { dealId: string }) {
   const { can } = usePermissions();
-  const { data: deal, isLoading } = useDeal(dealId);
-  const { map: userMap } = useUserMap();
-  const { data: products } = useDealProducts(dealId);
-  const setTags = useSetDealTags(dealId);
-  const moveStatus = useMoveStatus(dealId);
-  const jobTypeName = useJobTypeName();
-  const { data: customFieldDefs } = useCustomFields();
-  // Asked for before the early return, as every hook must be; it waits for
-  // the deal to name its client.
-  const { data: contact } = useContact(deal?.contactId ?? "");
-
-  if (isLoading || !deal) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  const phone = jobFirstPhone(deal, contact);
-  const email = contact ? primaryEmail(contact) : undefined;
-  const productsTotal = products ? dealTotal(products) : undefined;
-  const total = deal.actualTotal ?? deal.estimatedTotal ?? productsTotal;
+  const { data: deal } = useDeal(dealId);
+  const contactQuery = useContact(deal?.contactId ?? "");
+  const [tab, setTab] = useState<Tab>("details");
   const canEdit = can("deals", "edit");
+
+  // The job and its client, or nothing: the pane never shows the job first
+  // and the name a frame later.
+  const ready = !!deal && (!deal.contactId || contactQuery.data !== undefined || contactQuery.isError);
 
   return (
     <>
-      {/* pr-12 leaves room for the Sheet's built-in close (X) button. */}
-      <SheetHeader className="space-y-0 border-b py-3.5 pl-5 pr-12">
-        <div className="font-mono text-xs text-muted-foreground">Job #{deal.dealNumber}</div>
-        <SheetTitle className="truncate text-base">
-          {contact ? dealClientName(deal, contact) : "Job"}
-        </SheetTitle>
-      </SheetHeader>
+      <Header deal={deal} canEdit={canEdit} />
+      <div role="tablist" aria-label="Quick view" className="flex h-[41px] shrink-0 border-b border-[#e5e7eb]">
+        {TABS.map((t) => {
+          const active = t.value === tab;
+          return (
+            <button
+              key={t.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              aria-controls={`qv-${t.value}`}
+              onClick={() => setTab(t.value)}
+              className={cn(
+                "relative h-8 flex-1 rounded-[2px] px-4 pt-[9px] pb-[5px] text-[14px] leading-[18px] tracking-[0.5px]",
+                active
+                  ? "font-bold text-[#3b4b52] after:absolute after:inset-x-0 after:-bottom-[9px] after:h-[2px] after:bg-[#3b4b52]"
+                  : "font-medium text-[#6b7280] hover:text-[#3b4b52]",
+              )}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+      <div id={`qv-${tab}`} role="tabpanel" className="min-h-0 flex-1 overflow-y-auto">
+        {!ready || !deal ? (
+          <Skeleton />
+        ) : tab === "details" ? (
+          <DetailsTab deal={deal} contact={contactQuery.data} canEdit={canEdit} canSeeMoney={can("financials", "view")} />
+        ) : tab === "custom" ? (
+          <CustomFieldsTab deal={deal} canEdit={canEdit} />
+        ) : (
+          <ItemsTab dealId={deal.id} />
+        )}
+      </div>
+    </>
+  );
+}
 
-      <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
-        <Row label="Status">
-          <div className="flex flex-wrap items-center gap-2">
-            {isUrgent(deal) ? <PriorityFlag /> : null}
-            <JobStatusSelect
+/* ------------------------------------------------------------------ header */
+
+/**
+ * quickview_wz_open: "Job ID: LSBE12" (18px/600/27px ink) 29px down, the
+ * pencil for the job name after it; open-in-new-tab and × at the right.
+ * The whole head is 88px, then the tab row.
+ */
+function Header({ deal, canEdit }: { deal: Deal | undefined; canEdit: boolean }) {
+  return (
+    <div className="flex h-[88px] shrink-0 items-start justify-between pt-[29px] pr-5 pl-6">
+      <div className="min-w-0">
+        <div className="flex items-center gap-3">
+          <SheetTitle className="text-[18px] leading-[27px] font-semibold text-[#3b4b52]">
+            {deal ? `Job ID: ${deal.dealNumber}` : "Job"}
+          </SheetTitle>
+          {deal && canEdit ? <JobNameField deal={deal} /> : null}
+        </div>
+        {deal?.jobName ? <p className="truncate text-[13px] leading-[19px] text-[#404040]">{deal.jobName}</p> : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {deal ? (
+          <Link
+            href={`/deals/${deal.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open full job"
+            title="Open full job"
+            className="grid size-8 place-items-center rounded-[8px] text-[#3b4b52] hover:bg-[#f3f6f7]"
+          >
+            <SquareArrowOutUpRight className="size-5" strokeWidth={1.5} />
+          </Link>
+        ) : null}
+        <SheetClose asChild>
+          <button type="button" aria-label="Close" className="grid size-8 place-items-center rounded-[8px] text-[#3b4b52] hover:bg-[#f3f6f7]">
+            <X className="size-5" strokeWidth={1.5} />
+          </button>
+        </SheetClose>
+      </div>
+    </div>
+  );
+}
+
+/** The pencil beside the Job ID ("Add job name"): an inline box, Enter or ✓ saves. */
+function JobNameField({ deal }: { deal: Deal }) {
+  const update = useUpdateDeal(deal.id);
+  const name = dealJobName(deal);
+  const [draft, setDraft] = useState<string | null>(null);
+  const save = () => {
+    if (draft === null) return;
+    const patch = jobNamePatch(name, draft);
+    setDraft(null);
+    if (patch) update.mutate(patch);
+  };
+  if (draft === null) {
+    return <QvIconButton label={name ? "Edit job name" : "Add job name"} icon="pencil" onClick={() => setDraft(name)} />;
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      <input
+        autoFocus
+        aria-label="Job name"
+        maxLength={200}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") setDraft(null);
+        }}
+        className="h-7 w-44 rounded-[4px] border border-[#9ea6aa] bg-white px-2 text-[13px] text-[#3b4b52] outline-none focus:border-[#3b4b52]"
+      />
+      <button type="button" aria-label="Save job name" onClick={save} className="grid size-6 place-items-center rounded-[4px] text-[#6aa8ee] hover:bg-[#f3f6f7]">
+        <Check className="size-4" />
+      </button>
+      <button type="button" aria-label="Cancel" onClick={() => setDraft(null)} className="grid size-6 place-items-center rounded-[4px] text-[#3b4b52] hover:bg-[#f3f6f7]">
+        <X className="size-4" />
+      </button>
+    </span>
+  );
+}
+
+/* ----------------------------------------------------------------- details */
+
+function DetailsTab({
+  deal,
+  contact,
+  canEdit,
+  canSeeMoney,
+}: {
+  deal: Deal;
+  contact: Contact | undefined;
+  canEdit: boolean;
+  canSeeMoney: boolean;
+}) {
+  const jobTypeName = useJobTypeName();
+  const zoneOf = useJobZoneOf();
+  const moveStatus = useMoveStatus(deal.id);
+  const setTags = useSetDealTags(deal.id);
+  const assignTechs = useAssignTechs(deal.id);
+  const phone = jobFirstPhone(deal, contact);
+  const email = contact ? primaryEmail(contact) : undefined;
+
+  return (
+    <div className="pb-6">
+      {/* STATUS · CLIENT · JOB TYPE (· COMPANY, ours) · TAGS, then the rule. */}
+      <div className="px-6 pt-6">
+        <QvLabel>Status</QvLabel>
+        <div className="mt-[5px] flex flex-wrap items-center gap-2">
+          {isUrgent(deal) ? <PriorityFlag /> : null}
+          {/* The job page's menu, undressed to Workiz's quick-view row: the dot, the name, the caret. */}
+          <div className="[&>button]:h-[19px] [&>button]:w-auto [&>button]:rounded-none [&>button]:bg-transparent [&>button]:pl-0 [&>button]:text-[#3b4b52]">
+            <JobStatusMenu
               value={{ superStatus: deal.superStatus, subStatusId: deal.subStatusId }}
-              onChange={(v) =>
-                moveStatus.mutate(v, { onSuccess: () => toast.success("Status updated") })
-              }
+              onChange={(v) => moveStatus.mutate(v, { onSuccess: () => toast.success("Status updated") })}
               disabled={!canEdit}
             />
           </div>
-        </Row>
+        </div>
 
-        <Row label="Client">
-          <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1">
-              {contact ? (
-                <Link href={`/contacts/${contact.id}`} className="font-medium hover:underline">
-                  {contactName(contact)}
-                </Link>
-              ) : (
-                <div className="font-medium">—</div>
-              )}
-              {phone ? (
-                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                  {contact ? formatPhoneWithExtension(phone, extensionOf(contact, phone)) : formatPhone(phone)}
-                  <span className="rounded-chip bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">Primary</span>
-                </div>
-              ) : null}
-              {deal.address ? (
-                <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                  <MapPin className="size-3.5 flex-none" /> {formatAddress(deal.address)}
-                </div>
-              ) : null}
-            </div>
-            <div className="flex gap-1.5">
-              {/* Was a bare tel: anchor, which handed the dial to the OS: the
-                  client's phone rang showing the technician's personal mobile
-                  and no call record existed. It goes through the masked bridge
-                  now, which is why this could not ship before the bridge did. */}
-              {contact ? (
-                <CallClientButton
-                  to={phone ?? ""}
-                  partyId={contact.id}
-                  dealId={deal.id}
-                  contactId={contact.id}
-                  phoneIndex={0}
-                  // Peeking at a job is usually a prelude to ringing the
-                  // client; email is the afterthought beside it, not the peer.
-                  variant="prominent"
-                />
-              ) : null}
-              {email ? (
-                // Matched to the call button's height so the pair sits level,
-                // and left as an icon so the hierarchy between them is plain.
-                <Button asChild variant="outline" size="icon-lg" title={email}>
-                  <a href={`mailto:${email}`}><Mail className="size-4" /></a>
-                </Button>
-              ) : null}
-            </div>
+        <QvLabel className="mt-[26px]">Client</QvLabel>
+        <div className="mt-[10px] flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            {contact ? (
+              <Link href={`/contacts/${contact.id}`} className="text-[14px] leading-[21px] text-[#3b4b52] hover:underline">
+                {contactName(contact)}
+              </Link>
+            ) : (
+              <QvValue>—</QvValue>
+            )}
+            {deal.clientCompanyName ? <QvValue className="mt-[9px]">{deal.clientCompanyName}</QvValue> : null}
+            {phone ? (
+              <QvValue className="mt-1">{contact ? formatPhoneWithExtension(phone, extensionOf(contact, phone)) : formatPhone(phone)}</QvValue>
+            ) : null}
+            {deal.address ? (
+              <QvValue className="mt-1 flex items-center gap-1">
+                <MapPin className="size-3.5 flex-none text-[#768287]" /> {formatAddress(deal.address)}
+              </QvValue>
+            ) : null}
           </div>
-        </Row>
+          {/* Workiz: call and message at the right edge. Ours: the masked
+              bridge's call button (the obvious action), mail beside it. */}
+          <div className="flex shrink-0 items-center gap-2">
+            {contact ? (
+              <CallClientButton to={phone ?? ""} partyId={contact.id} dealId={deal.id} contactId={contact.id} phoneIndex={0} variant="prominent" />
+            ) : null}
+            {email ? (
+              <a
+                href={`mailto:${email}`}
+                title={email}
+                aria-label={`Email ${email}`}
+                className="grid size-8 place-items-center rounded-[8px] text-[#6aa8ee] hover:bg-[#f3f6f7]"
+              >
+                <Mail className="size-[18px]" strokeWidth={1.5} />
+              </a>
+            ) : null}
+          </div>
+        </div>
 
-        <Row label="Job type">
-          <div>{jobTypeName(deal.jobTypeId)}</div>
-        </Row>
+        <QvLabel className="mt-[22px]">Job type</QvLabel>
+        <QvValue className="mt-[2px]">{jobTypeName(deal.jobTypeId)}</QvValue>
 
         {deal.businessProfileName ? (
-          <Row label="Company">
-            <div>{deal.businessProfileName}</div>
-          </Row>
+          <>
+            <QvLabel className="mt-[22px]">Company</QvLabel>
+            <QvValue className="mt-[2px]">{deal.businessProfileName}</QvValue>
+          </>
         ) : null}
-
-        <Row label="Tags">
-          {canEdit ? (
-            <JobTagCombobox
-              value={deal.tagIds ?? []}
-              onChange={(ids) => {
-                const added = ids.length > (deal.tagIds?.length ?? 0);
-                setTags.mutate(ids, {
-                  onSuccess: () => toast.success(added ? "Tag added" : "Tag removed"),
-                });
-              }}
-            />
-          ) : deal.tagIds?.length ? (
-            <JobTagChips ids={deal.tagIds} />
-          ) : (
-            <span className="text-sm text-muted-foreground">—</span>
-          )}
-        </Row>
-
-        <Row label="Schedule">
-          <QuickViewSchedule deal={deal} />
-        </Row>
-
-        <Row label="Team">
-          <TechChips techIds={deal.assignedTechIds} userMap={userMap} emptyText="Unassigned" />
-        </Row>
-
-        {applicableFields(customFieldDefs, deal.jobTypeId).length > 0 ? (
-          <Row label="Custom fields">
-            <CustomFieldsSection
-              jobTypeId={deal.jobTypeId}
-              value={deal.customFields ?? {}}
-              onChange={() => {}}
-              disabled
-              // A saved job: its file fields show their files, not "Save the job first".
-              dealId={deal.id}
-            />
-          </Row>
-        ) : null}
-
-        {deal.notes ? (
-          <Row label="Description">
-            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{noteToText(deal.notes)}</p>
-          </Row>
-        ) : null}
-
-        <details className="rounded-lg border">
-          <summary className="flex cursor-pointer items-center justify-between px-3 py-2 text-sm font-medium">
-            <span>Finance</span>
-            <span className="flex items-center gap-2 text-muted-foreground">
-              {typeof total === "number" ? formatMoney(total) : "—"} <ChevronDown className="size-4" />
-            </span>
-          </summary>
-          <div className="space-y-1.5 border-t px-3 py-2 text-sm">
-            <div className="flex justify-between"><span className="text-muted-foreground">Estimated</span><span className="tabular-nums">{typeof deal.estimatedTotal === "number" ? formatMoney(deal.estimatedTotal) : "—"}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Actual</span><span className="tabular-nums">{typeof deal.actualTotal === "number" ? formatMoney(deal.actualTotal) : "—"}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Payment</span><span>{deal.paymentStatus ?? "—"}</span></div>
-          </div>
-        </details>
       </div>
 
-      <div className="border-t p-4">
-        <Button asChild variant="brand" className="w-full gap-1.5">
-          <Link href={`/deals/${deal.id}`} target="_blank" rel="noopener noreferrer">
-            Open full job <ExternalLink className="size-4" />
-          </Link>
-        </Button>
+      <div className="mt-[22px] border-b border-[#e5e7eb] px-6 pb-4">
+        <QvLabel>Tags</QvLabel>
+        <div className="mt-[9px]">
+          <JobTagCombobox
+            variant="workiz"
+            value={deal.tagIds ?? []}
+            onChange={(ids) => {
+              const added = ids.length > (deal.tagIds?.length ?? 0);
+              setTags.mutate(storedTagOrder(deal.tagIds ?? [], ids), {
+                onSuccess: () => toast.success(added ? "Tag added" : "Tag removed"),
+              });
+            }}
+            disabled={!canEdit}
+          />
+        </div>
       </div>
-    </>
+
+      <ScheduleJobBlock deal={deal} zone={zoneOf(deal)} canEdit={canEdit} />
+
+      <section aria-label="Team" className="px-6 pt-6 pb-6">
+        <QvTitle>Team</QvTitle>
+        <WzTeamSelect
+          className="mt-2"
+          label="Assign tech"
+          variant="multi"
+          shape="rounded"
+          hideNotice
+          jobTypeId={deal.jobTypeId}
+          address={{ lat: deal.address?.lat, lng: deal.address?.lng }}
+          serviceAreaId={deal.serviceAreaId}
+          value={deal.assignedTechIds}
+          onChange={(ids) => assignTechs.mutate(ids)}
+          disabled={!canEdit}
+        />
+      </section>
+
+      <DescriptionBlock deal={deal} canEdit={canEdit} />
+      <NotesBlock dealId={deal.id} canEdit={canEdit} />
+      {canSeeMoney ? <FinanceBlock deal={deal} canEdit={canEdit} /> : null}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- skeleton */
+
+/** The Details frame in grey while the job and its client arrive: same heights, nothing jumps. */
+function Skeleton() {
+  const bar = (w: string, h = "h-[14px]", extra = "") => <div className={cn("animate-pulse rounded-[3px] bg-[#eef1f2]", w, h, extra)} />;
+  return (
+    <div aria-busy="true" className="px-6 pt-6">
+      {bar("w-12", "h-[10px]")}
+      {bar("w-28", "h-[19px]", "mt-2")}
+      {bar("w-12", "h-[10px]", "mt-[26px]")}
+      {bar("w-44", "h-[21px]", "mt-[10px]")}
+      {bar("w-60", "h-[21px]", "mt-1")}
+      {bar("w-16", "h-[10px]", "mt-[22px]")}
+      {bar("w-36", "h-[21px]", "mt-[2px]")}
+      {bar("w-10", "h-[10px]", "mt-[22px]")}
+      {bar("w-24", "h-6", "mt-[9px]")}
+      {bar("w-28", "h-[21px]", "mt-10")}
+      {bar("w-40", "h-[19px]", "mt-2")}
+      {bar("w-12", "h-[21px]", "mt-6")}
+      {bar("w-full", "h-10", "mt-2")}
+    </div>
   );
 }

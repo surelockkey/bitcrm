@@ -366,6 +366,30 @@ describe('UsersService', () => {
     });
   });
 
+  // The account is switched off BEFORE the record is written: a refused
+  // Cognito call (dev 2026-10-14: the task role lacked AdminDisableUser) used
+  // to leave the record inactive while the person could still sign in.
+  describe('deactivate — the account first, the record after', () => {
+    it('a refused Cognito call leaves the record, the cache and the events untouched', async () => {
+      cognito.disableUser.mockRejectedValue(new Error('AccessDeniedException: AdminDisableUser'));
+
+      await expect(service.deactivate('user-1', createMockJwtUser({ id: 'caller-1', roleId: 'role-admin' }))).rejects.toThrow('AdminDisableUser');
+
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('reactivate — the account first, the record after', () => {
+    it('a refused Cognito call leaves the record inactive', async () => {
+      repository.findById.mockResolvedValue(createMockUser({ id: 'user-1', status: UserStatus.INACTIVE }));
+      cognito.enableUser.mockRejectedValue(new Error('AccessDeniedException: AdminEnableUser'));
+
+      await expect(service.reactivate('user-1', createMockJwtUser({ id: 'caller-1', roleId: 'role-admin' }))).rejects.toThrow('AdminEnableUser');
+
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('reactivate', () => {
     const caller = createMockJwtUser({ id: 'caller-1', roleId: 'role-admin' });
 

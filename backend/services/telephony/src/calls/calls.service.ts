@@ -71,6 +71,16 @@ export interface TwilioStatusParams {
   Direction?: string;
   CallDuration?: string;
   Timestamp?: string;
+  /** The carrier's SIP answer on an ended leg (486 busy, 480 unavailable…). */
+  SipResponseCode?: string;
+  /** Twilio's error code when it refused or lost the leg (13227, 21215…). */
+  ErrorCode?: string;
+  /**
+   * Answering-machine detection's verdict on a leg placed with
+   * `machineDetection` (the technician's handset on a masked call): `human`,
+   * `unknown`, `machine_start`, `machine_end_*`, `fax`.
+   */
+  AnsweredBy?: string;
 }
 
 /** `client:abc-123` → `abc-123`; anything else → undefined. */

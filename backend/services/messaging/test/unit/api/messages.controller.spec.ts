@@ -1,3 +1,7 @@
+import 'reflect-metadata';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { IS_PUBLIC_KEY } from '@bitcrm/shared';
+import { InternalGuard } from '../../../src/api/access/internal.guard';
 import { MessagesController } from '../../../src/api/messages/messages.controller';
 import { MessagesService } from '../../../src/api/messages/messages.service';
 import { createMockMessage } from '../mocks';
@@ -9,6 +13,7 @@ function make() {
     listByJob: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     listFlagged: jest.fn().mockResolvedValue({ items: [createMockMessage({ flagged: true })] }),
     listInternal: jest.fn().mockResolvedValue({ items: [createMockMessage(), createMockMessage({ id: 'm0' })] }),
+    lastBusinessNumberInternal: jest.fn().mockResolvedValue({ businessNumber: '+15550002222', at: '2026-09-16T12:00:00.000Z' }),
   } as unknown as MessagesService;
   return { controller: new MessagesController(messages), messages };
 }
@@ -44,6 +49,20 @@ describe('MessagesController', () => {
       data: [expect.objectContaining({ id: 'm1', from: '+14045551234' }), expect.objectContaining({ id: 'm0' })],
       pagination: { nextCursor: undefined, count: 2 },
     });
+  });
+
+  it('GET /conversations/internal/by-party/:kind/:id/business-number — what telephony shows the client', async () => {
+    const { controller, messages } = make();
+    const res = await controller.internalBusinessNumber('contact', 'ct1');
+    expect(messages.lastBusinessNumberInternal).toHaveBeenCalledWith('contact', 'ct1');
+    expect(res).toEqual({ success: true, data: { businessNumber: '+15550002222', at: '2026-09-16T12:00:00.000Z' } });
+  });
+
+  it('…is internal: public to Cognito, guarded by the internal secret', () => {
+    const handler = MessagesController.prototype.internalBusinessNumber;
+    expect(Reflect.getMetadata(IS_PUBLIC_KEY, handler)).toBe(true);
+    expect(Reflect.getMetadata(GUARDS_METADATA, handler) ?? []).toContain(InternalGuard);
+    expect(Reflect.getMetadata('path', handler)).toBe('conversations/internal/by-party/:kind/:id/business-number');
   });
 
   it('GET /messages/flagged', async () => {

@@ -25,7 +25,10 @@ import {
   useDealProducts,
   useDealTotals,
   useMarkProductOrdered,
+  usePrefetchCatalogProduct,
+  usePrefetchJobItemCard,
   useRemoveProduct,
+  useUpdateDeal,
   useResetDealTax,
   useSetDealDiscount,
   useSetDealTax,
@@ -35,6 +38,8 @@ import { formatMoney } from "../lib";
 import { AddProductDialog } from "./add-product-dialog";
 import { ItemsArt } from "./job-empty-art";
 import { JobItemsTotals } from "./job-items-totals";
+import { CommissionRateBlock } from "./commission-rate-block";
+import { usePermissions } from "@/features/auth/use-permissions";
 import { wzPill } from "@/components/workiz";
 import { ItemGroupDialog } from "@/features/price-book/item-groups/item-group-dialog";
 import { draftLinesFromJobLines } from "@/features/price-book/item-groups/lib";
@@ -171,6 +176,18 @@ export function DealProductsTab({
   const [scheduling, setScheduling] = useState(false);
   const totalsQuery = useDealTotals(deal.id);
   const remove = useRemoveProduct(deal.id);
+  const prefetchItem = usePrefetchCatalogProduct();
+  usePrefetchJobItemCard(deal.assignedTechIds);
+  // Workiz's "Tech expenses" box under the totals writes the job's own amount.
+  const updateDeal = useUpdateDeal(deal.id);
+  // Workiz's "Commission rate" block: commission.view to see it, commission.edit (Override Rates) to change it.
+  const { can } = usePermissions();
+  const canSeeRate = can("commission", "view");
+  const canEditRate = can("commission", "edit");
+  const techExpenses = {
+    amount: deal.techCost,
+    onChange: canEdit ? (next: number | null) => updateDeal.mutate({ techCost: next }, {}) : undefined,
+  };
   const markOrdered = useMarkProductOrdered(deal.id);
   const setTaxable = useSetProductTaxable(deal.id);
   const setTax = useSetDealTax(deal.id);
@@ -313,6 +330,9 @@ export function DealProductsTab({
                     key={p.lineId}
                     className={cn(canEdit && "cursor-pointer hover:bg-[#f8f8f8]")}
                     onClick={canEdit ? () => setEditing(p) : undefined}
+                    // The edit card needs the line's catalog item: read it while the
+                    // pointer is still on the row, so the click opens the card at once.
+                    onMouseEnter={canEdit ? () => prefetchItem(p.productId) : undefined}
                   >
                     <td aria-hidden className={wzTd} />
                     <td className={cn(wzTd, "h-[85px]")}>
@@ -415,6 +435,7 @@ export function DealProductsTab({
           onTaxChange={(taxRateId) => setTax.mutate(taxRateId)}
           onResetTaxAuto={() => resetTax.mutate()}
           onDiscountChange={(d) => setDiscount.mutate(d)}
+          techExpenses={techExpenses}
           exemptLabel={contact?.taxExemptReason}
         />
 
@@ -430,6 +451,20 @@ export function DealProductsTab({
               onEdit={() => setScheduling(true)}
             />
           </div>
+        ) : null}
+
+        {canSeeRate ? (
+          <CommissionRateBlock
+            className="mt-10"
+            rate={{
+              useTechSpecialRate: deal.useTechSpecialRate,
+              techSpecialRate: deal.techSpecialRate,
+              techSpecialRateUnit: deal.techSpecialRateUnit,
+            }}
+            canEdit={canEdit && canEditRate}
+            pending={updateDeal.isPending}
+            onUpdate={(v) => updateDeal.mutate(v, {})}
+          />
         ) : null}
 
         {dialog}
@@ -491,6 +526,7 @@ export function DealProductsTab({
                   key={p.lineId}
                   className={cn(canEdit && "cursor-pointer hover:bg-accent/30")}
                   onClick={canEdit ? () => setEditing(p) : undefined}
+                  onMouseEnter={canEdit ? () => prefetchItem(p.productId) : undefined}
                 >
                   <td className={cn(td, "border-b border-dashed")}>
                     <div className="flex items-center gap-2">

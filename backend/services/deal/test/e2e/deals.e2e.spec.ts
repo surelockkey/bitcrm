@@ -348,7 +348,7 @@ describe('Deals E2E', () => {
   const TECH_2 = '550e8400-e29b-41d4-a716-446655440002';
 
   describe('POST /api/deals/:id/assign', () => {
-    it('assigns multiple techs and auto-transitions to ASSIGNED', async () => {
+    it('assigns multiple techs and leaves the status Submitted', async () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
@@ -362,7 +362,7 @@ describe('Deals E2E', () => {
         .expect(201);
 
       expect(res.body.data.assignedTechIds).toEqual(expect.arrayContaining([TECH_1, TECH_2]));
-      expect(res.body.data.superStatus).toBe(JobSuperStatus.IN_PROGRESS);
+      expect(res.body.data.superStatus).toBe(JobSuperStatus.SUBMITTED);
     });
   });
 

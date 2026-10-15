@@ -52,7 +52,15 @@ const contacts = new Map([
   ["c2", { phone: "4695000793", email: "nevaeh@example.com" }],
 ]);
 
-function setup(rows: PaymentReportRow[], { money = true, dir = "desc" as const, onSortDate = vi.fn() } = {}) {
+function setup(
+  rows: PaymentReportRow[],
+  {
+    money = true,
+    dir = "desc" as const,
+    onSortDate = vi.fn(),
+    technicianHref,
+  }: { money?: boolean; dir?: "asc" | "desc"; onSortDate?: () => void; technicianHref?: (userId: string) => string | undefined } = {},
+) {
   render(
     <PaymentsReportTable
       rows={rows}
@@ -61,6 +69,7 @@ function setup(rows: PaymentReportRow[], { money = true, dir = "desc" as const, 
       onSortDate={onSortDate}
       contactOf={(id) => contacts.get(id)}
       nameOf={(id, fallback) => (id && names.get(id)) || fallback}
+      technicianHref={technicianHref}
     />,
   );
   return { onSortDate };
@@ -138,6 +147,19 @@ describe("PaymentsReportTable", () => {
     expect(cells(refund).slice(1, 2)).toEqual(["($221.80)"]);
     expect(cells(refund)[8]).toBe("($0.00)");
     expect(cells(credit)[1]).toBe("-$207.00");
+  });
+
+  // A payment is collected by whoever took it, the office included; only a
+  // field-team member has a technician card to open (the admin's link led to
+  // "No technician profile" after two 404s, QA 2026-10-14).
+  it("links Collected by only where a technician card exists: an office user is a name", () => {
+    setup([row({ collectedById: "o1", collectedByName: "Dana Office" })], {
+      technicianHref: (id) => (id === "t1" ? "/technicians/t1" : undefined),
+    });
+    const r = dataRows()[0];
+    expect(within(r).queryByRole("link", { name: "Dana Office" })).toBeNull();
+    expect(cells(r)[12]).toBe("Dana Office");
+    expect(within(r).getByRole("link", { name: "(2) TX - Cannon Burt" })).toHaveAttribute("href", "/technicians/t1");
   });
 
   it("names the technician by the row when the directory does not know them", () => {

@@ -271,6 +271,8 @@ export class DealProductsRepository {
       ...(customAttributes && { customAttributes }),
       // An item group added it; the importer names Workiz's `entity_group_id` so.
       ...(itemGroupId && { itemGroupId }),
+      // Workiz "Sold by" — the importer writes it too.
+      ...(typeof item.soldBy === 'string' && item.soldBy && { soldBy: item.soldBy }),
       addedBy: item.addedBy as string,
       addedAt: item.addedAt as string,
       updatedBy: item.updatedBy as string | undefined,

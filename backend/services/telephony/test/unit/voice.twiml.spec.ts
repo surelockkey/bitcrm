@@ -247,6 +247,28 @@ describe('VoiceService.buildAgentJoin — first-answer-wins', () => {
     );
   });
 
+  /**
+   * Pin (2026-10-15): the masked call's technician leg stopped asking for a
+   * key — answering-machine detection does that job there. The ring legs of
+   * the web's call flows / ring-my-phone keep their "Press any key to take
+   * it" whisper, unchanged.
+   */
+  it('a whisper ring leg still waits for a key before taking the call', async () => {
+    const { service, conference } = makeService({
+      conference: { claimWinner: jest.fn().mockResolvedValue('winner') },
+    });
+    const xml = await service.buildAgentJoin(
+      'conf-CAcust1',
+      { CallSid: 'CAleg1', To: 'client:agent-1' },
+      true,
+    );
+
+    expect(xml).toContain('<Gather');
+    expect(xml).toContain('You have a call. Press any key to take it.');
+    expect(xml).not.toContain('<Conference');
+    expect(conference.onWinner).not.toHaveBeenCalled();
+  });
+
   it('tells a late answerer the call was taken and hangs up', async () => {
     const { service, conference } = makeService({
       conference: { claimWinner: jest.fn().mockResolvedValue('loser') },

@@ -47,3 +47,20 @@ export function assignUserContainer(
 export function listContainerUsers(containerId: string): Promise<UserContainer[]> {
   return http.get<UserContainer[]>(`/inventory/containers/${encodeURIComponent(containerId)}/users`);
 }
+
+/**
+ * One person on User locations when the viewer may not open the user directory
+ * (`GET /users/location-roster`, opened by `containers.view`): name and role,
+ * no email or phone. Every active user, by name.
+ */
+export interface LocationRosterEntry {
+  id: string;
+  firstName: string;
+  lastName: string;
+  workizName?: string;
+  roleId: string;
+}
+
+export function getLocationRoster(): Promise<LocationRosterEntry[]> {
+  return http.get<LocationRosterEntry[]>("/users/location-roster");
+}

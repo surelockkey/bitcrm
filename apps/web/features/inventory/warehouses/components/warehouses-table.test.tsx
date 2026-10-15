@@ -40,7 +40,7 @@ beforeEach(() => {
 describe("WarehousesTable", () => {
   it("has Workiz's columns, in order", () => {
     renderTable();
-    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toEqual([
+    expect([...document.querySelectorAll("[data-slot=wz-report-grid-head] thead th")].map((th) => th.textContent)).toEqual([
       "Name",
       "Description",
       "Items",
@@ -150,7 +150,7 @@ describe("WarehousesTable — a stable first frame", () => {
 
 describe("WarehousesTable — loading", () => {
   const shape = () => ({
-    headers: [...document.querySelectorAll("thead th")].map((th) => th.textContent),
+    headers: [...document.querySelectorAll("[data-slot=wz-report-grid-head] thead th")].map((th) => th.textContent),
     widths: [...document.querySelectorAll("col")].map((c) => (c as HTMLElement).style.width),
   });
 

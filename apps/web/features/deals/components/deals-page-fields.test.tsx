@@ -16,6 +16,8 @@ import { useJobFieldsStore } from "../fields-store";
 import { DealsPage } from "./deals-page";
 
 // next/link needs the App Router context; swap it for a plain anchor.
+// The list warms the quick view through the QueryClient; these tests render the page without one.
+vi.mock("@/features/deals/quick-view-prefetch", () => ({ useQuickViewPeek: () => () => {} }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...rest}>

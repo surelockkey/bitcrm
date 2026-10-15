@@ -153,7 +153,7 @@ export class ListDealsQueryDto {
   @ApiPropertyOptional({
     example: '2026-09-21',
     description:
-      'First visit day of the window (YYYY-MM-DD, inclusive). With `scheduledTo` at most 31 days; alone = that one day. ' +
+      'First visit day of the window (YYYY-MM-DD, inclusive). With `scheduledTo` at most 42 days (a six-week month grid); alone = that one day. ' +
       'Reads the schedule index in visit order; without `superStatus` every status is merged.',
   })
   @IsOptional()

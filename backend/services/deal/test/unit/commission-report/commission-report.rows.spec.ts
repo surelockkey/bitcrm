@@ -402,3 +402,42 @@ describe('filters, totals and slices', () => {
     expect(row).toMatchObject({ dealNumber: a.dealNumber, techName: a.techName, address: a.address, closedDate: a.closedDate });
   });
 });
+
+/*
+ * Workiz's Company Parts on a job is Σ item cost × quantity (560 of 560 jobs
+ * in the dump with company_parts > 0 agree to the cent); its tech parts are
+ * what the office types. A job priced here keeps the sum of its lines' cost
+ * in `totals.cost`, the Finance box's Company Cost in `companyCost` and Tech
+ * Cost in `techCost` — the report reads those before the custom fields.
+ */
+describe('buildRow — a job priced here takes its parts from its lines and its Finance box', () => {
+  const priced = (overrides: Partial<CommissionDealItem> = {}) =>
+    item({
+      id: 'deal-new',
+      dealNumber: 'K4T9ZW',
+      assignedTechIds: ['tech-new'],
+      totals: { subtotal: 300, discount: 0, tax: 20, total: 320, cost: 30 },
+      itemCount: 2,
+      techCost: 40,
+      customFields: { 'cf-tech-parts': 999, 'cf-company-parts': 999 },
+      ...overrides,
+    });
+  const rates = () => ctx({ configs: new Map([['tech-new', [config()]]]) });
+
+  it('Company Parts = Σ line cost × qty (the totals snapshot), Tech Parts = the Finance box', () => {
+    const r = buildRow(priced(), rates());
+    expect(r).toMatchObject({ parts: 40, companyParts: 30 });
+    // tech = (320 − 20 − 0 − 40 − 30) × 50 % = 115
+    expect(r.techProfit).toBe(115);
+  });
+
+  it('a typed Company Cost counts only while the job has no lines', () => {
+    expect(buildRow(priced({ companyCost: 25 }), rates()).companyParts).toBe(30);
+    expect(buildRow(priced({ itemCount: 0, totals: { subtotal: 320, discount: 0, tax: 0, total: 320, cost: 0, manual: true }, companyCost: 25 }), rates()).companyParts).toBe(25);
+  });
+
+  it('without either, the imported attributes, then the job’s custom fields', () => {
+    expect(buildRow(priced({ itemCount: 0, techCost: undefined, companyParts: 12, parts: 8 }), rates())).toMatchObject({ parts: 8, companyParts: 12 });
+    expect(buildRow(priced({ itemCount: undefined, totals: undefined, techCost: undefined }), rates())).toMatchObject({ parts: 999, companyParts: 999 });
+  });
+});

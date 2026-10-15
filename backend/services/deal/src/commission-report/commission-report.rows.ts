@@ -174,6 +174,36 @@ export function snapshotShareExact(s: WorkizCommissionSnapshot): number {
   return excess === 0.01 ? num(s.techProfit) - 0.005 : num(s.techProfit);
 }
 
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * A job's parts as Workiz counts them. Company Parts is Σ item cost × quantity
+ * (560 of 560 jobs in the dump with company_parts > 0 agree to the cent): the
+ * totals snapshot's `cost` while the job has lines, else the Finance box's
+ * Company Cost. Tech Parts is what the office typed in the Finance box (Tech
+ * Cost). An imported job without a snapshot keeps Workiz's own `parts` /
+ * `companyParts`; the job custom fields "Tech Parts cost" / "Company Parts
+ * cost" are the last resort.
+ */
+export function partsOf(
+  item: Pick<CommissionDealItem, 'techCost' | 'companyCost' | 'parts' | 'companyParts' | 'itemCount' | 'totals' | 'customFields'>,
+  fields: RowContext['partsFields'],
+): { parts: number; companyParts: number } {
+  const custom = item.customFields ?? {};
+  const fromField = (id?: string): number => (id ? num(custom[id]) : 0);
+  const parts = isNum(item.techCost) ? item.techCost : isNum(item.parts) ? item.parts : fromField(fields.tech);
+  const linesCost = (item.itemCount ?? 0) > 0 && isNum(item.totals?.cost) ? item.totals!.cost! : undefined;
+  const companyParts =
+    linesCost !== undefined
+      ? linesCost
+      : isNum(item.companyCost)
+        ? item.companyCost
+        : isNum(item.companyParts)
+          ? item.companyParts
+          : fromField(fields.company);
+  return { parts, companyParts };
+}
+
 /** One report row: Workiz's own when the import brought it, the Workiz formula otherwise. */
 export function buildRow(item: CommissionDealItem, ctx: RowContext): CommissionReportRow {
   const base = baseRow(item, ctx);
@@ -220,10 +250,7 @@ export function buildRow(item: CommissionDealItem, ctx: RowContext): CommissionR
   const baseTotal = totals.total !== undefined ? num(totals.total) : num(item.jobTotalPrice);
   const total = round2(workizTotals || typeof item.tipAmount === 'number' ? baseTotal : baseTotal + tip);
   const tax = totals.tax !== undefined ? num(totals.tax) : num(item.taxAmount);
-  const custom = item.customFields ?? {};
-  const parts = typeof item.parts === 'number' ? item.parts : num(ctx.partsFields.tech ? custom[ctx.partsFields.tech] : 0);
-  const companyParts =
-    typeof item.companyParts === 'number' ? item.companyParts : num(ctx.partsFields.company ? custom[ctx.partsFields.company] : 0);
+  const { parts, companyParts } = partsOf(item, ctx.partsFields);
   const result = calculateWorkizCommission({
     total,
     tax,

@@ -1,7 +1,5 @@
-import { InventoryStatus } from "@bitcrm/types";
-import type { Warehouse, StockItem, Product, PaginatedResponse, ListCount } from "@bitcrm/types";
+import type { InventoryStatus, Warehouse, StockItem, PaginatedResponse, ListCount } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
-import { readAllPages } from "@/features/inventory/read-all";
 import type { WarehouseValues } from "./schemas";
 
 /* --- Warehouses --- */
@@ -55,18 +53,4 @@ export function archiveWarehouse(id: string): Promise<Warehouse> {
 
 export function getWarehouseStock(id: string): Promise<StockItem[]> {
   return http.get<StockItem[]>(`/inventory/warehouses/${id}/stock`);
-}
-
-/* --- Product catalog --- */
-
-/**
- * Every active item — products and services — what the job and estimate item
- * pickers offer. Read to the end of the cursor: the catalog is ~7 300 active
- * items of ~16 000 on dev, and the old read stopped at 5 000 of all of them
- * (active and archived, in name order), so the pickers never offered an item
- * past the first third of the alphabet. Archived items were thrown away by
- * both pickers anyway; asking the server for the active ones halves the read.
- */
-export function fetchAllProducts(): Promise<Product[]> {
-  return readAllPages<Product>("/inventory/products", { status: InventoryStatus.ACTIVE });
 }

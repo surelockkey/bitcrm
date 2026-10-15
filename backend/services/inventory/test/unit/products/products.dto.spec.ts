@@ -37,9 +37,9 @@ describe('CreateProductDto', () => {
     ).toEqual([]);
   });
 
-  it('still rejects a negative price — importer rows go straight to DynamoDB', async () => {
-    expect(await errorsFor(CreateProductDto, { ...valid, priceClient: -35 })).toEqual([
-      'priceClient',
+  it('still rejects a negative cost (a price below zero is a credit item; a cost never is)', async () => {
+    expect(await errorsFor(CreateProductDto, { ...valid, costCompany: -35 })).toEqual([
+      'costCompany',
     ]);
   });
 
@@ -69,10 +69,17 @@ describe('UpdateProductDto', () => {
   });
 
   it('still validates a field the request does change', async () => {
-    expect(await errorsFor(UpdateProductDto, { priceClient: -1 })).toEqual([
-      'priceClient',
+    expect(await errorsFor(UpdateProductDto, { costCompany: -1 })).toEqual([
+      'costCompany',
     ]);
     expect(await errorsFor(UpdateProductDto, { type: 'other' })).toEqual(['type']);
+  });
+
+  // Workiz's price book holds 62 items priced below zero ("Approved Discount" −100,
+  // "Accepted dispute" −904.98…): a credit the office puts on a job as a line.
+  it('lets the client price go below zero, on an edit and on a new item', async () => {
+    expect(await errorsFor(UpdateProductDto, { priceClient: -100 })).toEqual([]);
+    expect(await errorsFor(CreateProductDto, { ...valid, priceClient: -100 })).toEqual([]);
   });
 
   // null очищає необов'язкове поле; обов'язкове поле null не приймає.

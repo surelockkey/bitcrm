@@ -165,15 +165,17 @@ export function validateItem(v: ItemFormValues, o: ValidateOptions): ItemFormErr
     errors.description = `Must be ${CAPS.description} characters or fewer`;
   }
 
-  const money = (k: "priceClient" | "cost" | "bookingPrice", required: boolean, always = false) => {
+  const money = (k: "priceClient" | "cost" | "bookingPrice", required: boolean, always = false, signed = false) => {
     if (!always && !changed(k)) return;
     const n = parseMoney(v[k]);
     if (n === null) {
       if (required) errors[k] = "Required";
     } else if (Number.isNaN(n)) errors[k] = "Enter an amount";
-    else if (n < 0) errors[k] = "Must be 0 or more";
+    else if (n < 0 && !signed) errors[k] = "Must be 0 or more";
   };
-  money("priceClient", true);
+  // The price may go below zero — Workiz's price book holds 62 such items
+  // ("Approved Discount" −100): credit lines the office puts on a job.
+  money("priceClient", true, false, true);
   if (o.showCost) money("cost", false);
   // Checked whenever the switch is on — switching it on is what makes it required.
   if (o.variant === "price-book" && v.availableInBooking) money("bookingPrice", true, true);

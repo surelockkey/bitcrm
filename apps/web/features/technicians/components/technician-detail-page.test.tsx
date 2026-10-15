@@ -34,6 +34,8 @@ const fx = vi.hoisted(() => ({
   assignments: { jobTypes: [] as unknown[], serviceAreas: [] as unknown[] },
   smsMfaEnabled: false,
   userType: undefined as "subcontractor" | undefined,
+  // Per-technician profiles for a test that moves between cards; `profile` answers the rest.
+  profiles: {} as Record<string, Record<string, unknown>>,
   profile: {
     userId: "t1",
     phone: "+14045551234",
@@ -90,7 +92,7 @@ vi.mock("@/features/auth/use-permissions", () => ({
 }));
 
 vi.mock("../hooks", () => ({
-  useProfile: () => ({ data: fx.profile, isLoading: false, isError: false }),
+  useProfile: (id: string) => ({ data: fx.profiles[id] ?? fx.profile, isLoading: false, isError: false }),
   useUserMap: () => ({
     data: new Map([
       [
@@ -167,6 +169,7 @@ beforeEach(() => {
   state.canEditTechs = true;
   state.isTechnician = false;
   state.canViewCommission = true;
+  fx.profiles = {};
   state.canViewDocuments = true;
   state.canViewJobTypes = true;
   state.canViewServiceAreas = true;
@@ -442,6 +445,28 @@ describe("TechnicianDetailPage — guards", () => {
     expect(screen.getByText("No access")).toBeInTheDocument();
   });
 
+  /**
+   * QA 2026-10-14 #10: an admin's card read "You can read this technician's
+   * details but not change them." — the explainer for greyed fields was in
+   * the DOM for everyone, so a screen reader (and the sweep) heard a lock
+   * that was not there.
+   */
+  it("says nothing about not being able to change the card to someone who can", () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(screen.getByLabelText("City")).toBeEnabled();
+    expect(screen.getByLabelText("Labor cost per hour")).toBeEnabled();
+    expect(screen.queryByText("You can read this technician's details but not change them.")).toBeNull();
+    expect(screen.queryByText("A manager sets this.")).toBeNull();
+    expect(reason(screen.getByLabelText("City"))).toBe("");
+  });
+
+  it("says one plain line under Schedule color, not a note to developers", () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.queryByText(/needs a decision/)).toBeNull();
+    expect(screen.getByText("Not saved yet.")).toBeInTheDocument();
+  });
+
   it("locks the whole card for a viewer who may not edit technicians", async () => {
     state.canEditTechs = false;
     render(<TechnicianDetailPage technicianId="t1" />);
@@ -567,5 +592,22 @@ describe("TechnicianDetailPage — the card's own fields", () => {
     expect(screen.getByLabelText("First name")).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "Field team member" })).toBeDisabled();
     expect(reason(screen.getByLabelText("First name"))).toMatch(/live on the user record/);
+  });
+});
+
+describe("TechnicianDetailPage — moving from one card to another", () => {
+  // 89 of 93 imported profiles on dev share one `updatedAt` (the import's
+  // clock), and the form used to be keyed by it alone: opening a second
+  // technician from the map kept the first one's values — his phone — in the
+  // form, and Save sent them ("+380… is already on Bohdan TECH's profile").
+  it("shows the other technician's own phone even when both profiles carry the same updatedAt", async () => {
+    fx.profiles = { t2: { ...fx.profile, userId: "t2", phone: "+14045559999" } };
+    const view = render(<TechnicianDetailPage technicianId="t1" />);
+    // The box prints a US number the way Workiz does; the profile holds E.164.
+    expect(await screen.findByLabelText("Phone")).toHaveValue("(404) 555-1234");
+
+    view.rerender(<TechnicianDetailPage technicianId="t2" />);
+
+    expect(await screen.findByLabelText("Phone")).toHaveValue("(404) 555-9999");
   });
 });

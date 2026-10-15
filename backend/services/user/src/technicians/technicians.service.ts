@@ -36,6 +36,7 @@ import { DocumentsRepository } from './documents/documents.repository';
 import { UpdateTechnicianDto, OPERATIONAL_FIELDS } from './dto/update-technician.dto';
 import { ListTechniciansQueryDto } from './dto/list-technicians-query.dto';
 import { deriveOnboardingStatus } from './onboarding.util';
+import { isLocationTracked } from './location/location-policy';
 
 const TECHNICIAN_ROLE_ID = 'role-technician';
 const USER_EVENTS_TOPIC = 'user-events';
@@ -72,23 +73,47 @@ export class TechniciansService {
   async getProfile(id: string, caller: JwtUser): Promise<TechnicianProfile> {
     await this.assertCanAccessTechnician(caller, id);
 
+    const profile = await this.loadProfile(id);
+    if (!profile) {
+      throw new NotFoundException('Technician profile not found');
+    }
+    return this.resolve(profile);
+  }
+
+  /**
+   * Whether this person's live position may be stored and shown — the rule in
+   * `location/location-policy.ts`, answered from the card and the user record.
+   * Asked on every fix a phone posts and on every read of the dispatch map, so
+   * both reads go through their caches. No access check: the caller has
+   * already decided whose position it is handling.
+   */
+  async isLocationTracked(userId: string): Promise<boolean> {
+    const [profile, user] = await Promise.all([
+      this.loadProfile(userId),
+      this.users.findById(userId).catch(() => null),
+    ]);
+    return isLocationTracked(profile, user);
+  }
+
+  /**
+   * The stored card, from the cache or the table. Cached as stored — the
+   * phone and the photo link are resolved after every read, cache hit
+   * included, so changing the phone elsewhere is never five minutes stale
+   * here, and a link that expires in an hour is never handed out from a cache
+   * entry that outlives it.
+   */
+  private async loadProfile(id: string): Promise<TechnicianProfile | null> {
     const cached = await this.cache.getProfile(id);
     if (cached) {
       this.businessMetrics?.cacheHits.inc({ entity_type: 'technician' });
-      return this.resolve(cached);
+      return cached;
     }
     this.businessMetrics?.cacheMisses.inc({ entity_type: 'technician' });
 
     const profile = await this.repository.getProfile(id);
-    if (!profile) {
-      throw new NotFoundException('Technician profile not found');
-    }
-    // Cached as stored — the phone and the photo link are resolved after
-    // every read, cache hit included, so changing the phone elsewhere is
-    // never five minutes stale here, and a link that expires in an hour is
-    // never handed out from a cache entry that outlives it.
+    if (!profile) return null;
     await this.cache.setProfile(profile);
-    return this.resolve(profile);
+    return profile;
   }
 
   /**
@@ -98,11 +123,17 @@ export class TechniciansService {
   private async resolve(profile: TechnicianProfile): Promise<TechnicianProfile> {
     // Independent reads (the user record; the photo document + its link), so
     // they run side by side — the photo only ever adds `profilePhotoUrl`.
-    const [withPhone, profilePhotoUrl] = await Promise.all([
+    const [withPhone, documentUrl] = await Promise.all([
       this.withPhone(profile),
       this.photoUrl(profile.userId),
     ]);
-    return profilePhotoUrl ? { ...withPhone, profilePhotoUrl } : withPhone;
+    // A stored `profilePhotoUrl` counts only when it is a real link. The
+    // Workiz import wrote the S3 key path (`technicians/<id>/profile_photo`)
+    // for every user with a picture there, and nothing serves that path: a
+    // browser handed it drew one 404 per avatar on the schedule.
+    const { profilePhotoUrl: stored, ...rest } = withPhone;
+    const profilePhotoUrl = documentUrl ?? (stored && /^https?:\/\//i.test(stored) ? stored : undefined);
+    return profilePhotoUrl ? { ...rest, profilePhotoUrl } : rest;
   }
 
   /**
@@ -137,7 +168,10 @@ export class TechniciansService {
     // so the user record answers; the card's own copy only speaks for a record
     // from before the type moved there.
     const technicianType = user?.userType ?? profile.technicianType ?? 'regular';
-    profile = { ...profile, technicianType };
+    // "Track location" is served as it applies, not as the checkbox was
+    // stored: never on for a subcontractor. The phone reads this field to
+    // decide whether to share its position at all.
+    profile = { ...profile, technicianType, gpsTrackingEnabled: isLocationTracked(profile, user) };
     if (user?.phone) return { ...profile, phone: user.phone };
     if (!profile.phone) return { ...profile, phone: undefined };
 

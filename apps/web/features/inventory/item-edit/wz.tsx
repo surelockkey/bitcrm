@@ -51,42 +51,59 @@ export function WzOverlay() {
 export function WzDialog({
   open,
   onOpenChange,
+  children,
+  ...content
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+} & WzDialogContentProps) {
+  return (
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+      <WzDialogContent {...content}>{children}</WzDialogContent>
+    </DialogPrimitive.Root>
+  );
+}
+
+export interface WzDialogContentProps {
+  className?: string;
+  testId?: string;
+  onEscapeKeyDown?: ComponentProps<typeof DialogPrimitive.Content>["onEscapeKeyDown"];
+}
+
+/**
+ * The card alone — backdrop and content under a dialog root the caller owns,
+ * for a flow whose steps wear different windows (the job's item picker, then
+ * Workiz's "Add job item" card) under one open/close.
+ */
+export function WzDialogContent({
   className,
   children,
   testId,
   onEscapeKeyDown,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  className?: string;
-  children: ReactNode;
-  testId?: string;
-  onEscapeKeyDown?: ComponentProps<typeof DialogPrimitive.Content>["onEscapeKeyDown"];
-}) {
+}: WzDialogContentProps & { children: ReactNode }) {
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
-      <DialogPrimitive.Portal>
-        <WzOverlay />
-        <DialogPrimitive.Content
-          data-testid={testId}
-          aria-describedby={undefined}
-          onEscapeKeyDown={onEscapeKeyDown}
-          // Workiz opens with nothing focused. Radix would ring the × (the
-          // first tabbable); the card takes focus instead, unless a field of
-          // it asked for focus itself (autoFocus).
-          onOpenAutoFocus={(e) => {
-            const card = e.currentTarget as HTMLElement | null;
-            if (card && !card.contains(document.activeElement)) {
-              e.preventDefault();
-              card.focus();
-            }
-          }}
-          className={cn(MODAL_BASE, workizFont.className, "max-w-[calc(100vw-2rem)] overflow-x-hidden", className)}
-        >
-          {children}
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+    <DialogPrimitive.Portal>
+      <WzOverlay />
+      <DialogPrimitive.Content
+        data-testid={testId}
+        aria-describedby={undefined}
+        onEscapeKeyDown={onEscapeKeyDown}
+        // Workiz opens with nothing focused. Radix would ring the × (the
+        // first tabbable); the card takes focus instead, unless a field of
+        // it asked for focus itself (autoFocus).
+        onOpenAutoFocus={(e) => {
+          const card = e.currentTarget as HTMLElement | null;
+          if (card && !card.contains(document.activeElement)) {
+            e.preventDefault();
+            card.focus();
+          }
+        }}
+        className={cn(MODAL_BASE, workizFont.className, "max-w-[calc(100vw-2rem)] overflow-x-hidden", className)}
+      >
+        {children}
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Portal>
   );
 }
 

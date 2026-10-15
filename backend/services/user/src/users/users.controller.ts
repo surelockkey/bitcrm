@@ -87,6 +87,21 @@ export class UsersController {
     return this.usersService.list(query);
   }
 
+  // Declared before `:id` — otherwise Nest matches "location-roster" as a user id.
+  @Get("location-roster")
+  @RequirePermission("containers", "view")
+  @ApiOperation({
+    summary: "The active people, by name and role — for Inventory → User locations",
+    description:
+      "**Guard:** `containers.view` — deliberately NOT `users.view`. A role that works the vans but may not " +
+      "open the user directory (Logistics) still has to see whom to give a van to. Every active user: id, " +
+      "first / last name, Workiz name, roleId — no email, no phone, no status, no department.",
+  })
+  async locationRoster() {
+    const data = await this.usersService.locationRoster();
+    return { success: true, data };
+  }
+
   @Post("by-ids")
   @ApiOperation({
     summary: "Resolve user ids to names",

@@ -45,6 +45,7 @@ import {
 import { DONE_LINES_INPUTS, doneLinesDay, restampDoneLines } from './done-lines-index';
 import { generateDealNumberCode } from './deal-number.util';
 import { BALANCE_DUE_FILTER, hasBalanceDue } from './deal-balance';
+import { jobCostsOf } from './billing/deal-totals';
 import { dayStartUtc, jobEndAt, shiftDay, type ReportDateSource } from './report/report-dates';
 import {
   DEAL_SEARCH_INPUTS,
@@ -225,6 +226,7 @@ export const DEAL_STATS_PROJECTION: readonly string[] = [
   'serviceArea',
   'address',
   'totals',
+  'techCost',
 ];
 
 /** Times a BatchGet asks again for keys DynamoDB left unprocessed. */
@@ -2336,6 +2338,12 @@ export class DealsRepository {
       invoiceId: item.invoiceId as string | undefined,
       estimatedTotal: item.estimatedTotal as number | undefined,
       actualTotal: item.actualTotal as number | undefined,
+      // Tech Cost / Company Cost — ours, else the Workiz names the importer wrote.
+      ...jobCostsOf(item),
+      // Workiz "Custom Tech Rate": the job's own technician rate (the importer's names).
+      ...(item.useTechSpecialRate !== undefined && { useTechSpecialRate: item.useTechSpecialRate === true }),
+      ...(typeof item.techSpecialRate === 'number' && { techSpecialRate: item.techSpecialRate }),
+      ...((item.techSpecialRateUnit === '%' || item.techSpecialRateUnit === '$') && { techSpecialRateUnit: item.techSpecialRateUnit }),
       paymentStatus: item.paymentStatus as string | undefined,
       amountPaid: item.amountPaid as number | undefined,
       status: item.status as Deal['status'],

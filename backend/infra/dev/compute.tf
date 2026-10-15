@@ -88,6 +88,11 @@ data "aws_iam_policy_document" "task_user" {
     actions = [
       "cognito-idp:AdminCreateUser",
       "cognito-idp:AdminDeleteUser",
+      # Deactivate / reactivate a user and the Subcontractor switch (a sub
+      # cannot sign in): without these the user-service answers 500 and leaves
+      # the record inactive while the account can still sign in (dev, 2026-10-14).
+      "cognito-idp:AdminDisableUser",
+      "cognito-idp:AdminEnableUser",
       "cognito-idp:AdminGetUser",
       "cognito-idp:AdminUpdateUserAttributes",
       "cognito-idp:AdminSetUserPassword",

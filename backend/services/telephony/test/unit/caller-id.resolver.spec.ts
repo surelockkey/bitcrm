@@ -113,6 +113,52 @@ describe('CallerIdResolver — server-placed legs', () => {
 });
 
 /**
+ * The masked call ("call me about this job", 2026-10-15): the client is rung
+ * "from the number the client has been talking to". BridgeService passes the
+ * company numbers the client last talked to, newest first; they come before
+ * the market, under the same ownership check. The dial-in passes none.
+ */
+describe('CallerIdResolver — the masked call: the number the client knows', () => {
+  it('the number the client has been talking to wins over the market', async () => {
+    const { resolver } = makeResolver({ areaCallerId: '+19125550200' });
+
+    const out = await resolver.forServerLeg(deal('area-sav'), ['+15555550000']);
+
+    expect(out).toEqual({ callerId: '+15555550000', source: 'recent' });
+  });
+
+  it('a number we no longer own is skipped — the next one the client knows, then the market', async () => {
+    const { resolver } = makeResolver({ areaCallerId: '+19125550200' });
+
+    expect(
+      await resolver.forServerLeg(deal('area-sav'), ['+17705559999', '+14045550100']),
+    ).toEqual({ callerId: '+14045550100', source: 'recent' });
+    expect(await resolver.forServerLeg(deal('area-sav'), ['+17705559999'])).toEqual({
+      callerId: '+19125550200',
+      source: 'area',
+    });
+  });
+
+  it('no history is the market, exactly as before', async () => {
+    const { resolver } = makeResolver({ areaCallerId: '+19125550200' });
+
+    expect(await resolver.forServerLeg(deal('area-sav'), [])).toEqual({
+      callerId: '+19125550200',
+      source: 'area',
+    });
+  });
+
+  it('a history entry that is not a number is ignored', async () => {
+    const { resolver } = makeResolver({ areaCallerId: '+19125550200' });
+
+    expect(await resolver.forServerLeg(deal('area-sav'), ['', 'client:tech-1'])).toEqual({
+      callerId: '+19125550200',
+      source: 'area',
+    });
+  });
+});
+
+/**
  * The dialer disagrees with the server chain ON PURPOSE. An agent's explicit
  * pick wins, because the shipped rationale is that clients answer the number
  * they already know — and only the system's own legs are about a market.

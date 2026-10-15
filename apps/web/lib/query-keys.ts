@@ -196,8 +196,8 @@ export const queryKeys = {
       photo: (id: string) => ["products", id, "photo"] as const,
       /** Under `products`: a stock movement refreshes it with the list and the detail. */
       stock: (id: string) => ["products", id, "stock"] as const,
-      /** The whole catalog as a list, for the job and estimate item pickers. */
-      map: () => ["products", "all-map"] as const,
+      /** One page of the active catalog for what an item picker's box holds (`search=`). */
+      search: (term: string) => ["products", "search", term] as const,
     },
     warehouses: {
       all: () => ["warehouses"] as const,
@@ -238,6 +238,8 @@ export const queryKeys = {
       list: () => ["user-containers", "list"] as const,
       /** The caller's own row. */
       mine: () => ["user-containers", "me"] as const,
+      /** The people to give vans to, for a viewer without the user directory. */
+      roster: () => ["user-containers", "roster"] as const,
     },
     /** A van's ideal loadout, and how a van compares with it. */
     containerTemplates: {

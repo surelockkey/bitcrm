@@ -95,6 +95,27 @@ export function canRefund(
   return remainingRefundable(payment) > 0;
 }
 
+/* -------------------------------------------------------------- deletes */
+
+/** Money Stripe knows about: a portal checkout, a card tapped or typed on a staff phone. */
+export function isStripeBackedPayment(
+  p: Pick<Payment, "stripePaymentIntentId" | "stripeChargeId" | "stripeSessionId">,
+): boolean {
+  return !!(p.stripePaymentIntentId || p.stripeChargeId || p.stripeSessionId);
+}
+
+/**
+ * Workiz deletes a mis-keyed OFFLINE payment (cash, check, a card taken in
+ * person) and refunds everything else; the server says the same (409 on a
+ * Stripe payment). A payment with a refund on record is kept too — money that
+ * came back was collected, not mis-keyed, and its refund rows would be orphaned.
+ */
+export function canDeletePayment(
+  p: Pick<Payment, "stripePaymentIntentId" | "stripeChargeId" | "stripeSessionId" | "refundedAmount">,
+): boolean {
+  return !isStripeBackedPayment(p) && !(safe(p.refundedAmount) > 0);
+}
+
 export function overRefundMessage(remaining: number): string {
   return `You can refund at most ${formatMoney(remaining)} on this payment.`;
 }

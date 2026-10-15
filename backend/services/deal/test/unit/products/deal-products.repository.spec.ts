@@ -236,6 +236,17 @@ describe('DealProductsRepository', () => {
       expect(single).not.toHaveProperty('itemGroupId');
     });
 
+    it('reads Sold by back, absent when the line has none', async () => {
+      const base = { PK: 'DEAL#deal-1', SK: 'PRODUCT#product-1', ...createMockDealProduct() };
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Item: { ...base, soldBy: 'user-9' } })
+        .mockResolvedValueOnce({ Item: { ...base } });
+      const sold = await repository.findProduct('deal-1', 'product-1');
+      const nobody = await repository.findProduct('deal-1', 'product-1');
+      expect(sold!.soldBy).toBe('user-9');
+      expect(nobody).not.toHaveProperty('soldBy');
+    });
+
     it('carries discountable only when a line is kept out of the discount', async () => {
       const base = { PK: 'DEAL#deal-1', SK: 'PRODUCT#product-1', ...createMockDealProduct() };
       dynamoDb.client.send

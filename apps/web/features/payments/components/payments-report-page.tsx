@@ -1,5 +1,7 @@
 "use client";
 
+import { isFieldTeamMember } from "@bitcrm/types";
+
 import { useMemo, useState } from "react";
 import { FileText } from "lucide-react";
 import { toast } from "sonner";
@@ -158,6 +160,13 @@ export function PaymentsReportPage() {
 
   const contactOf = (id: string): PaymentsReportContact | undefined => shown?.clients?.[id];
   const nameOf = (id: string | undefined, fallback?: string) => (id && personName(userMap.map.get(id))) || fallback;
+  // Collected by is whoever took the payment, the office included; only a
+  // field-team member has a technician card. Someone the directory does not
+  // show (a restricted viewer's name-only map) keeps the link, as before.
+  const technicianHref = (id: string) => {
+    const u = userMap.map.get(id);
+    return u?.roleId !== undefined && !isFieldTeamMember(u) ? undefined : `/technicians/${id}`;
+  };
 
   const runExport = async () => {
     setExporting(true);
@@ -255,6 +264,7 @@ export function PaymentsReportPage() {
             onSortDate={() => setDir((d) => (d === "desc" ? "asc" : "desc"))}
             contactOf={contactOf}
             nameOf={nameOf}
+            technicianHref={technicianHref}
             // Faded only while a new answer is on its way — a refused Custom
             // range keeps the old lines as they were, as Workiz does.
             busy={(q.isPlaceholderData && q.isFetching) || q.isFetchingNextPage}

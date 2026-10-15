@@ -127,10 +127,20 @@ describe('DealsController', () => {
       const caller = createMockJwtUser();
       service.update.mockResolvedValue(deal);
 
-      const result = await controller.update('deal-1', { notes: 'x' } as any, caller);
+      const result = await controller.update('deal-1', { notes: 'x' } as any, caller, undefined as any);
 
       expect(result).toEqual({ success: true, data: deal });
-      expect(service.update).toHaveBeenCalledWith('deal-1', { notes: 'x' }, caller);
+      expect(service.update).toHaveBeenCalledWith('deal-1', { notes: 'x' }, caller, { mayOverrideRate: false });
+    });
+
+    it('hands the service whether the caller may override the technician rate (commission.edit)', async () => {
+      const caller = createMockJwtUser();
+      service.update.mockResolvedValue(createMockDeal());
+      const perms = { dataScope: { deals: 'all' }, permissions: { commission: { edit: true } } } as any;
+
+      await controller.update('deal-1', { useTechSpecialRate: true, techSpecialRate: 40 } as any, caller, perms);
+
+      expect(service.update).toHaveBeenCalledWith('deal-1', { useTechSpecialRate: true, techSpecialRate: 40 }, caller, { mayOverrideRate: true });
     });
   });
 
@@ -291,14 +301,15 @@ describe('DealsController', () => {
     const perms = { dataScope: { deals: 'assigned_only' } } as any;
     const dto = { productId: 'p-1', name: 'Bolt', sku: 'B-1', quantity: 1, priceClient: 30 };
 
-    it('addProduct', async () => {
+    it('addProduct — answers with the line it wrote, so the page can show it without a reread', async () => {
       const caller = createMockJwtUser();
-      service.addProduct.mockResolvedValue(undefined);
+      const line = createMockDealProduct({ lineId: 'l-9' });
+      service.addProduct.mockResolvedValue(line);
 
       const result = await controller.addProduct('deal-1', dto as any, caller, perms);
 
-      expect(result).toEqual({ success: true, data: { added: true } });
-      expect(service.addProduct).toHaveBeenCalledWith('deal-1', dto, caller, 'assigned_only');
+      expect(result).toEqual({ success: true, data: { added: true, line } });
+      expect(service.addProduct).toHaveBeenCalledWith('deal-1', dto, caller, 'assigned_only', { mayCost: false });
     });
 
     it('addItemGroup — 201 with the lines it wrote', async () => {
@@ -324,13 +335,29 @@ describe('DealsController', () => {
       expect(service.addItemGroup).toHaveBeenCalledWith('deal-1', 'group-1', {}, caller, 'assigned_only');
     });
 
-    it('replaceProduct', async () => {
+    it('hands the service whether the caller may set the line cost (financials.view)', async () => {
       const caller = createMockJwtUser();
+      const office = { dataScope: { deals: 'all' }, permissions: { financials: { view: true } } } as any;
+      const dto = { productId: 'p1', costCompany: 12 };
+      service.addProduct.mockResolvedValue(undefined);
+      service.replaceProduct.mockResolvedValue(undefined);
+
+      await controller.addProduct('deal-1', dto as any, caller, office);
+      await controller.replaceProduct('deal-1', 'line-1', dto as any, caller, office);
+
+      expect(service.addProduct).toHaveBeenCalledWith('deal-1', dto, caller, 'all', { mayCost: true });
+      expect(service.replaceProduct).toHaveBeenCalledWith('deal-1', 'line-1', dto, caller, 'all', { mayCost: true });
+    });
+
+    it('replaceProduct — answers with the rewritten line', async () => {
+      const caller = createMockJwtUser();
+      const line = createMockDealProduct({ lineId: 'line-1', quantity: 2 });
+      service.replaceProduct.mockResolvedValue(line);
 
       const result = await controller.replaceProduct('deal-1', 'line-1', dto as any, caller, perms);
 
-      expect(result).toEqual({ success: true, data: { updated: true } });
-      expect(service.replaceProduct).toHaveBeenCalledWith('deal-1', 'line-1', dto, caller, 'assigned_only');
+      expect(result).toEqual({ success: true, data: { updated: true, line } });
+      expect(service.replaceProduct).toHaveBeenCalledWith('deal-1', 'line-1', dto, caller, 'assigned_only', { mayCost: false });
     });
 
     it('markProductOrdered', async () => {

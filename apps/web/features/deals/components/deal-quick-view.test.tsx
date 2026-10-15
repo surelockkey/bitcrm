@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import {
   ClientType,
   ContactSource,
@@ -8,8 +9,9 @@ import {
   DealPriority,
   JobSuperStatus,
   DealStatus,
+  TimelineEventType,
 } from "@bitcrm/types";
-import type { Contact, Deal } from "@bitcrm/types";
+import type { Contact, Deal, DealProduct } from "@bitcrm/types";
 
 // next/link needs the App Router context to render; swap it for a plain anchor
 // so this stays a focused unit test.
@@ -27,11 +29,13 @@ vi.mock("@/components/ui/sheet", () => ({
   SheetContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   SheetHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   SheetTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  SheetClose: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
+const perms = vi.hoisted(() => ({ can: vi.fn<(area: string, action?: string) => boolean>(() => true) }));
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
-  usePermissions: () => ({ can: () => true }),
+  usePermissions: () => ({ can: perms.can }),
 }));
 
 vi.mock("@/features/job-types/lib", () => ({
@@ -40,13 +44,43 @@ vi.mock("@/features/job-types/lib", () => ({
 }));
 
 // Catalog widgets fetch via react-query; stub them so the drawer renders
-// without a QueryClient (they're irrelevant to the client link).
+// without a QueryClient.
 vi.mock("@/features/job-tags/components/job-tag-chips", () => ({ JobTagChips: () => null }));
-vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => null }));
-vi.mock("@/features/job-statuses/components/job-status-select", () => ({ JobStatusSelect: () => null }));
-// Custom-fields catalog fetches via react-query; stub it (empty catalog → the
-// read-only custom-fields row stays hidden) so the drawer renders sans QueryClient.
-const qv = vi.hoisted(() => ({ fields: [] as unknown[], deal: null as unknown }));
+vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => <div data-testid="tags" /> }));
+vi.mock("@/features/job-statuses/components/job-status-menu", () => ({ JobStatusMenu: () => <div data-testid="status" /> }));
+vi.mock("./workiz", () => ({
+  WzTeamSelect: ({ value, disabled }: { value: string[]; disabled?: boolean }) => (
+    <input aria-label="Assign tech" readOnly disabled={disabled} value={value.join(",")} />
+  ),
+}));
+// The custom-field renderer is the Workiz one from New Job; here it only
+// needs to show whether it is editable and to hand back a change.
+vi.mock("@/features/custom-fields/components/wz-custom-fields", () => ({
+  WzCustomFields: ({
+    value,
+    onChange,
+    disabled,
+  }: {
+    value: Record<string, unknown>;
+    onChange: (v: Record<string, unknown>) => void;
+    disabled?: boolean;
+  }) => (
+    <div>
+      <input aria-label="Gate code" disabled={disabled} value={String(value["cf-gate"] ?? "")} onChange={(e) => onChange({ ...value, "cf-gate": e.target.value })} />
+    </div>
+  ),
+}));
+vi.mock("./job-note-editor", () => ({
+  JobNoteEditor: ({ value, onChange, editable, ariaLabel }: { value: string; onChange: (s: string) => void; editable?: boolean; ariaLabel?: string }) =>
+    editable ? <textarea aria-label={ariaLabel ?? "Notes"} value={value} onChange={(e) => onChange(e.target.value)} /> : <div>{value}</div>,
+}));
+const qv = vi.hoisted(() => ({
+  fields: [] as unknown[],
+  deal: null as unknown,
+  products: [] as unknown[],
+  totals: null as unknown,
+  notes: [] as unknown[],
+}));
 vi.mock("@/features/custom-fields/hooks", () => ({ useCustomFields: () => ({ data: qv.fields }) }));
 // The zone a visit was booked in: the job's own, else its area's (one Texas area here).
 vi.mock("@/features/service-areas/hooks", async () => {
@@ -54,8 +88,7 @@ vi.mock("@/features/service-areas/hooks", async () => {
   return { useJobZoneOf: () => jobZoneResolver([{ id: "sa-tx", timezone: "America/Chicago" }]) };
 });
 // Calling the client goes through the masked bridge, which queries telephony
-// for the workspace's numbers. This test is about the client LINK; the button
-// has its own tests.
+// for the workspace's numbers; the button has its own tests.
 vi.mock("@/features/telephony/components/call-client-button", () => ({
   CallClientButton: ({ to, variant }: { to: string; variant?: string }) => (
     <button type="button" aria-label={`Call ${to}`} data-variant={variant} />
@@ -96,109 +129,258 @@ const deal: Deal = {
   updatedAt: "",
   businessProfileId: "bp-2",
   businessProfileName: "KeyPro",
+  itemCount: 0,
 };
 
+const mutations = vi.hoisted(() => ({
+  update: vi.fn(),
+  addNote: vi.fn(),
+  assign: vi.fn(),
+  setTags: vi.fn(),
+  moveStatus: vi.fn(),
+}));
+
 vi.mock("@/features/clients/hooks", () => ({
-  useContact: (id: string) => ({ data: id === contact.id ? contact : undefined, isLoading: false }),
+  useContact: (id: string) => ({ data: id === contact.id ? contact : undefined, isLoading: false, isPending: false, isSuccess: true }),
 }));
 vi.mock("../hooks", () => ({
-  useDeal: () => ({ data: qv.deal ?? deal, isLoading: false }),
-  useDealProducts: () => ({ data: [] }),
+  useDeal: () => ({ data: qv.deal ?? deal, isLoading: false, isPending: false }),
+  useDealProducts: () => ({ data: qv.products, isPending: false }),
+  useDealTotals: () => ({ data: qv.totals, isPending: false }),
+  useDealTimeline: () => ({
+    data: { pages: [{ data: qv.notes, pagination: {} }] },
+    isPending: false,
+    hasNextPage: false,
+    fetchNextPage: vi.fn(),
+  }),
   useUserMap: () => ({ map: new Map(), isLoading: false }),
-  useUpdateDeal: () => ({ mutate: vi.fn() }),
-  useSetDealTags: () => ({ mutate: vi.fn() }),
-  useMoveStatus: () => ({ mutate: vi.fn() }),
+  useUpdateDeal: () => ({ mutate: mutations.update, isPending: false }),
+  useAddNote: () => ({ mutate: mutations.addNote, isPending: false }),
+  useAssignTechs: () => ({ mutate: mutations.assign, isPending: false }),
+  useSetDealTags: () => ({ mutate: mutations.setTags }),
+  useMoveStatus: () => ({ mutate: mutations.moveStatus }),
 }));
 
 import { DealQuickView } from "./deal-quick-view";
 
+const open = () => render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
+
 describe("DealQuickView", () => {
+  beforeEach(() => {
+    qv.deal = null;
+    qv.products = [];
+    qv.totals = null;
+    qv.notes = [];
+    qv.fields = [];
+    perms.can.mockReturnValue(true);
+    Object.values(mutations).forEach((m) => m.mockReset());
+  });
+
   /**
    * Peeking at a job is usually a prelude to ringing the client, so the call
    * is the primary action on the card rather than one more glyph in a row of
    * them.
    */
   it("makes calling the client the card's obvious action", () => {
-    render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
-
-    expect(screen.getByRole("button", { name: /call \+14045551234/i })).toHaveAttribute(
-      "data-variant",
-      "prominent",
-    );
+    open();
+    expect(screen.getByRole("button", { name: /call \+14045551234/i })).toHaveAttribute("data-variant", "prominent");
   });
 
   it("links the client name to the contact page so you can jump from the job to the client", () => {
-    render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
-
-    const link = screen.getByRole("link", { name: "Jane Smith" });
-    expect(link).toHaveAttribute("href", "/contacts/c1");
+    open();
+    expect(screen.getByRole("link", { name: "Jane Smith" })).toHaveAttribute("href", "/contacts/c1");
   });
 
   it("shows the job's company", () => {
-    render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
+    open();
     expect(screen.getByText("Company")).toBeInTheDocument();
     expect(screen.getByText("KeyPro")).toBeInTheDocument();
   });
 
+  /** Workiz's pane (quickview_wz_open): "Job ID: …", open-in-new-tab, Details · Custom fields · Items. */
+  it("is Workiz's pane: the Job ID, the job in a new tab, and its three tabs", () => {
+    open();
+    expect(screen.getByText("Job ID: 1042")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open full job" })).toHaveAttribute("href", "/deals/d1");
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Details", "Custom fields", "Items"]);
+  });
+
   /**
    * Audit L18: the drawer said "Nov 16 · 15:30-15:30" — 24-hour, start equal
-   * to end — where the list says "Mon Nov 16, 2026 04:30 pm". It now reads
-   * like the list: the account's clock, then the place and its own.
+   * to end — where the list says "Mon Nov 16, 2026 04:30 pm". It reads like
+   * the list: the account's clock, then the place and its own.
    */
   it("reads the visit the way the list does — each clock naming its zone", () => {
     qv.deal = { ...deal, scheduledDate: "2026-11-16", scheduledTimeSlot: "15:30-15:30", jobTimezone: "America/Chicago" };
-    try {
-      render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
-      expect(screen.getByText("Mon Nov 16, 2026 04:30 pm EST")).toBeInTheDocument();
-      expect(screen.getByText("Phoenix: Mon Nov 16, 2026 03:30 pm CST")).toBeInTheDocument();
-      expect(screen.queryByText(/15:30-15:30/)).toBeNull();
-    } finally {
-      qv.deal = null;
-    }
+    open();
+    expect(screen.getByText("Mon Nov 16, 2026 04:30 pm EST")).toBeInTheDocument();
+    expect(screen.getByText("Phoenix: Mon Nov 16, 2026 03:30 pm CST")).toBeInTheDocument();
+    expect(screen.queryByText(/15:30-15:30/)).toBeNull();
   });
 
-  /**
-   * 2026-10-12: a visit is stored on its own zone's clock — the job's
-   * `jobTimezone`, else its service area's. A job that only has an area in
-   * Texas is converted too (the drawer read `jobTimezone` alone).
-   */
   it("converts a visit booked on its service area's clock, labelled", () => {
     qv.deal = { ...deal, scheduledDate: "2026-10-08", scheduledTimeSlot: "08:00-09:00", jobTimezone: undefined, serviceAreaId: "sa-tx" };
-    try {
-      render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
-      expect(screen.getByText("Thu Oct 08, 2026 09:00 am EDT")).toBeInTheDocument();
-      expect(screen.getByText("Phoenix: Thu Oct 08, 2026 08:00 am CDT")).toBeInTheDocument();
-    } finally {
-      qv.deal = null;
-    }
+    open();
+    expect(screen.getByText("Thu Oct 08, 2026 09:00 am EDT")).toBeInTheDocument();
+    expect(screen.getByText("Phoenix: Thu Oct 08, 2026 08:00 am CDT")).toBeInTheDocument();
   });
 
-  /** Audit L18: a saved job's file fields said "Save the job first to attach a file." */
-  it("treats a file field on a saved job as the saved job's", () => {
-    qv.fields = [
-      {
-        id: "cf-photo",
-        name: "Photo of the door",
-        type: "file",
-        group: "Access",
-        options: [],
-        jobTypeIds: [],
-        required: false,
-        requiredToClose: false,
-        searchable: false,
-        priority: 0,
-        active: true,
-        createdBy: "u1",
-        createdAt: "",
-        updatedAt: "",
-      },
+  it("says so when the job is unscheduled, as Workiz does", () => {
+    open();
+    expect(screen.getByText("This job is unscheduled")).toBeInTheDocument();
+  });
+
+  /** quickview_wz_edit_schedule: the pencil opens Starts / At, Ends / At, All day, Cancel / Save. */
+  it("edits the schedule in place and saves the visit", async () => {
+    const user = userEvent.setup();
+    qv.deal = { ...deal, scheduledDate: "2026-10-08", scheduledEndDate: "2026-10-08", scheduledTimeSlot: "08:00-09:00", jobTimezone: "America/New_York" };
+    open();
+    await user.click(screen.getByRole("button", { name: "Edit schedule" }));
+    expect(screen.getByLabelText("Starts")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(mutations.update).toHaveBeenCalledWith(
+      expect.objectContaining({ scheduledDate: "2026-10-08", scheduledEndDate: "2026-10-08", scheduledTimeSlot: "08:00-09:00", allDay: false }),
+      expect.anything(),
+    );
+  });
+
+  it("assigns the team from the pane", () => {
+    open();
+    expect(screen.getByRole("textbox", { name: "Assign tech" })).not.toBeDisabled();
+  });
+
+  /** quickview_wz_edit_description: the pencil turns the text into the editor. */
+  it("edits the description in place", async () => {
+    const user = userEvent.setup();
+    qv.deal = { ...deal, notes: "Rekey the back door" };
+    open();
+    expect(screen.getByText("Rekey the back door")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit description" }));
+    const box = screen.getByRole("textbox", { name: "Description" });
+    await user.clear(box);
+    await user.type(box, "Rekey both doors");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(mutations.update).toHaveBeenCalledWith({ notes: "Rekey both doors" }, expect.anything());
+  });
+
+  /** quickview_wz_add_note: Notes folds open, "+" is Add note, the box saves a job note. */
+  it("lets a note be left from the pane", async () => {
+    const user = userEvent.setup();
+    qv.notes = [
+      { id: "n1", dealId: "d1", eventType: TimelineEventType.NOTE_ADDED, actorId: "u1", actorName: "Sam", timestamp: "2026-10-14T12:00:00Z", details: {}, note: "Client called back" },
+      { id: "f1", dealId: "d1", eventType: TimelineEventType.FIELD_UPDATED, actorId: "u1", actorName: "Sam", timestamp: "2026-10-14T12:00:00Z", details: { field: "notes" } },
     ];
-    try {
-      render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
-      expect(screen.getByText("Photo of the door")).toBeInTheDocument();
-      expect(screen.queryByText("Save the job first to attach a file.")).toBeNull();
-    } finally {
-      qv.fields = [];
-    }
+    open();
+    await user.click(screen.getByRole("button", { name: "Notes" }));
+    expect(screen.getByText("Client called back")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add note" }));
+    await user.type(screen.getByRole("textbox", { name: "Add note" }), "Gate code 1234");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(mutations.addNote).toHaveBeenCalledWith("Gate code 1234", expect.anything());
+  });
+
+  describe("Finance", () => {
+    const finance = async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.click(screen.getByRole("button", { name: "Finance" }));
+    };
+
+    /** quickview_wz_details_expanded_bottom: Total · Due (read-only) · Tech Cost · Company Cost. */
+    it("types the total of a job without items and saves it on leaving the box", async () => {
+      const user = userEvent.setup();
+      qv.totals = { total: 0, amountPaid: 0, balanceDue: 0 };
+      open();
+      await finance(user);
+      const total = screen.getByRole("textbox", { name: "Total" });
+      expect(total).not.toBeDisabled();
+      expect(screen.getByRole("textbox", { name: "Due" })).toBeDisabled();
+      await user.clear(total);
+      await user.type(total, "150");
+      await user.tab();
+      expect(mutations.update).toHaveBeenCalledWith({ total: 150 }, expect.anything());
+    });
+
+    it("shows the items' total read-only once the job has lines", async () => {
+      const user = userEvent.setup();
+      qv.deal = { ...deal, itemCount: 2, totals: { subtotal: 286.4, discount: 0, tax: 0, total: 286.4, cost: 0 } };
+      qv.totals = { total: 286.4, amountPaid: 100, balanceDue: 186.4 };
+      open();
+      await finance(user);
+      expect(screen.getByRole("textbox", { name: "Total" })).toBeDisabled();
+      expect(screen.getByRole("textbox", { name: "Total" })).toHaveValue("286.40");
+      expect(screen.getByRole("textbox", { name: "Due" })).toHaveValue("186.40");
+    });
+
+    it("saves Tech Cost and Company Cost as they are left", async () => {
+      const user = userEvent.setup();
+      qv.deal = { ...deal, techCost: 10 };
+      open();
+      await finance(user);
+      const tech = screen.getByRole("textbox", { name: "Tech Cost" });
+      expect(tech).toHaveValue("10.00");
+      await user.clear(tech);
+      await user.type(tech, "82.74");
+      await user.tab();
+      expect(mutations.update).toHaveBeenCalledWith({ techCost: 82.74 }, expect.anything());
+      const company = screen.getByRole("textbox", { name: "Company Cost" });
+      await user.type(company, "5");
+      await user.tab();
+      expect(mutations.update).toHaveBeenCalledWith({ companyCost: 5 }, expect.anything());
+    });
+
+    it("leaving a box unchanged saves nothing", async () => {
+      const user = userEvent.setup();
+      qv.deal = { ...deal, techCost: 10 };
+      open();
+      await finance(user);
+      await user.click(screen.getByRole("textbox", { name: "Tech Cost" }));
+      await user.tab();
+      expect(mutations.update).not.toHaveBeenCalled();
+    });
+
+    it("is kept from those who may not see money", async () => {
+      perms.can.mockImplementation((area: string) => area !== "financials");
+      open();
+      expect(screen.queryByRole("button", { name: "Finance" })).toBeNull();
+    });
+  });
+
+  /** quickview_wz_tab_custom_fields: every field editable, saved from the pane. */
+  it("edits the custom fields on their tab and saves them", async () => {
+    const user = userEvent.setup();
+    qv.fields = [{ id: "cf-gate", name: "Gate code", type: "text", group: "Access", options: [], jobTypeIds: [], required: false, requiredToClose: false, searchable: false, priority: 0, active: true, createdBy: "u1", createdAt: "", updatedAt: "" }];
+    open();
+    await user.click(screen.getByRole("tab", { name: "Custom fields" }));
+    const gate = screen.getByRole("textbox", { name: "Gate code" });
+    expect(gate).not.toBeDisabled();
+    await user.type(gate, "1234");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(mutations.update).toHaveBeenCalledWith({ customFields: { "cf-gate": "1234" } }, expect.anything());
+  });
+
+  describe("Items tab", () => {
+    /** quickview_wz_tab_items: "No items", "You can add items from the job page only.", the link. */
+    it("says there are none and points at the job page", async () => {
+      const user = userEvent.setup();
+      open();
+      await user.click(screen.getByRole("tab", { name: "Items" }));
+      expect(screen.getByText("No items")).toBeInTheDocument();
+      expect(screen.getByText("You can add items from the job page only.")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Add items from the job page" })).toHaveAttribute("href", expect.stringMatching(/\/deals\/d1.*items/));
+    });
+
+    /** quickview_wz_items_job_ANQ7B7_items: name, "1 x $45.00 each", the line total, TAXABLE, view only. */
+    it("lists the lines read-only", async () => {
+      const user = userEvent.setup();
+      const line: DealProduct = { lineId: "l1", productId: "p1", name: "Service Call", sku: "", quantity: 2, costCompany: 0, costForTech: 0, priceClient: 45, taxable: true, addedBy: "u1", addedAt: "" };
+      qv.products = [line];
+      open();
+      await user.click(screen.getByRole("tab", { name: "Items" }));
+      const row = screen.getByText("Service Call").closest("li")!;
+      expect(within(row).getByText("2 x $45.00 each")).toBeInTheDocument();
+      expect(within(row).getByText("$90.00")).toBeInTheDocument();
+      expect(within(row).getByText("TAXABLE")).toBeInTheDocument();
+      expect(screen.getByText("This is view only. To add an item you will be redirected to the job page.")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Go to Items page" })).toBeInTheDocument();
+    });
   });
 });

@@ -78,6 +78,44 @@ describe('TechniciansService (unit)', () => {
     });
   });
 
+  describe('isLocationTracked (live-location policy)', () => {
+    it('reads the card from the cache and the type from the user record', async () => {
+      cache.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', gpsTrackingEnabled: true }),
+      );
+      users.findById.mockResolvedValue({ id: 'tech-1', userType: 'regular' });
+      expect(await service.isLocationTracked('tech-1')).toBe(true);
+      expect(repo.getProfile).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the table and caches the card it finds', async () => {
+      cache.getProfile.mockResolvedValue(null);
+      repo.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', gpsTrackingEnabled: false }),
+      );
+      expect(await service.isLocationTracked('tech-1')).toBe(false);
+      expect(cache.setProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'tech-1', gpsTrackingEnabled: false }),
+      );
+    });
+
+    it('a subcontractor is never tracked, even with Track location on the card', async () => {
+      cache.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', gpsTrackingEnabled: true }),
+      );
+      users.findById.mockResolvedValue({ id: 'tech-1', userType: 'subcontractor' });
+      expect(await service.isLocationTracked('tech-1')).toBe(false);
+    });
+
+    it('a person without a card (and no user record to ask) counts as tracked', async () => {
+      cache.getProfile.mockResolvedValue(null);
+      repo.getProfile.mockResolvedValue(null);
+      users.findById.mockRejectedValue(new NotFoundException('User not found'));
+      expect(await service.isLocationTracked('ghost')).toBe(true);
+      expect(cache.setProfile).not.toHaveBeenCalled();
+    });
+  });
+
   describe('getProfile — phone and photo resolved together', () => {
     it('reads the user record and the photo document concurrently, and merges both', async () => {
       const docs = { getByType: jest.fn() };
@@ -206,6 +244,26 @@ describe('TechniciansService (unit)', () => {
         users.findById.mockResolvedValue({ id: 'tech-1' });
         const result = await service.getProfile('tech-1', admin);
         expect(result.technicianType).toBe('subcontractor');
+      });
+
+      // The phone reads this field to decide whether to share its position,
+      // so the profile serves the effective answer, not the stored checkbox.
+      it('serves Track location as off for a subcontractor, whatever the card holds', async () => {
+        cache.getProfile.mockResolvedValue(
+          createMockTechnicianProfile({ userId: 'tech-1', gpsTrackingEnabled: true, technicianType: 'regular' }),
+        );
+        users.findById.mockResolvedValue({ id: 'tech-1', userType: 'subcontractor' });
+        const result = await service.getProfile('tech-1', admin);
+        expect(result.gpsTrackingEnabled).toBe(false);
+      });
+
+      it('serves the card’s Track location as is for a user', async () => {
+        cache.getProfile.mockResolvedValue(
+          createMockTechnicianProfile({ userId: 'tech-1', gpsTrackingEnabled: true }),
+        );
+        users.findById.mockResolvedValue({ id: 'tech-1', userType: 'regular' });
+        const result = await service.getProfile('tech-1', admin);
+        expect(result.gpsTrackingEnabled).toBe(true);
       });
 
       it("will not track a subcontractor's location (Workiz: only paid users)", async () => {
@@ -502,6 +560,21 @@ describe('TechniciansService (unit)', () => {
         expect.any(Number),
       );
       expect(result.profilePhotoUrl).toBe('https://s3/download');
+    });
+
+    // The Workiz import stored the S3 key path (`technicians/<id>/profile_photo`)
+    // for every user with a picture there; nothing serves that path, and a
+    // browser handed it drew one 404 per avatar (QA 2026-10-14).
+    it('does not hand out a stored photo path as a link — only a real URL or the document', async () => {
+      cache.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', profilePhotoUrl: 'technicians/tech-1/profile_photo' }),
+      );
+      documents.getByType.mockResolvedValue(null);
+
+      const result = await service.getProfile('tech-1', caller('role-admin'));
+
+      expect(result.profilePhotoUrl).toBeUndefined();
+      expect(s3.getPresignedDownloadUrl).not.toHaveBeenCalled();
     });
 
     it('leaves the photo empty when none has been uploaded', async () => {

@@ -21,6 +21,7 @@ import {
   isPriceInBand,
   isImportedLine,
   priceBandApplies,
+  priceBandBinds,
   filterDeals,
   datePresetRange,
   scheduleMarker,
@@ -149,6 +150,15 @@ describe("price band (±15%)", () => {
     expect(isPriceInBand(45, 45)).toBe(true);
     expect(isPriceInBand(50, 45)).toBe(true);
     expect(isPriceInBand(52, 45)).toBe(false);
+  });
+
+  // Workiz's price book holds 62 items priced below zero ("Approved Discount" −100):
+  // their band is 15 % of the price's size either side, not a min above the max.
+  it("brackets a negative catalog price by its size: −100 → −115 … −85", () => {
+    expect(priceRange(-100)).toEqual({ min: -115, max: -85 });
+    expect(isPriceInBand(-90, -100)).toBe(true);
+    expect(isPriceInBand(-50, -100)).toBe(false);
+    expect(isPriceInBand(-120, -100)).toBe(false);
     expect(isPriceInBand(38, 45)).toBe(false);
   });
 
@@ -167,6 +177,15 @@ describe("price band (±15%)", () => {
   it("does not apply to a line an item group added", () => {
     expect(priceBandApplies({ fulfillment: "sourced", priceSource: "group" })).toBe(false);
     expect(priceBandApplies({ fulfillment: "service", priceSource: "group" })).toBe(false);
+  });
+
+  // Story 5.05 caps the *technician's* adjustment and sends anything beyond
+  // it to a manager. The office is that manager — owner, admin, dispatcher —
+  // so it sets any price (Workiz has no band at all; 71% of the historical
+  // lines sit outside ±15%).
+  it("binds a technician and nobody else", () => {
+    expect(priceBandBinds({ isTechnician: true })).toBe(true);
+    expect(priceBandBinds({ isTechnician: false })).toBe(false);
   });
 
   it("still applies to every line BitCRM writes itself", () => {

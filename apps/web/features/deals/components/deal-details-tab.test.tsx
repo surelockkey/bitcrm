@@ -69,7 +69,9 @@ vi.mock("@/features/clients/hooks", () => ({
 }));
 vi.mock("@/features/clients/api", () => ({ fetchAllCompanies: mocks.fetchAllCompanies }));
 
-vi.mock("../hooks", () => ({
+vi.mock("../hooks", async (importOriginal) => ({
+  // The team select's question is a pure function — real, as on the page.
+  suggestedTechsQuestion: (await importOriginal<typeof import("../hooks")>()).suggestedTechsQuestion,
   useUpdateDeal: () => ({ mutate: mocks.updateDeal, isPending: false }),
   useChangeClientPhone: () => ({ mutateAsync: mocks.changeClientPhone, isPending: false }),
   useAssignTechs: () => ({ mutate: mocks.assignTechs, isPending: false }),

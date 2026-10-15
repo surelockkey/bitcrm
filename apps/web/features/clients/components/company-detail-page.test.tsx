@@ -131,12 +131,12 @@ async function openPage() {
 }
 
 describe("CompanyDetailPage — the left column", () => {
-  it("prints the name, its type under it, the numbers as Workiz writes them, the email, the website and PLATINUM", async () => {
+  it("prints the name, its type under it, the numbers as the rest of the app writes them, the email, the website and PLATINUM", async () => {
     await openPage();
     const left = screen.getByRole("complementary", { name: "Company" });
     expect(within(left).getByText("Commercial")).toBeInTheDocument();
-    expect(within(left).getByText("(404) 555 - 0100")).toBeInTheDocument();
-    expect(within(left).getByText("(404) 555 - 0199")).toBeInTheDocument();
+    expect(within(left).getByText("(404) 555-0100")).toBeInTheDocument();
+    expect(within(left).getByText("(404) 555-0199")).toBeInTheDocument();
     expect(within(left).getByText("office@acme.example")).toBeInTheDocument();
     expect(within(left).getByRole("link", { name: "acme.example" })).toHaveAttribute("href", "https://acme.example");
     expect(within(left).getByText("Platinum")).toBeInTheDocument();

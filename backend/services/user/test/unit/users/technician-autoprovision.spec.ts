@@ -125,10 +125,18 @@ describe('UsersService → technician profile auto-provisioning', () => {
       expect(techRepo.upsertProfile).not.toHaveBeenCalled();
     });
 
-    it('leaves the flag unset and the card untracked when the request says nothing', async () => {
+    // Track location is on by default (owner, 2026-10-15): only an explicit
+    // "no" leaves a new card untracked.
+    it('leaves the flag unset and the card tracking location when the request says nothing', async () => {
       const user = await service.create(createMockCreateUserDto({ roleId: 'role-technician' }), caller);
 
       expect('fieldTeamMember' in user).toBe(false);
+      expect(techRepo.upsertProfile).toHaveBeenCalledWith(expect.objectContaining({ gpsTrackingEnabled: true }));
+    });
+
+    it('an explicit no to Track location leaves the new card untracked', async () => {
+      await service.create(createMockCreateUserDto({ roleId: 'role-technician', gpsTrackingEnabled: false }), caller);
+
       expect(techRepo.upsertProfile).toHaveBeenCalledWith(expect.objectContaining({ gpsTrackingEnabled: false }));
     });
 
@@ -221,7 +229,7 @@ describe('UsersService → technician profile auto-provisioning', () => {
 
     expect(usersRepo.update).toHaveBeenCalledWith('owner-1', expect.objectContaining({ fieldTeamMember: true }));
     expect(techRepo.upsertProfile).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'owner-1', status: 'pending' }),
+      expect.objectContaining({ userId: 'owner-1', status: 'pending', gpsTrackingEnabled: true }),
     );
   });
 
@@ -242,7 +250,7 @@ describe('UsersService → technician profile auto-provisioning', () => {
     await service.assignRole('u9', 'role-technician', createMockJwtUser({ id: 'caller', roleId: 'role-super-admin' }));
 
     expect(techRepo.upsertProfile).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'u9', status: 'pending' }),
+      expect.objectContaining({ userId: 'u9', status: 'pending', gpsTrackingEnabled: true }),
     );
   });
 });

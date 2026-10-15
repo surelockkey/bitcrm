@@ -11,6 +11,13 @@ const mocks = vi.hoisted(() => ({
   catalog: [] as unknown[],
   groups: [] as unknown[],
   stock: new Map<string, number>(),
+  // Whether the viewer is a technician — the only role the ±15% band binds.
+  technician: true,
+  // The edited line's catalog item is still being read.
+  catalogPending: false,
+  // The catalog's custom fields / the chosen van's stock are still being read.
+  attributesPending: false,
+  stockPending: false,
 }));
 
 vi.mock("../hooks", () => ({
@@ -24,15 +31,41 @@ vi.mock("../hooks", () => ({
   }),
 }));
 
-// The dialog reads the catalog and the tech's van stock through react-query;
-// both resolve synchronously here.
-vi.mock("@tanstack/react-query", () => ({
-  useQuery: (opts: { queryKey: readonly unknown[] }) =>
-    opts.queryKey[0] === "deal-tech-stock"
-      ? { data: mocks.stock, isSuccess: true, isLoading: false, isError: false }
-      : opts.queryKey[0] === "item-groups"
-        ? { data: mocks.groups, isLoading: false }
-        : { data: mocks.catalog, isLoading: false },
+vi.mock("@/features/auth/use-permissions", () => ({
+  usePermissions: () => ({ isTechnician: mocks.technician, can: () => true }),
+}));
+
+// The card lists the item catalog's custom fields; none here.
+vi.mock("@/features/inventory/item-attributes/hooks", () => ({
+  useItemAttributes: () =>
+    mocks.attributesPending
+      ? { data: undefined, isPending: true, isLoading: true, isError: false, fetchStatus: "fetching" }
+      : { data: [], isPending: false, isLoading: false, isError: false, fetchStatus: "idle" },
+}));
+
+// The dialog reads the catalog (one page of a search, one item by id), the
+// item groups and the tech's van stock through react-query; all resolve
+// synchronously here. What the dialog asks the server for, and when, is
+// add-product-dialog.catalog.test.tsx's.
+vi.mock("@tanstack/react-query", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tanstack/react-query")>()),
+  useQuery: (opts: { queryKey: readonly unknown[] }) => {
+    const [root, kind, arg] = opts.queryKey;
+    if (root === "deal-tech-stock") {
+      if (mocks.stockPending) return { data: undefined, isSuccess: false, isPending: true, isLoading: true, isError: false };
+      return { data: mocks.stock, isSuccess: true, isPending: false, isLoading: false, isError: false };
+    }
+    if (root === "item-groups") return { data: mocks.groups, isLoading: false };
+    if (root === "products" && kind === "detail") {
+      if (mocks.catalogPending) return { data: undefined, isPending: true, isError: false };
+      return { data: (mocks.catalog as Product[]).find((p) => p.id === arg), isPending: false, isError: false };
+    }
+    // The search: the whole fixture, whatever was typed.
+    return {
+      data: { success: true, data: mocks.catalog, pagination: { count: mocks.catalog.length } },
+      isLoading: false, isPlaceholderData: false, isError: false,
+    };
+  },
 }));
 
 import { AddProductDialog } from "./add-product-dialog";
@@ -77,6 +110,10 @@ beforeEach(() => {
   mocks.replace.mockClear();
   mocks.addGroup.mockClear();
   mocks.groups = [];
+  mocks.technician = true;
+  mocks.catalogPending = false;
+  mocks.attributesPending = false;
+  mocks.stockPending = false;
   mocks.catalog = [deadbolt, schlage];
   mocks.stock = new Map([
     ["p1", 5],
@@ -101,18 +138,38 @@ describe("AddProductDialog (edit mode)", () => {
   it("opens on the configure step with the line's quantity and price prefilled", () => {
     render(dialog(editingLine));
 
-    expect(screen.getByText("Edit item")).toBeInTheDocument();
+    expect(screen.getByText("Edit job item")).toBeInTheDocument();
     // Straight to configure — no catalog search box.
     expect(screen.queryByPlaceholderText(/search catalog/i)).toBeNull();
-    expect(screen.getByDisplayValue("2")).toBeInTheDocument(); // quantity
-    expect(screen.getByDisplayValue("40")).toBeInTheDocument(); // negotiated price
+    expect(screen.getByLabelText("Quantity")).toHaveValue(2);
+    expect(screen.getByLabelText("Price")).toHaveValue(40); // negotiated price
+  });
+
+  it("shows no window at all while the line's catalog item is still being read — the card, whole, or nothing", () => {
+    mocks.catalogPending = true;
+    render(dialog(editingLine));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByText(/loading the item/i)).toBeNull();
+  });
+
+  it("shows no window either while the catalog's custom fields or the van's stock are still being read — the card opens whole", () => {
+    mocks.attributesPending = true;
+    const { unmount } = render(dialog(editingLine));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    unmount();
+
+    mocks.attributesPending = false;
+    mocks.stockPending = true;
+    render(dialog(editingLine));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("saves an in-place edit through replace, keyed by the line", async () => {
     const u = user();
     render(dialog(editingLine));
 
-    fireEvent.change(screen.getByDisplayValue("2"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "3" } });
     await u.click(screen.getByRole("button", { name: /^save$/i }));
 
     expect(mocks.replace).toHaveBeenCalledTimes(1);
@@ -139,7 +196,7 @@ describe("AddProductDialog (edit mode)", () => {
     await u.click(screen.getByText("Schlage Lever"));
 
     // Configure again, now for the replacement at its own catalog price.
-    expect(screen.getByDisplayValue("60")).toBeInTheDocument();
+    expect(screen.getByLabelText("Price")).toHaveValue(60);
 
     await u.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -156,7 +213,7 @@ describe("AddProductDialog (edit mode)", () => {
     mocks.stock = new Map([["p1", 1]]);
     render(dialog(editingLine));
 
-    fireEvent.change(screen.getByDisplayValue("2"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "3" } });
 
     expect(screen.queryByText(/will be added as an item to order/i)).toBeNull();
     expect(screen.getByRole("button", { name: /^save$/i })).toBeInTheDocument();
@@ -175,7 +232,7 @@ describe("AddProductDialog (imported line)", () => {
   it("does not flag the price and keeps Save enabled", () => {
     render(dialog(importedLine));
 
-    expect(screen.getByDisplayValue("5")).toBeInTheDocument();
+    expect(screen.getByLabelText("Price")).toHaveValue(5);
     expect(screen.getByText(/the ±15% band doesn.t apply/i)).toBeInTheDocument();
     expect(screen.queryByText(/allowed .* ±15%/i)).toBeNull();
     expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
@@ -194,7 +251,7 @@ describe("AddProductDialog (imported line)", () => {
     const u = user();
     render(dialog(importedLine));
 
-    fireEvent.change(screen.getByDisplayValue("2"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "3" } });
     await u.click(screen.getByRole("button", { name: /^save$/i }));
 
     expect(mocks.replace).toHaveBeenCalledTimes(1);
@@ -210,7 +267,7 @@ describe("AddProductDialog (imported line)", () => {
 
     // The exemption covers the price Workiz recorded, not a new one typed on
     // top of it — otherwise any imported line is a permanent hole in the rule.
-    fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "999" } });
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "999" } });
 
     expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
     expect(screen.queryByText(/the ±15% band doesn.t apply/i)).toBeNull();
@@ -221,7 +278,7 @@ describe("AddProductDialog (imported line)", () => {
     const u = user();
     render(dialog(importedLine));
 
-    fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "45" } });
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "45" } });
     expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
 
     await u.click(screen.getByRole("button", { name: /^save$/i }));
@@ -231,8 +288,8 @@ describe("AddProductDialog (imported line)", () => {
   it("restores the exemption when the imported price is typed back", () => {
     render(dialog(importedLine));
 
-    fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "999" } });
-    fireEvent.change(screen.getByDisplayValue("999"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "999" } });
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "5" } });
 
     expect(screen.getByText(/the ±15% band doesn.t apply/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
@@ -246,7 +303,7 @@ describe("AddProductDialog (imported line)", () => {
     await u.click(screen.getByText("Schlage Lever"));
 
     expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
-    fireEvent.change(screen.getByDisplayValue("60"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "5" } });
     expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
   });
 
@@ -258,13 +315,64 @@ describe("AddProductDialog (imported line)", () => {
   });
 });
 
+// Story 5.05: the technician adjusts the price within ±15% and anything
+// beyond goes to a manager. The office *is* that manager, so for it there is
+// no band — the owner's own "I can't set the price I want" (2026-10-14).
+describe("AddProductDialog (who the ±15% band binds)", () => {
+  it("holds a technician to the band", async () => {
+    const u = user();
+    render(dialog());
+    await u.click(screen.getByText("Kwikset Deadbolt"));
+
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "360" } });
+
+    expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+  });
+
+  it("lets the office set any price", async () => {
+    mocks.technician = false;
+    const u = user();
+    render(dialog());
+    await u.click(screen.getByText("Kwikset Deadbolt"));
+
+    fireEvent.change(screen.getByLabelText("Price"), { target: { value: "360" } });
+
+    expect(screen.queryByText(/allowed .*±15%/i)).toBeNull();
+    expect(screen.queryByText(/band/i)).toBeNull();
+    await u.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(mocks.add).toHaveBeenCalledTimes(1);
+    expect(mocks.add.mock.calls[0][0]).toMatchObject({ productId: "p1", priceClient: 360 });
+  });
+
+  it("shows the office no Workiz exemption note either — nothing to be exempt from", () => {
+    mocks.technician = false;
+    render(dialog({ ...editingLine, priceClient: 5, fulfillment: "imported" }));
+
+    expect(screen.queryByText(/band/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+  });
+});
+
+describe("AddProductDialog (add mode) — the picker stays until the card can open whole", () => {
+  it("keeps the picker on screen while the picked item's card is still gathering its fields", async () => {
+    mocks.attributesPending = true;
+    const u = user();
+    render(dialog());
+    await u.click(screen.getByText("Schlage Lever"));
+
+    expect(screen.queryByTestId("job-item-dialog")).toBeNull();
+    expect(screen.getByPlaceholderText(/search catalog/i)).toBeInTheDocument();
+  });
+});
+
 describe("AddProductDialog (add mode regression)", () => {
   it("still adds through the add mutation", async () => {
     const u = user();
     render(dialog());
 
     await u.click(screen.getByText("Schlage Lever"));
-    await u.click(screen.getByRole("button", { name: /^add$/i }));
+    await u.click(screen.getByRole("button", { name: /^save$/i }));
 
     expect(mocks.add).toHaveBeenCalledTimes(1);
     expect(mocks.add.mock.calls[0][0]).toMatchObject({

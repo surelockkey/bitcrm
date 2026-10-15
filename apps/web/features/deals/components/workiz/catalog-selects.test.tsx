@@ -44,7 +44,9 @@ vi.mock("@/features/service-areas/hooks", () => ({
   useServiceAreas: () => ({ data: m.areas }),
   useEffectiveServiceArea: () => m.effective,
 }));
-vi.mock("../../hooks", () => ({
+vi.mock("../../hooks", async (importOriginal) => ({
+  // The question itself stays real: these tests are about what the select asks.
+  suggestedTechsQuestion: (await importOriginal<typeof import("../../hooks")>()).suggestedTechsQuestion,
   useSuggestedTechs: (params: unknown, enabled: boolean) => {
     m.suggestArgs.push({ params, enabled });
     return { data: enabled ? m.techs : undefined, isLoading: enabled && m.techsLoading };
@@ -244,6 +246,27 @@ describe("WzTeamSelect", () => {
     // Asked by the address (and the job type, once there is one) — the same
     // question the page's loader asks, so the answer is already cached.
     expect(m.suggestArgs.at(-1)).toEqual({ params: { jobTypeId: undefined, lat: 33, lng: -96 }, enabled: true });
+  });
+
+  it("a hand-picked area with no coordinates (a typed address, a new client) asks by the area and lists who works there", async () => {
+    m.effective = {
+      source: "manual",
+      submitId: "sa-dal",
+      area: { id: "sa-dal", name: "SURE LOCK DALLAS TX" },
+      resolvedArea: null,
+      isFetching: false,
+    };
+    m.techs = [tech("t1", "Ann"), tech("t2", "Bob")];
+    render(<WzTeamSelect jobTypeId="" address={{}} serviceAreaId="sa-dal" value={[]} onChange={vi.fn()} />);
+
+    expect(screen.queryByText("Please select a service area to display available techs")).not.toBeInTheDocument();
+    expect(screen.getByTestId("wz-team-notice")).toHaveTextContent(
+      "2 techs work in SURE LOCK DALLAS TX and can perform any job type",
+    );
+    await open("Assign team members");
+    expect(optionLabels()).toEqual(["Ann Tech", "Bob Tech"]);
+    // No point to resolve an area from, so the pick itself is the question.
+    expect(m.suggestArgs.at(-1)).toEqual({ params: { jobTypeId: undefined, serviceAreaId: "sa-dal" }, enabled: true });
   });
 
   it("names the job type once there is one", () => {

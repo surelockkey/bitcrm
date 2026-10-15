@@ -2,12 +2,12 @@
 
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { OnlinePaymentMethod, PaymentReportQuery } from "@bitcrm/types";
+import type { OnlinePaymentMethod, Payment, PaymentReportQuery } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { formatMoney } from "@/features/billing/lib";
 import * as api from "./api";
-import type { PaymentListParams } from "./lib";
+import { paymentMethodLabel, type PaymentListParams } from "./lib";
 import type { PaymentSettingsBody } from "./schemas";
 
 /* ------------------------------------------------------------- queries */
@@ -125,6 +125,26 @@ export function useRefundPayment(invoiceId: string, dealId?: string) {
     },
     // The dialog shows the message too — it stays open so the amount can be fixed.
     onError: (e) => toast.error(getApiErrorMessage(e, "The refund couldn't be sent")),
+  });
+}
+
+/**
+ * Deletes a mis-keyed offline payment (Workiz's Delete on the row). The
+ * ledger, the job's balance and the reports all refresh; the dialog that
+ * asked closes on success and stays open with the server's reason otherwise.
+ */
+export function useDeletePayment(invoiceId: string, dealId?: string) {
+  const invalidate = useInvalidateLedger(invoiceId, dealId);
+  return useMutation({
+    mutationFn: async (payment: Pick<Payment, "id" | "amount" | "method">) => {
+      await api.deletePayment(payment.id);
+      return payment;
+    },
+    onSuccess: (p) => {
+      invalidate();
+      toast.success(`Deleted the ${formatMoney(p.amount)} ${paymentMethodLabel(p.method).toLowerCase()} payment`);
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e, "The payment couldn't be deleted")),
   });
 }
 

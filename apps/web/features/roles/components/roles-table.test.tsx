@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DataScope } from "@bitcrm/types";
 import type { Role } from "@bitcrm/types";
@@ -48,7 +48,7 @@ function renderTable(props: Partial<Parameters<typeof RolesTable>[0]> = {}) {
 describe("RolesTable — Workiz's Roles & Permissions grid", () => {
   it("leads with Role and ends with Actions, ours between", () => {
     renderTable();
-    const heads = screen.getAllByRole("columnheader").map((h) => h.textContent?.trim());
+    const heads = within(document.querySelector("[data-slot=wz-report-grid-head]") as HTMLElement).getAllByRole("columnheader").map((h) => h.textContent?.trim());
     expect(heads).toEqual(["Role", "Type", "Priority", "Default scope", "Members", "Actions"]);
   });
 

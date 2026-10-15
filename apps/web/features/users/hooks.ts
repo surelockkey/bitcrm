@@ -24,10 +24,11 @@ import { createdUserMessage } from "./lib";
  * Скільки всього рядків під тими самими фільтрами — з цього панель робить
  * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
  */
-export function useUsersCount(filter: UserFilter) {
+export function useUsersCount(filter: UserFilter, enabled = true) {
   return useQuery({
     queryKey: queryKeys.users.count(filter),
     queryFn: () => api.countUsers(filter),
+    enabled,
     staleTime: 30_000,
   });
 }
@@ -37,8 +38,9 @@ export function useUsersCount(filter: UserFilter) {
  * screen (as a placeholder) until the new one lands — for a list that dims
  * its rows rather than swapping them for a skeleton.
  */
-export function useUsers(filter: UserFilter, limit = 50, options: { keepPrevious?: boolean } = {}) {
+export function useUsers(filter: UserFilter, limit = 50, options: { keepPrevious?: boolean; enabled?: boolean } = {}) {
   return useInfiniteQuery({
+    enabled: options.enabled ?? true,
     placeholderData: options.keepPrevious ? keepPreviousData : undefined,
     queryKey: queryKeys.users.list({ ...filter, limit }),
     queryFn: ({ pageParam }) => api.listUsers(filter, pageParam, limit),

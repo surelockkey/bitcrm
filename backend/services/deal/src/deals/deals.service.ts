@@ -8,6 +8,7 @@ import {
   HttpException,
   UnprocessableEntityException,
   Optional,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   SnsPublisherService,
@@ -60,6 +61,7 @@ import {
   assertFromOwnContainer,
   assertPriceInBand,
   catalogCosts,
+  lineCosts,
   editChangesStock,
   isStockManaged,
   isTechnicianScope,
@@ -67,6 +69,7 @@ import {
   lineCustomAttributes,
   priceBandApplies,
 } from './deal-line-rules';
+import { techRateOverrideUpdate, touchesTechRate } from './tech-rate-override';
 import { assertDealInScope } from './deal-scope';
 import {
   clientSearchAttributes,
@@ -147,7 +150,7 @@ import { type RecordSentToTechDto } from './dto/record-sent-to-tech.dto';
 import { isDealNumberCode } from './deal-number.util';
 import { hasBalanceDue } from './deal-balance';
 import { DealsCacheService } from './deals-cache.service';
-import { dealTotalsSnapshot } from './billing/deal-totals';
+import { dealTotalsSnapshot, manualTotalSnapshot } from './billing/deal-totals';
 import { aggregateDealStats, type DealStatsWindow } from './stats/deal-stats';
 import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
@@ -226,6 +229,14 @@ interface CompanyRef {
   id: string;
   name?: string;
 }
+
+/** What a line write may do beyond the request: `mayCost` — the caller holds `financials.view`. */
+export interface LineWriteOptions {
+  mayCost?: boolean;
+}
+
+/** Workiz "Sold by" as stored: a user id, or nothing (an empty string clears it). */
+const soldByOf = (value: string | undefined): string | undefined => value?.trim() || undefined;
 
 @Injectable()
 export class DealsService {
@@ -1203,8 +1214,10 @@ export class DealsService {
   /**
    * The schedule window of a list query, or undefined when the query does
    * not touch the schedule index. Days are `YYYY-MM-DD`; `scheduledFrom`
-   * alone is that one day; a span is capped at 31 days so no request can
-   * page a whole status partition by accident.
+   * alone is that one day; a span is capped at six weeks — a month grid is
+   * up to six rows of seven, plus the day before it the schedule reads for
+   * the Connecticut clock — so no request can page a whole status partition
+   * by accident.
    */
   private parseScheduleWindow(query: ListDealsQueryDto): ScheduleWindow | undefined {
     const unscheduled = query.unscheduled === true || query.unscheduled === 'true';
@@ -1214,7 +1227,7 @@ export class DealsService {
     if (from && to) {
       if (to < from) throw new BadRequestException('scheduledTo is before scheduledFrom');
       const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
-      if (days > 30) throw new BadRequestException('The visit-date window is at most 31 days');
+      if (days > 41) throw new BadRequestException('The visit-date window is at most 42 days');
     }
     return { from, to, unscheduled };
   }
@@ -1269,11 +1282,26 @@ export class DealsService {
     return undefined;
   }
 
-  async update(id: string, dto: UpdateDealDto, caller: JwtUser): Promise<Deal> {
+  async update(
+    id: string,
+    dto: UpdateDealDto,
+    caller: JwtUser,
+    opts: { mayOverrideRate?: boolean } = {},
+  ): Promise<Deal> {
     const existing = await this.findById(id);
 
     // Convert class instances to plain objects for DynamoDB
     const updates = { ...dto } as any;
+    // Workiz "Custom Tech Rate": Override Rates is `commission.edit` here.
+    if (touchesTechRate(dto)) {
+      if (!opts.mayOverrideRate) {
+        throw new ForbiddenException('Overriding the technician rate needs commission.edit');
+      }
+      delete updates.useTechSpecialRate;
+      delete updates.techSpecialRate;
+      delete updates.techSpecialRateUnit;
+      Object.assign(updates, techRateOverrideUpdate(dto, existing));
+    }
     // A hand-picked area wins here exactly like on create — and it suppresses
     // the address-driven re-resolve below, or the geo answer would overwrite
     // the choice in the same write.
@@ -1329,6 +1357,28 @@ export class DealsService {
       const jobName = dto.jobName?.trim() || null;
       if (jobName === null && !existing.jobName) delete updates.jobName;
       else updates.jobName = jobName;
+    }
+
+    // Finance "Total" (Workiz job_total_price): typed by hand only while the
+    // job has no line items — from the first line on the items price it and
+    // `refreshTotals` replaces this snapshot. It is the same money snapshot
+    // the dashboards and reports sum, flagged `manual`.
+    let totalChange: { from: number | null; to: number | null } | undefined;
+    if (dto.total !== undefined) {
+      delete updates.total;
+      const previous = existing.totals?.total ?? null;
+      if (dto.total === null) {
+        if (existing.totals?.manual) {
+          updates.totals = null;
+          totalChange = { from: previous, to: null };
+        }
+      } else {
+        if ((existing.itemCount ?? 0) > 0) {
+          throw new BadRequestException('The total of a job with line items comes from its items');
+        }
+        if (!existing.totals?.manual || previous !== dto.total) updates.totals = manualTotalSnapshot(dto.total);
+        if (previous !== dto.total) totalChange = { from: previous, to: dto.total };
+      }
     }
 
     // Archived types are allowed on update so an old deal stays editable; only
@@ -1426,6 +1476,8 @@ export class DealsService {
       if (value === undefined) continue;
       // Custom fields are diffed per-answer below, labeled by their human name.
       if (key === 'customFields') continue;
+      // The money snapshot gets one `total` entry below, never a diff of the object.
+      if (key === 'totals') continue;
       // Tax snapshot changes get one TAX_CHANGED entry instead.
       if (TAX_KEYS.has(key)) continue;
       // The company gets one labeled entry below.
@@ -1460,6 +1512,14 @@ export class DealsService {
         field: 'schedule',
         oldValue: visitOf(existing, zoneBefore),
         newValue: visitOf(after, zoneAfter),
+      });
+    }
+
+    if (totalChange) {
+      await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
+        field: 'total',
+        oldValue: totalChange.from,
+        newValue: totalChange.to,
       });
     }
 
@@ -1573,7 +1633,22 @@ export class DealsService {
       this.productsRepo.findByDeal(id, { consistent: true }),
     ]);
     if (!deal) return;
-    await this.repository.update(id, { itemCount: lines.length, totals: dealTotalsSnapshot(deal, lines) });
+    const totals = dealTotalsSnapshot(deal, lines);
+    // Workiz: a job's Company Cost (`company_parts`) is Σ item cost × qty —
+    // while the job has lines the Finance box shows their sum (and the
+    // commissions report counts it); a typed amount stands only until then.
+    // When the last line goes, the sum the lines gave goes with it: a stored
+    // amount equal to the lines' last sum is theirs, anything else was typed.
+    const linesGaveIt =
+      lines.length === 0 &&
+      deal.companyCost !== undefined &&
+      deal.companyCost !== 0 &&
+      deal.companyCost === deal.totals?.cost;
+    await this.repository.update(id, {
+      itemCount: lines.length,
+      totals,
+      ...(lines.length > 0 ? { companyCost: totals.cost } : linesGaveIt ? { companyCost: 0 } : {}),
+    });
   }
 
   async softDelete(id: string, caller: JwtUser): Promise<void> {
@@ -1650,7 +1725,8 @@ export class DealsService {
       // Workiz "Update Job End Time" (Account → Preferences): the job ends at
       // this moment — the end day and time on its clock, and the end instant
       // the EndIndex (the "Job end date" reports) is restamped from. The
-      // start stays. Reopening does not put the old end back, as in Workiz.
+      // start stays, and a visit that has not begun yet keeps its schedule
+      // (closeEndPatch). Reopening does not put the old end back, as in Workiz.
       if (await this.updatesEndTimeOnClose()) {
         Object.assign(updates as Record<string, unknown>, closeEndPatch(deal, closedAt, await this.areaTimezoneOf(deal)));
       }
@@ -1888,8 +1964,10 @@ export class DealsService {
   /**
    * Set the full technician roster on a deal (equal peers). Diffs the requested
    * set against the current one: adds/removes assignment rows, renumbers each
-   * affected tech's day, and emits a per-tech event + timeline entry. The deal
-   * auto-transitions to ASSIGNED only when it goes from unassigned → assigned.
+   * affected tech's day, and emits a per-tech event + timeline entry. The
+   * status is not touched: as in Workiz, a new job with a technician on it is
+   * still Submitted — In Progress is reached by a status move (the
+   * dispatcher's menu, the technician's Start), never by the roster.
    */
   async assignTechs(id: string, techIds: string[], caller: JwtUser): Promise<Deal> {
     const deal = await this.findById(id);
@@ -1905,15 +1983,6 @@ export class DealsService {
 
     const nextRoster = [...requested];
     const updates: Partial<Deal> = { assignedTechIds: nextRoster };
-
-    // First assignment advances a still-Submitted deal into In Progress.
-    if (
-      deal.assignedTechIds.length === 0 &&
-      nextRoster.length > 0 &&
-      deal.superStatus === JobSuperStatus.SUBMITTED
-    ) {
-      updates.superStatus = JobSuperStatus.IN_PROGRESS;
-    }
 
     // Drop removed techs' per-tech sequence entries.
     if (toRemove.length) {
@@ -2436,7 +2505,8 @@ export class DealsService {
     request: AddDealProductDto,
     caller: JwtUser,
     dealScope?: string,
-  ): Promise<void> {
+    opts: LineWriteOptions = {},
+  ): Promise<DealProduct> {
     const deal = await this.findById(id);
     assertDealInScope(deal, caller, dealScope);
     const fulfillment: DealProductFulfillment = request.fulfillment ?? 'sourced';
@@ -2444,7 +2514,9 @@ export class DealsService {
     const dto = this.withOwnVan(request, fulfillment, technician, caller.id);
 
     const product = await this.validateProductFulfillment(dto, fulfillment);
-    assertPriceInBand(dto.priceClient, product.priceClient);
+    // The ±15% band holds a technician to the price book; the office sets any
+    // price, below zero too (the owner's rule, 2026-10-14).
+    if (technician) assertPriceInBand(dto.priceClient, product.priceClient);
     // A technician's stock comes out of his own van, or not at all.
     if (technician) assertFromOwnContainer({ ...dto, fulfillment }, product, caller.id);
 
@@ -2480,14 +2552,18 @@ export class DealsService {
 
     // The line's own copy of the custom field values: the request's, else the product's.
     const customAttributes = lineCustomAttributes(dto.customAttributes ?? product.customAttributes);
+    const soldBy = soldByOf(dto.soldBy);
 
     this.businessMetrics?.dealProductsAdded.inc();
-    await this.productsRepo.addProduct(id, {
+    // The line as written, id included — the answer, so the page can draw it
+    // the moment the save returns instead of rereading the job.
+    const line: DealProduct = {
+      lineId: randomUUID(),
       productId: dto.productId,
       name: dto.name,
       sku: dto.sku,
       quantity: dto.quantity,
-      ...catalogCosts(product),
+      ...lineCosts(product, dto, { mayCost: !!opts.mayCost }),
       priceClient: dto.priceClient,
       fulfillment,
       // Only a sourced line records which technician supplied it.
@@ -2496,9 +2572,11 @@ export class DealsService {
       taxable: dto.taxable ?? product.taxable ?? true,
       ...(dto.description !== undefined && { description: dto.description }),
       ...(customAttributes && { customAttributes }),
+      ...(soldBy && { soldBy }),
       addedBy: caller.id,
       addedAt: new Date().toISOString(),
-    });
+    };
+    await this.productsRepo.addProduct(id, line);
 
     await this.refreshTotals(id);
     await this.cache.invalidate(id);
@@ -2518,6 +2596,7 @@ export class DealsService {
       quantity: dto.quantity,
       fulfillment,
     });
+    return line;
   }
 
   /**
@@ -2534,7 +2613,8 @@ export class DealsService {
     request: AddDealProductDto,
     caller: JwtUser,
     dealScope?: string,
-  ): Promise<void> {
+    opts: LineWriteOptions = {},
+  ): Promise<DealProduct> {
     const deal = await this.findById(id);
     assertDealInScope(deal, caller, dealScope);
 
@@ -2553,8 +2633,9 @@ export class DealsService {
     const isSwap = dto.productId !== existing.productId;
 
     const product = await this.validateProductFulfillment(dto, fulfillment);
-    // An imported Workiz line edited in place keeps the price Workiz recorded.
-    if (priceBandApplies(dto, existing)) assertPriceInBand(dto.priceClient, product.priceClient);
+    // A technician is held to the band, except on an imported Workiz line
+    // edited in place at the price Workiz recorded; the office sets any price.
+    if (technician && priceBandApplies(dto, existing)) assertPriceInBand(dto.priceClient, product.priceClient);
     // The container rule judges what the edit takes from a van — a new product,
     // a new quantity or a new source; text, price or custom fields alone pass.
     if (technician && editChangesStock(existing, { ...dto, fulfillment })) {
@@ -2614,10 +2695,16 @@ export class DealsService {
     const customAttributes = lineCustomAttributes(
       dto.customAttributes ?? (isSwap ? product.customAttributes : existing.customAttributes),
     );
+    // Sold by follows the same rule: kept unless the edit says otherwise.
+    const soldBy = dto.soldBy === undefined ? existing.soldBy : soldByOf(dto.soldBy);
     // The numbers the line ends up with — what the timeline diffs against.
-    const money = { quantity: dto.quantity, ...catalogCosts(product), priceClient: dto.priceClient };
+    const money = {
+      quantity: dto.quantity,
+      ...lineCosts(product, dto, { mayCost: !!opts.mayCost, existing }),
+      priceClient: dto.priceClient,
+    };
 
-    await this.productsRepo.addProduct(id, {
+    const line: DealProduct = {
       // The same line, rewritten: a swap changes what it names, not which
       // line it is, so every reference to it stays pointed at this row.
       lineId: existing.lineId,
@@ -2641,11 +2728,13 @@ export class DealsService {
       ...(keepsGroupPrice(dto, existing) && { priceSource: 'group' as const }),
       ...(description !== undefined && { description }),
       ...(customAttributes && { customAttributes }),
+      ...(soldBy && { soldBy }),
       addedBy: existing.addedBy,
       addedAt: existing.addedAt,
       updatedBy: caller.id,
       updatedAt: new Date().toISOString(),
-    });
+    };
+    await this.productsRepo.addProduct(id, line);
 
     await this.refreshTotals(id);
     await this.cache.invalidate(id);
@@ -2674,6 +2763,7 @@ export class DealsService {
       quantity: dto.quantity,
       fulfillment,
     });
+    return line;
   }
 
   /**

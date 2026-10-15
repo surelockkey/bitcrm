@@ -1,5 +1,6 @@
 import 'reflect-metadata';
-import { HTTP_CODE_METADATA } from '@nestjs/common/constants';
+import { RequestMethod } from '@nestjs/common';
+import { HTTP_CODE_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { PERMISSION_KEY } from '@bitcrm/shared';
@@ -33,5 +34,25 @@ describe('TechNoticesController', () => {
     expect(await validate(plainToInstance(LateDto, { dealId: 'd1', minutes: 15 }))).toHaveLength(0);
     expect(await validate(plainToInstance(LateDto, { dealId: 'd1' }))).not.toHaveLength(0);
     expect(await validate(plainToInstance(LateDto, { dealId: 'd1', minutes: 601 }))).not.toHaveLength(0);
+  });
+});
+
+/**
+ * The phone's ETA screen shows the technician the exact text the client
+ * will get, rendered on the phone from the company templates. `GET /settings`
+ * keeps them behind `settings.view`, which the Technician role lacks, so this
+ * read sits behind the same `messages.send` as the sends themselves.
+ */
+describe('TechNoticesController.texts', () => {
+  it('GET tech-notices answers the settings texts in the envelope, behind messages.send like the sends', async () => {
+    const service = { texts: jest.fn(async () => ({ onMyWayMsg: 'On my way', lateMsg: 'Late', companyName: 'SLK' })) };
+    const controller = new TechNoticesController(service as any);
+
+    expect(await controller.texts()).toEqual({ success: true, data: { onMyWayMsg: 'On my way', lateMsg: 'Late', companyName: 'SLK' } });
+
+    const handler = TechNoticesController.prototype.texts;
+    expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toEqual({ resource: 'messages', action: 'send' });
+    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(RequestMethod.GET);
+    expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe('tech-notices');
   });
 });

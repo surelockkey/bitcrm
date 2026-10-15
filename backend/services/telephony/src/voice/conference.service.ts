@@ -20,6 +20,12 @@ import {
   type TwilioStatusParams,
 } from '../calls/calls.service';
 import { BridgeService } from '../common/bridge.service';
+import {
+  clientLegProgress,
+  technicianLegProgress,
+  type BridgeProgress,
+  type BridgeState,
+} from '../common/bridge-progress';
 import { WebhookQueue } from '../common/webhook-queue';
 
 export type MonitorMode = 'listen' | 'join';
@@ -64,7 +70,12 @@ export interface InitOutboundOptions {
   /** The job this call is about; linked immediately, not at read time. */
   dealId?: string;
   origin?: 'softphone' | 'bridge' | 'inbound';
-  callerIdSource?: 'agent' | 'history' | 'area' | 'default' | 'owned';
+  callerIdSource?: 'agent' | 'history' | 'recent' | 'area' | 'default' | 'owned';
+  /**
+   * The masked call this conference was opened for, kept in the meta so the
+   * client leg's callbacks can tell the phone how the call went.
+   */
+  bridgeId?: string;
 }
 
 export const confName = (primarySid: string) => `conf-${primarySid}`;
@@ -124,6 +135,22 @@ export class ConferenceService {
     return Promise.resolve();
   }
 
+  /**
+   * Move a masked call's progress along for the phone polling it. A courtesy,
+   * never a dependency: a failed write is logged and the caller carries on
+   * releasing the claim or tearing the conference down.
+   */
+  private async tellBridge(
+    bridgeId: string,
+    step: (current: BridgeState) => BridgeProgress | null,
+  ): Promise<void> {
+    await this.bridge?.advance(bridgeId, step).catch((error: unknown) => {
+      this.logger.warn(
+        `Bridge ${bridgeId}: progress not recorded: ${error instanceof Error ? error.message : error}`,
+      );
+    });
+  }
+
   /* ------------------------------------------------------------- keys */
 
   private metaKey(name: string) {
@@ -180,6 +207,7 @@ export class ConferenceService {
       ...(agentId && { agentId }),
       ...(options.dealId && { dealId: options.dealId }),
       ...(options.origin && { origin: options.origin }),
+      ...(options.bridgeId && { bridgeId: options.bridgeId }),
     });
 
     // Also before the reply, deliberately. The webhooks that follow this
@@ -350,6 +378,12 @@ export class ConferenceService {
       this.logger.error(
         `Conference ${name}: customer dial failed: ${error instanceof Error ? error.message : error}`,
       );
+      // Told before the teardown hangs the technician up (see onLegStatus).
+      if (meta.bridgeId) {
+        await this.tellBridge(meta.bridgeId, () =>
+          clientLegProgress({ CallStatus: 'failed' }),
+        );
+      }
       await this.completeConference(conferenceSid);
       await this.calls.applyLifecycle({ callSid: primarySid, status: 'failed' });
     }
@@ -578,6 +612,11 @@ export class ConferenceService {
 
     const ctx = await this.bridge?.context(bridgeId);
 
+    // What the phone that asked for the call is told (GET /calls/bridge/:id).
+    await this.tellBridge(bridgeId, (current) =>
+      technicianLegProgress(params, current),
+    );
+
     if (status === 'ringing') {
       await this.calls.applyLifecycle({ callSid, status: 'ringing' });
       return;
@@ -633,6 +672,16 @@ export class ConferenceService {
     if (!primarySid || !params.CallSid || !status) return;
 
     if (role === 'customer') {
+      // A masked call's phone is told how the client's end went. Ringing is
+      // what the answer webhook already said; everything else is news.
+      const reported = this.bridge ? clientLegProgress(params) : null;
+      let meta: Record<string, string> | undefined;
+      if (reported && reported.state !== 'connecting_client') {
+        meta = await this.redis.client.hgetall(this.metaKey(name));
+        // Before the teardown below: it hangs the technician up, and their
+        // leg's `completed` must find this outcome already written.
+        if (meta.bridgeId) await this.tellBridge(meta.bridgeId, () => reported);
+      }
       if (status === 'in-progress') {
         await this.calls.applyLifecycle({
           callSid: primarySid,
@@ -644,7 +693,7 @@ export class ConferenceService {
       if (TERMINAL_LEG.has(status) && status !== 'completed') {
         // busy / no-answer / failed / canceled on the customer leg — the call
         // never happened; end the conference (agent side) and record why.
-        const meta = await this.redis.client.hgetall(this.metaKey(name));
+        meta ??= await this.redis.client.hgetall(this.metaKey(name));
         if (meta.confSid) await this.completeConference(meta.confSid);
         await this.calls.applyLifecycle({ callSid: primarySid, status });
       }

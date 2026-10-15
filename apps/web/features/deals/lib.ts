@@ -143,10 +143,15 @@ export const dealTotal = (products: DealProduct[]): number =>
 
 /** Client-price adjustment band off catalog (story 5.05: ±15%). */
 export const PRICE_BAND = 0.15;
-export const priceRange = (catalog: number) => ({
-  min: catalog * (1 - PRICE_BAND),
-  max: catalog * (1 + PRICE_BAND),
-});
+/**
+ * 15 % of the catalog price's SIZE either side, so a price book price below
+ * zero (Workiz's "Approved Discount" −100 and 61 more) brackets itself:
+ * −115 … −85, never a min above the max.
+ */
+export const priceRange = (catalog: number) => {
+  const span = Math.abs(catalog) * PRICE_BAND;
+  return { min: catalog - span, max: catalog + span };
+};
 export function isPriceInBand(price: number, catalog: number): boolean {
   const { min, max } = priceRange(catalog);
   // small epsilon for float edges
@@ -175,6 +180,20 @@ export function priceBandApplies(
   line?: Pick<DealProduct, "fulfillment" | "priceSource"> | null,
 ): boolean {
   return !isImportedLine(line) && line?.priceSource !== "group";
+}
+
+/**
+ * Whether the ±15% band binds this viewer at all. Story 5.05 caps the
+ * *technician's* adjustment and sends anything beyond it to a manager; the
+ * office — owner, admin, department manager, dispatcher — is that manager,
+ * so it sets any price. Workiz has no band at all and 110 865 of the
+ * 156 612 matched historical lines sit outside ±15%, which is how the office
+ * actually prices. A technician adds items on the phone, where no band
+ * exists either, so in practice this binds only a technician on the web.
+ * The server never checks the band — it is a dialog rule, nothing more.
+ */
+export function priceBandBinds(viewer: Pick<{ isTechnician: boolean }, "isTechnician">): boolean {
+  return viewer.isTechnician;
 }
 
 /* ------------------------------------------------------- date/time basis */

@@ -23,7 +23,7 @@ import { useActiveJobTypes } from "@/features/job-types/active-hooks";
 import { useCreateJobType, useJobType } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
 import { useEffectiveServiceArea, useServiceAreas } from "@/features/service-areas/hooks";
-import { useSuggestedTechs, useUserMap } from "../../hooks";
+import { suggestedTechsQuestion, useSuggestedTechs, useUserMap } from "../../hooks";
 import { personName } from "../../person-name";
 import {
   businessProfileOptions,
@@ -375,7 +375,7 @@ export interface WzTeamSelectProps {
  * Workiz's notice under it: "Please select a service area to display
  * available techs", then "2 techs work in SURE LOCK DALLAS TX and can perform
  * any job type". Asks the same question as the page loaders
- * (`useSuggestedTechs({ jobTypeId, lat, lng })`), so the answer is cached.
+ * (`suggestedTechsQuestion`), so the answer is cached.
  */
 export function WzTeamSelect({
   jobTypeId,
@@ -391,12 +391,11 @@ export function WzTeamSelect({
   aside,
   className,
 }: WzTeamSelectProps) {
-  const hasAddress = address.lat !== undefined && address.lng !== undefined;
   const effective = useEffectiveServiceArea(address.lat, address.lng, serviceAreaId || undefined);
-  const query = useSuggestedTechs(
-    { jobTypeId: jobTypeId || undefined, lat: address.lat, lng: address.lng },
-    hasAddress,
-  );
+  // By the point when there is one, else by the hand-picked area: a typed
+  // address (a new client's) has no coordinates, and the pick is an answer.
+  const question = suggestedTechsQuestion({ jobTypeId, serviceAreaId, lat: address.lat, lng: address.lng });
+  const query = useSuggestedTechs(question.params, question.enabled);
   const techs = query.data ?? [];
   const { map: directory } = useUserMap(value);
   const options = teamOptions(techs, value, (id) => personName(directory.get(id)));
@@ -404,7 +403,7 @@ export function WzTeamSelect({
   const jobTypeName = jobTypeId ? (types ?? []).find((t) => t.id === jobTypeId)?.name : undefined;
   const area = effective.area;
   const notice = teamNotice({
-    hasArea: hasAddress && !!area,
+    hasArea: question.enabled && !!area,
     areaName: area?.name,
     count: techs.filter((t) => t.eligible).length,
     jobTypeName,

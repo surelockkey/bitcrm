@@ -59,7 +59,9 @@ export const CALL_EVENTS_SQS_CONSUMER = Symbol('CALL_EVENTS_SQS_CONSUMER');
 @Module({
   // TechScopeModule: the technician inbox scope (C4) every job event keeps current.
   imports: [ConversationsModule, MessagingSettingsModule, MessageTemplatesModule, OutboundModule, TechScopeModule],
-  controllers: [AutomationsController, TechNoticesController],
+  // TechNoticesController first: its `GET /automations/tech-notices` would otherwise be
+  // swallowed by AutomationsController's `GET /automations/:id` (routes mount in this order).
+  controllers: [TechNoticesController, AutomationsController],
   providers: [
     { provide: AUTOMATIONS_CONFIG, useFactory: loadAutomationsConfig },
     {

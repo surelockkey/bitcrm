@@ -248,14 +248,19 @@ export class DealsController {
   @RequirePermission('deals', 'edit')
   @ApiOperation({
     summary: 'Update deal fields',
-    description: '**Guard:** `deals.edit` permission required.',
+    description:
+      '**Guard:** `deals.edit` permission required. The Custom Tech Rate fields (`useTechSpecialRate`, ' +
+      '`techSpecialRate`, `techSpecialRateUnit` — Workiz "Override Rates") additionally need `commission.edit`: 403 otherwise.',
   })
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateDealDto,
     @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    const data = await this.dealsService.update(id, dto, user);
+    const data = await this.dealsService.update(id, dto, user, {
+      mayOverrideRate: hasPermission(perms, 'commission', 'edit'),
+    });
     return { success: true, data };
   }
 
@@ -568,8 +573,9 @@ export class DealsController {
       'tech; `to_order` records a part the tech does not carry (no deduction); ' +
       '`service` adds a non-stockable service line (no deduction, no tech). The ' +
       "product's inventory type must match — services only as `service` lines. " +
-      "The line's `costCompany` / `costForTech` are the price book's (any sent are ignored); " +
-      "`priceClient` must stay within ±15% of the price book's price (400 otherwise). " +
+      "The line's `costCompany` is the price book's unless the caller holds `financials.view` and sends one " +
+      "(Workiz's Cost box); `costForTech` is always the price book's; `soldBy` (Workiz \"Sold by\") is a user id. " +
+      "a technician's `priceClient` must stay within ±15% of the price book's price (400 otherwise); the office sets any price, below zero too. " +
       '**Container rule** for a technician (`deals` scope `assigned_only`): a stock-managed product ' +
       "(type `product`, `manageStock` not false) only `sourced` from HIS OWN container — " +
       '`sourceTechId` absent defaults to him; `to_order` or another van is 400 "<name> isn\'t in your ' +
@@ -582,8 +588,11 @@ export class DealsController {
     @CurrentUser() user: JwtUser,
     @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    await this.dealsService.addProduct(id, dto, user, perms?.dataScope?.deals);
-    return { success: true, data: { added: true } };
+    const line = await this.dealsService.addProduct(id, dto, user, perms?.dataScope?.deals, {
+      mayCost: hasPermission(perms, 'financials', 'view'),
+    });
+    // `line` is the row as written (id included): the page draws it at once.
+    return { success: true, data: { added: true, line } };
   }
 
   @Post(':id/item-groups/:groupId')
@@ -626,8 +635,10 @@ export class DealsController {
       'new line — same shape and validation as add. Stock is reconciled: the ' +
       "old sourced line is restored to its source technician's container " +
       'before the new sourced line is deducted from the chosen one, so raising ' +
-      'a quantity only needs the delta in the van. Costs come from the price book and ' +
-      'the ±15% band holds as on add, except for an imported Workiz line (or an item group line) edited in place ' +
+      "a quantity only needs the delta in the van. The line keeps its own `costCompany` unless the caller holds " +
+      "`financials.view` and sends one (a swap takes the new item's price book cost); `soldBy` absent keeps the " +
+      'line\'s own, `""` clears it. ' +
+      "a technician's ±15% band holds as on add, except for an imported Workiz line (or an item group line) edited in place " +
       'at its recorded price. The container rule of add binds a technician whenever the edit changes the ' +
       'product, the quantity or the source; an edit of text, price, taxable or custom fields alone passes. ' +
       "`customAttributes` absent → the line keeps its own (a swap: the new product's).",
@@ -639,8 +650,10 @@ export class DealsController {
     @CurrentUser() user: JwtUser,
     @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    await this.dealsService.replaceProduct(id, productId, dto, user, perms?.dataScope?.deals);
-    return { success: true, data: { updated: true } };
+    const line = await this.dealsService.replaceProduct(id, productId, dto, user, perms?.dataScope?.deals, {
+      mayCost: hasPermission(perms, 'financials', 'view'),
+    });
+    return { success: true, data: { updated: true, line } };
   }
 
   @Patch(':id/products/:productId/ordered')
