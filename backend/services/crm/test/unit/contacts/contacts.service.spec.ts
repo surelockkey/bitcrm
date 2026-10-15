@@ -161,6 +161,25 @@ describe('ContactsService', () => {
 
       await expect(service.findById('nonexistent')).rejects.toThrow(NotFoundException);
     });
+
+    // The search indexer's read: a cached copy (up to 5 min old, or put back by
+    // a read racing the update) would index the client without the number just added.
+    it('a fresh read skips the cache and reads the table strongly consistent', async () => {
+      const contact = createMockContact({ phones: ['+12125550100', '+14045550177'] });
+      cache.get.mockResolvedValue(createMockContact({ phones: ['+12125550100'] }));
+      repository.findById.mockResolvedValue(contact);
+
+      const result = await service.findById('contact-1', { fresh: true });
+
+      expect(result).toEqual(contact);
+      expect(cache.get).not.toHaveBeenCalled();
+      expect(repository.findById).toHaveBeenCalledWith('contact-1', { consistent: true });
+    });
+
+    it('a fresh read still 404s a missing contact', async () => {
+      repository.findById.mockResolvedValue(null);
+      await expect(service.findById('nonexistent', { fresh: true })).rejects.toThrow(NotFoundException);
+    });
   });
 
   describe('list', () => {
@@ -215,6 +234,27 @@ describe('ContactsService', () => {
       expect(snsPublisher.publish).toHaveBeenCalledWith(
         'crm', 'contact.updated', expect.objectContaining({ contactId: 'contact-1' }),
       );
+    });
+
+    // A consumer of `contact.updated` (search re-indexing the client) must
+    // never find the pre-edit copy in the cache.
+    it('invalidates the cache before it publishes contact.updated', async () => {
+      const order: string[] = [];
+      cache.get.mockResolvedValue(createMockContact());
+      repository.update.mockImplementation(async () => {
+        order.push('write');
+        return createMockContact();
+      });
+      cache.invalidate.mockImplementation(async () => {
+        order.push('invalidate');
+      });
+      snsPublisher.publish.mockImplementation(async () => {
+        order.push('publish');
+      });
+
+      await service.update('contact-1', { phones: ['+12125550100', '+14045550177'] } as any);
+
+      expect(order).toEqual(['write', 'invalidate', 'publish']);
     });
 
     it('passes a billing address through to the row', async () => {

@@ -85,6 +85,17 @@ describe('ContactsController', () => {
       expect(result).toEqual({ success: true, data: contact });
       expect(service.findById).toHaveBeenCalledWith('contact-1');
     });
+
+    // `?fresh=true` is the search indexer's read: past the cache, strongly consistent.
+    it('reads fresh when asked to (?fresh=true)', async () => {
+      const contact = createMockContact();
+      service.findById.mockResolvedValue(contact);
+
+      const result = await controller.findByIdInternal('contact-1', 'true');
+
+      expect(result).toEqual({ success: true, data: contact });
+      expect(service.findById).toHaveBeenCalledWith('contact-1', { fresh: true });
+    });
   });
 
   describe('findByIdInternal', () => {

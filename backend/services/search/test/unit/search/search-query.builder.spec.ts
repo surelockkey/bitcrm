@@ -107,48 +107,98 @@ describe('buildSearchBody', () => {
   });
 
   describe('phone-like queries', () => {
-    it('adds an exact digit-collapsed clause so "(728) 347-8370" matches indexed digits', () => {
-      const body = buildSearchBody({
-        q: '(728) 347-8370',
-        authzClause: authz,
-        mode: 'typeahead',
-      });
-      const must = boolOf(body).must[0];
-      // Either the formatted text or the collapsed digits may match.
-      expect(must.bool.minimum_should_match).toBe(1);
-      const queries = must.bool.should.map((c: any) => c.multi_match.query);
-      expect(queries).toContain('(728) 347-8370');
-      expect(queries).toContain('7283478370');
+    /** Every clause of the match, whatever its nesting, as a flat list. */
+    function phoneShould(q: string, mode: 'full' | 'typeahead' = 'typeahead') {
+      return boolOf(buildSearchBody({ q, authzClause: authz, mode })).must[0].bool.should as any[];
+    }
+    function containsFuzziness(node: unknown): boolean {
+      return JSON.stringify(node).includes('fuzziness');
+    }
+
+    // The bug: after a client got a second number, searching it found unrelated
+    // records — the fuzzy clause let a 10-digit number match any number two
+    // digits off (and every edge-ngram fragment), pushing the client out of the top 5.
+    it('never fuzzes a phone query — one wrong digit is a different number', () => {
+      for (const q of ['7283478370', '(728) 347-8370', '+1 728 347 8370', '8370', '(292) 8']) {
+        for (const mode of ['full', 'typeahead'] as const) {
+          const body = buildSearchBody({ q, authzClause: authz, mode });
+          expect(containsFuzziness(boolOf(body))).toBe(false);
+        }
+      }
     });
 
-    it('does not fuzz the digit clause (a phone must not match a different number)', () => {
-      const body = buildSearchBody({
-        q: '(728) 347-8370',
-        authzClause: authz,
-        mode: 'typeahead',
+    it('matches a full number exactly against the indexed phone variants, ranked first', () => {
+      const should = phoneShould('7283478370');
+      expect(should).toContainEqual({
+        constant_score: { filter: { terms: { phoneDigits: ['7283478370'] } }, boost: 100 },
       });
-      const digitClause = boolOf(body)
-        .must[0].bool.should.find((c: any) => c.multi_match.query === '7283478370');
-      expect(digitClause.multi_match.fuzziness).toBeUndefined();
     });
 
-    it('keeps the plain single-clause shape for text queries', () => {
+    it('collapses a formatted number to its digits for the exact phone match', () => {
+      const should = phoneShould('(728) 347-8370');
+      expect(should).toContainEqual({
+        constant_score: { filter: { terms: { phoneDigits: ['7283478370'] } }, boost: 100 },
+      });
+      // The formatted text itself is not searched any more — only its digits.
+      expect(JSON.stringify(should)).not.toContain('(728) 347-8370');
+    });
+
+    it('reads a leading +1 / 1 country code as the same number', () => {
+      for (const q of ['+1 (728) 347-8370', '17283478370']) {
+        expect(phoneShould(q)).toContainEqual({
+          constant_score: {
+            filter: { terms: { phoneDigits: ['17283478370', '7283478370'] } },
+            boost: 100,
+          },
+        });
+      }
+    });
+
+    it('lets a number still being typed find the numbers that start or end with it', () => {
+      // The indexed variants hold every 4+ digit suffix, so a prefix of a
+      // variant is any 4+ digit run inside the number.
+      expect(phoneShould('728347837')).toContainEqual({
+        constant_score: { filter: { prefix: { phoneDigits: '728347837' } }, boost: 20 },
+      });
+      expect(phoneShould('(292) 8')).toContainEqual({
+        constant_score: { filter: { prefix: { phoneDigits: '2928' } }, boost: 5 },
+      });
+      expect(phoneShould('839-8283')).toContainEqual({
+        constant_score: { filter: { terms: { phoneDigits: ['8398283'] } }, boost: 100 },
+      });
+    });
+
+    it('does not treat a short fragment as a whole number (no exact-number boost)', () => {
+      const should = phoneShould('8370');
+      expect(JSON.stringify(should)).not.toContain('"terms"');
+      expect(should).toContainEqual({
+        constant_score: { filter: { prefix: { phoneDigits: '8370' } }, boost: 5 },
+      });
+    });
+
+    it('keeps an exact (non-fuzzy) digit match on the text fields — job numbers, zips, PO numbers', () => {
+      const should = phoneShould('1042', 'full');
+      expect(should).toContainEqual({
+        multi_match: { query: '1042', fields: expect.arrayContaining(['title^5', 'keywords^3']), operator: 'and' },
+      });
+      expect(boolOf(buildSearchBody({ q: '1042', authzClause: authz, mode: 'full' })).must[0].bool.minimum_should_match).toBe(1);
+    });
+
+    it('gives the exact bonus to the collapsed digits, not the formatted text', () => {
+      const should = boolOf(buildSearchBody({ q: '(728) 347-8370', authzClause: authz, mode: 'full' })).should;
+      expect(should).toEqual([
+        { multi_match: { query: '7283478370', fields: expect.arrayContaining(['title^5']), operator: 'and', boost: 3 } },
+      ]);
+    });
+
+    it('keeps the plain fuzzy single-clause shape for text queries', () => {
       const body = buildSearchBody({ q: 'acme', authzClause: authz, mode: 'full' });
-      expect(boolOf(body).must[0].multi_match).toBeDefined();
+      expect(boolOf(body).must[0].multi_match).toMatchObject({ query: 'acme', fuzziness: 'AUTO', operator: 'and' });
     });
 
-    it('rescues a half-typed phone whose last token is a single digit', () => {
-      // "(292) 8" tokenizes to [292, 8]; "8" can never match (min_gram 2), so
-      // without the digit clause the AND match returns nothing mid-typing.
-      const body = buildSearchBody({ q: '(292) 8', authzClause: authz, mode: 'typeahead' });
-      const queries = boolOf(body).must[0].bool.should.map((c: any) => c.multi_match.query);
-      expect(queries).toContain('2928');
-    });
-
-    it('digit-collapses a pasted tail fragment', () => {
-      const body = buildSearchBody({ q: '839-8283', authzClause: authz, mode: 'typeahead' });
-      const queries = boolOf(body).must[0].bool.should.map((c: any) => c.multi_match.query);
-      expect(queries).toContain('8398283');
+    it('leaves a mixed text-and-digits query on the text path', () => {
+      const body = buildSearchBody({ q: 'john 8370', authzClause: authz, mode: 'full' });
+      expect(boolOf(body).must[0].multi_match.query).toBe('john 8370');
     });
   });
 

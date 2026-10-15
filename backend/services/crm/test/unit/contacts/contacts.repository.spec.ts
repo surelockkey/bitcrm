@@ -65,6 +65,24 @@ describe('ContactsRepository', () => {
       expect(result!.firstName).toBe('John');
     });
 
+    it('reads eventually consistent by default (the cheap read)', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Item: undefined });
+      await repository.findById('contact-1');
+      expect(dynamoDb.client.send.mock.calls[0][0].input.ConsistentRead).toBeUndefined();
+    });
+
+    // The search indexer re-reads a contact the moment `contact.updated`
+    // arrives; an eventually consistent read can still answer the row from
+    // before the write (a just-added second number missing from the index).
+    it('reads strongly consistent when asked to', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Item: undefined });
+      await repository.findById('contact-1', { consistent: true });
+      expect(dynamoDb.client.send.mock.calls[0][0].input).toMatchObject({
+        Key: { PK: 'CONTACT#contact-1', SK: 'METADATA' },
+        ConsistentRead: true,
+      });
+    });
+
     it('maps taxExempt and taxExemptReason', async () => {
       const contact = createMockContact({ taxExempt: true, taxExemptReason: 'Non-profit' });
       dynamoDb.client.send.mockResolvedValue({

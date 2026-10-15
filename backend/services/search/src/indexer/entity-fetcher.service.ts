@@ -13,7 +13,9 @@ const INTERNAL_SECRET = process.env.INTERNAL_SERVICE_SECRET || '';
 /** Types whose authoritative entity can be fetched by id over internal HTTP. */
 const ENDPOINTS: Partial<Record<SearchType, (id: string) => string>> = {
   deal: (id) => `${DEAL_SERVICE_URL}/api/deals/internal/${id}`,
-  contact: (id) => `${CRM_SERVICE_URL}/api/crm/contacts/internal/${id}`,
+  // `fresh`: past crm's contact cache, strongly consistent — a reindex on
+  // `contact.updated` must see the edit (a just-added second number).
+  contact: (id) => `${CRM_SERVICE_URL}/api/crm/contacts/internal/${id}?fresh=true`,
   company: (id) => `${CRM_SERVICE_URL}/api/crm/companies/internal/${id}`,
   user: (id) => `${USER_SERVICE_URL}/api/users/internal/${id}`,
   product: (id) => `${INVENTORY_SERVICE_URL}/api/inventory/products/internal/${id}`,

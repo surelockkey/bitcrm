@@ -1,6 +1,8 @@
 import {
   compactUnique,
+  phoneDigitVariants,
   phoneQueryDigits,
+  phoneQueryTerms,
   phoneSearchVariants,
 } from 'src/common/utils/search-normalize.util';
 
@@ -73,6 +75,34 @@ describe('phoneQueryDigits', () => {
   it('rejects runs under 4 digits', () => {
     expect(phoneQueryDigits('292')).toBeUndefined();
     expect(phoneQueryDigits('(29')).toBeUndefined();
+  });
+});
+
+describe('phoneQueryTerms', () => {
+  it('matches a 10-digit number as itself', () => {
+    expect(phoneQueryTerms('7283478370')).toEqual(['7283478370']);
+  });
+
+  it('also tries the local number when the query carries the +1 / 1 country code', () => {
+    expect(phoneQueryTerms('17283478370')).toEqual(['17283478370', '7283478370']);
+  });
+
+  it('keeps any other number as typed', () => {
+    expect(phoneQueryTerms('380671234567')).toEqual(['380671234567']);
+    expect(phoneQueryTerms('8398283')).toEqual(['8398283']);
+  });
+});
+
+describe('phoneDigitVariants', () => {
+  it('collects the digit variants of every number, de-duplicated', () => {
+    const out = phoneDigitVariants(['(212) 555-0100', '+1 212 555 0100', '404-555-0177']);
+    expect(out).toEqual(expect.arrayContaining(['2125550100', '12125550100', '4045550177', '0177']));
+    expect(new Set(out).size).toBe(out.length);
+  });
+
+  it('skips blanks and numbers too short to be phones', () => {
+    expect(phoneDigitVariants([undefined, '', '123'])).toEqual([]);
+    expect(phoneDigitVariants(undefined)).toEqual([]);
   });
 });
 

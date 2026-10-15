@@ -93,6 +93,11 @@ export const INDEX_BODY = {
       },
       body: { type: 'text', analyzer: 'standard_lowercase' },
 
+      // phone digit variants (v5) — exact terms, NOT edge-ngrammed: a phone
+      // query is a `terms` (whole number) or `prefix` (number being typed /
+      // a fragment, via the indexed suffixes) lookup here, never fuzzy.
+      phoneDigits: { type: 'keyword' },
+
       // display + ranking
       url: { type: 'keyword', index: false },
       badges: { type: 'keyword' },

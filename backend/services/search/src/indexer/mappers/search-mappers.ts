@@ -22,6 +22,7 @@ import { productListFields, type ProductListFields } from '../../product-list/pr
 import {
   compactUnique,
   looksLikePhone,
+  phoneDigitVariants,
   phoneSearchVariants,
 } from '../../common/utils/search-normalize.util';
 
@@ -80,6 +81,19 @@ function customFieldKeywords(
   return out;
 }
 
+/** The searchable custom-field answers that read as phone numbers. */
+function customFieldPhones(
+  customFields: Record<string, CustomFieldValue> | undefined,
+  defs: CustomFieldSearchDef[],
+): string[] {
+  if (!customFields) return [];
+  const searchable = new Set(defs.filter((d) => d.searchable).map((d) => d.id));
+  return Object.entries(customFields)
+    .filter(([id]) => searchable.has(id))
+    .map(([, value]) => stringifyCustomFieldValue(value))
+    .filter((text): text is string => looksLikePhone(text));
+}
+
 /**
  * `jobTypeName` is resolved from `deal.jobTypeId` by the caller (see
  * CatalogNamesService) — the deal itself only stores the catalog id, and a raw
@@ -104,6 +118,8 @@ export function mapDeal(
     ? `${deal.clientName.firstName} ${deal.clientName.lastName}`.trim() || undefined
     : undefined;
   const displayName = overrideName ?? client?.name;
+  // The job's own first number ("This job only") finds it as well as the client's.
+  const phones = [...(deal.clientPhone ? [deal.clientPhone] : []), ...(client?.phones ?? [])];
   return {
     docId: `deal#${deal.id}`,
     entityId: deal.id,
@@ -134,11 +150,11 @@ export function mapDeal(
       client?.companyName,
       externalCompanyName,
       ...(client?.emails ?? []),
-      // The job's own first number ("This job only") finds it as well as the client's.
-      ...withPhoneVariants([...(deal.clientPhone ? [deal.clientPhone] : []), ...(client?.phones ?? [])]),
+      ...withPhoneVariants(phones),
       ...tagNames,
       ...customFieldKeywords(deal.customFields, customFieldDefs),
     ]),
+    phoneDigits: phoneDigitVariants([...phones, ...customFieldPhones(deal.customFields, customFieldDefs)]),
     body: deal.notes,
     url: `/deals/${deal.id}`,
     badges: compactUnique([deal.superStatus, deal.priority, deal.paymentStatus]),
@@ -172,6 +188,10 @@ export function mapContact(contact: Contact, customFieldDefs: CustomFieldSearchD
       ),
       ...customFieldKeywords(contact.customFields, customFieldDefs),
     ]),
+    phoneDigits: phoneDigitVariants([
+      ...(contact.phones ?? []),
+      ...customFieldPhones(contact.customFields, customFieldDefs),
+    ]),
     body: contact.notes,
     url: `/contacts/${contact.id}`,
     badges: compactUnique([contact.type, contact.status]),
@@ -195,6 +215,7 @@ export function mapCompany(company: Company): SearchDocument {
       company.website,
       company.address,
     ]),
+    phoneDigits: phoneDigitVariants(company.phones),
     body: company.notes,
     url: `/companies/${company.id}`,
     badges: compactUnique([company.clientType, company.status]),
@@ -240,6 +261,7 @@ export function mapTechnician(input: TechnicianSearchInput): SearchDocument {
       ...(input.serviceAreas || []),
       ...withPhoneVariants(input.phone ? [input.phone] : undefined),
     ]),
+    phoneDigits: phoneDigitVariants([input.phone]),
     url: `/technicians/${input.userId}`,
     badges: compactUnique([input.status, ...(input.jobTypes || []).slice(0, 3)]),
     updatedAt: input.updatedAt,
@@ -397,6 +419,7 @@ export function mapConversation(
       ...deals.map((d) => d.dealNumber),
       c.kind,
     ]),
+    phoneDigits: phoneDigitVariants([...(c.addresses?.phones ?? []), ...(input.partyPhones ?? [])]),
     body,
     url: `/messages/${c.id}`,
     badges: compactUnique([

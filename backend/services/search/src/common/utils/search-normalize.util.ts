@@ -54,6 +54,24 @@ export function phoneQueryDigits(query: string): string | undefined {
   return digits.length >= MIN_PHONE_FRAGMENT ? digits : undefined;
 }
 
+/**
+ * The digit variants of several phones in one de-duplicated list — what a
+ * document's exact `phoneDigits` field holds.
+ */
+export function phoneDigitVariants(phones: Array<string | undefined | null> | undefined): string[] {
+  return [...new Set((phones ?? []).flatMap((p) => phoneSearchVariants(p)))];
+}
+
+/**
+ * The whole numbers a phone query's digits stand for: itself, plus the local
+ * number when it carries the NANP country code ("+1 728…" / "1728…"), so a
+ * number stored with or without the code is found either way.
+ */
+export function phoneQueryTerms(digits: string): string[] {
+  if (digits.length === 11 && digits.startsWith('1')) return [digits, digits.slice(1)];
+  return [digits];
+}
+
 /** Drops falsy/blank entries and de-duplicates while preserving order. */
 export function compactUnique(values: Array<string | undefined | null>): string[] {
   const seen = new Set<string>();

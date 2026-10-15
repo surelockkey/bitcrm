@@ -293,10 +293,15 @@ export class ContactsController {
   @Internal()
   @ApiOperation({
     summary: 'Get contact by ID (internal)',
-    description: '**Guard:** Internal service-to-service only (`x-internal-secret` header required).',
+    description:
+      '**Guard:** Internal service-to-service only (`x-internal-secret` header required). '
+      + '`?fresh=true` skips the cache and reads strongly consistent — the search indexer, '
+      + 'which re-reads the contact right after `contact.updated`.',
   })
-  async findByIdInternal(@Param('id') id: string) {
-    const data = await this.contactsService.findById(id);
+  async findByIdInternal(@Param('id') id: string, @Query('fresh') fresh?: string) {
+    const data = fresh === 'true'
+      ? await this.contactsService.findById(id, { fresh: true })
+      : await this.contactsService.findById(id);
     return { success: true, data };
   }
 }

@@ -10,9 +10,12 @@ export const SEARCH_INDEX_ALIAS = process.env.SEARCH_INDEX_ALIAS || 'bitcrm-sear
  * precomputed stock level, lowercased name/SKU, the DynamoDB sort keys) —
  * inventory's filtered Price Book reads it once the product backfill has
  * stamped the index ready (`product-list/`).
+ * v5: adds `phoneDigits` (keyword) — every phone's digit variants as exact
+ * terms, so a phone query matches whole numbers instead of fuzzy edge-ngram
+ * fragments (a client's second number found unrelated records, not the client).
  * Run `npm run create-index` then `npm run backfill` to migrate.
  */
-export const SEARCH_INDEX_NAME = process.env.SEARCH_INDEX_NAME || 'bitcrm-search-v4';
+export const SEARCH_INDEX_NAME = process.env.SEARCH_INDEX_NAME || 'bitcrm-search-v5';
 
 export const OPENSEARCH_ENDPOINT =
   process.env.OPENSEARCH_ENDPOINT || 'http://localhost:9200';

@@ -104,6 +104,13 @@ export interface SearchDocument {
   subtitle?: string;
   /** Extra exact/prefix tokens (phone, email, SKU, tags, skills). */
   keywords: string[];
+  /**
+   * Digit-string variants of every phone the record carries (raw digits, the
+   * 10-digit local and 1-prefixed forms, every 4+ digit suffix) — an exact
+   * keyword field, so a phone query matches whole numbers, never edge-ngram
+   * fragments or a number a typo away (index v5).
+   */
+  phoneDigits?: string[];
   /** Free text (notes/description). Lowest weight. */
   body?: string;
 
