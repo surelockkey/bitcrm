@@ -21,6 +21,8 @@
 /** Anything with a phones array — Contact and Company both qualify. */
 export interface PhoneBearing {
   phones?: string[];
+  /** Keyed BY THE NUMBER — which is why a masked viewer never gets it. */
+  phoneExtensions?: Record<string, string>;
 }
 
 /**
@@ -32,11 +34,22 @@ export type MaybeMasked<T> = T & {
   /** How many numbers exist, so the UI can say "2 numbers, hidden". */
   phoneCount?: number;
   phonesMasked?: true;
+  /**
+   * The extensions, by position — `[i]` is what to press on hidden number
+   * `i` ('' for none). Sent instead of `phoneExtensions`, whose KEYS are the
+   * numbers, and only when at least one number has an extension.
+   */
+  phoneExtensionsByIndex?: string[];
 };
 
 /**
  * Empty the numbers, keep the count. Returns the input unchanged when the
  * viewer holds the grant, so the allowed path costs nothing.
+ *
+ * `phoneExtensions` goes too: it is keyed by the number, so keeping it would
+ * hand the viewer every number that has an extension. What they get instead
+ * is the same extensions by position, aligned with the hidden rows, so the UI
+ * can still show "ext 102" on the right one.
  *
  * Always copies rather than mutating: records come out of ContactsCacheService,
  * which hands the same object to concurrent requests — masking in place would
@@ -48,7 +61,15 @@ export function maskPhones<T extends PhoneBearing>(
 ): MaybeMasked<T> {
   if (allowed) return record;
   const phones = record.phones ?? [];
-  return { ...record, phones: [], phoneCount: phones.length, phonesMasked: true };
+  const { phoneExtensions, ...rest } = record;
+  const byIndex = phones.map((phone) => phoneExtensions?.[phone] ?? '');
+  return {
+    ...(rest as T),
+    phones: [],
+    phoneCount: phones.length,
+    phonesMasked: true,
+    ...(byIndex.some(Boolean) && { phoneExtensionsByIndex: byIndex }),
+  };
 }
 
 /** {@link maskPhones} across a list. */
@@ -72,7 +93,14 @@ export function stripUnwritablePhones<T extends object>(
   dto: T,
   allowed: boolean,
 ): T {
-  if (allowed || !('phones' in dto)) return dto;
-  const { phones: _dropped, ...rest } = dto as T & { phones?: string[] };
+  if (allowed || !('phones' in dto || 'phoneExtensions' in dto)) return dto;
+  // The extensions go with the numbers: a masked viewer never saw the
+  // number-keyed map, so what they send back is `{}` — which the service would
+  // re-key against the numbers on file and wipe every extension.
+  const {
+    phones: _dropped,
+    phoneExtensions: _droppedExtensions,
+    ...rest
+  } = dto as T & { phones?: string[]; phoneExtensions?: unknown };
   return rest as unknown as T;
 }

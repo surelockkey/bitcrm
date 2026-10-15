@@ -15,6 +15,8 @@ import { ContactLookupService } from './contact-lookup.service';
 import { CallerIdResolver } from '../voice/caller-id.resolver';
 import { CallsService } from '../calls/calls.service';
 import { ClientNumberHistory } from '../calls/client-number-history';
+import { PermissionLookupService } from './permission-lookup.service';
+import { clientLineAt } from './client-line';
 import {
   nextProgress,
   type BridgeProgress,
@@ -64,6 +66,8 @@ export interface BridgeContext {
   technicianId: string;
   /** The client's real E.164 — the only place it lives during a bridge. */
   to: string;
+  /** That number's extension, pressed once the client answers. */
+  extension?: string;
   /** The number the client will see: the one they have been talking to, else the market's. */
   from: string;
   callerIdSource?: string;
@@ -94,20 +98,33 @@ export class BridgeService {
     private readonly callerIds: CallerIdResolver,
     private readonly calls: CallsService,
     @Optional() private readonly history?: ClientNumberHistory,
+    // Optional so the bridge specs construct without it; without it only the
+    // technician-role rule applies, as before the data scope was consulted.
+    @Optional() private readonly permissions?: PermissionLookupService,
   ) {}
 
   /**
    * May this user place a call about this job?
    *
-   * A technician must be on the roster — that is the whole point, and it is
+   * Somebody on the job — its roster, or its dispatcher — always may. Off the
+   * job, a technician never may — that is the whole point, and the roster is
    * re-read live at dial time rather than trusted from when the code was
-   * minted. Everyone else (dispatch, managers) may call any client about any
-   * job; masking is about not handing out numbers, not about restricting who
-   * may speak to whom.
+   * minted — and neither may anybody whose deals are scoped `assigned_only`
+   * (the same data scope every other service enforces, read the canonical way
+   * through `getDataScopeFilter`; a custom field role is not called
+   * `role-technician`). The scope only ever narrows: it cannot admit a
+   * technician off the roster. Everyone else (dispatch, managers) may call any
+   * client about any job; masking is about not handing out numbers, not about
+   * restricting who may speak to whom.
    */
-  mayReachDeal(user: JwtUser, deal: DealForCall): boolean {
-    if (user.roleId !== 'role-technician') return true;
-    return (deal.assignedTechIds ?? []).includes(user.id);
+  async mayReachDeal(user: JwtUser, deal: DealForCall): Promise<boolean> {
+    if ((deal.assignedTechIds ?? []).includes(user.id)) return true;
+    if (deal.assignedDispatcherId && deal.assignedDispatcherId === user.id) {
+      return user.roleId !== 'role-technician';
+    }
+    if (user.roleId === 'role-technician') return false;
+    if (!this.permissions) return true;
+    return !(await this.permissions.isAssignedOnly(user, 'deals'));
   }
 
   /**
@@ -129,7 +146,7 @@ export class BridgeService {
     const deal = await this.deals.find(req.dealId);
     if (!deal) throw new NotFoundException('Job not found');
 
-    if (!this.mayReachDeal(user, deal)) {
+    if (!(await this.mayReachDeal(user, deal))) {
       // Deliberately not "you are not on this job": the refusal is the same
       // whatever the reason, so it cannot be used to map job rosters.
       this.logger.warn(
@@ -143,10 +160,10 @@ export class BridgeService {
     }
 
     const client = await this.contacts.phonesOf(req.contactId);
-    const index = req.phoneIndex ?? 0;
-    // The first number is the job's own when it has one; the rest are the client's.
-    const to = (index === 0 && deal.clientPhone) || client?.phones?.[index];
-    if (!to) {
+    // The first number is the job's own when it has one; the rest are the
+    // client's — the same order the dial-in codes are minted in.
+    const line = clientLineAt(deal, client, req.phoneIndex ?? 0);
+    if (!line) {
       throw new BadRequestException(
         client?.phones?.length
           ? 'That client has no number at that position'
@@ -184,7 +201,8 @@ export class BridgeService {
 
       const context: BridgeContext = {
         technicianId: user.id,
-        to,
+        to: line.to,
+        extension: line.extension,
         from: callerId ?? '',
         callerIdSource: source,
         dealId: deal.id,

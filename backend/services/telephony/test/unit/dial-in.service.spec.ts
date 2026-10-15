@@ -14,7 +14,11 @@ function makeService(
     deal?: unknown;
     /** Who the CALLER'S number belongs to, as the directory reports it. */
     callerIs?: { id: string; name: string } | null;
-    phones?: { phones: string[]; name?: string } | null;
+    phones?: {
+      phones: string[];
+      name?: string;
+      extensions?: Record<string, string>;
+    } | null;
     counters?: Record<string, number>;
   } = {},
 ) {
@@ -203,6 +207,77 @@ describe('DialInService.resolve', () => {
     await service.resolve('4729', '+14045550134');
 
     expect(deals.find).toHaveBeenCalledWith('deal-1');
+  });
+});
+
+/**
+ * Every client number on the job has its own code. The code names the number,
+ * resolved in the same order the in-app call buttons use: position 0 is the
+ * job's own first number when it has one, else the client's first; every
+ * other position is the client's.
+ */
+describe('DialInService — the number a code names', () => {
+  const TWO = {
+    phones: ['+14045551234', '+14045555678'],
+    name: 'Maria Alvarez',
+    extensions: { '+14045555678': '102' },
+  };
+
+  it('rings the number the code was minted for', async () => {
+    const { service } = makeService({
+      ext: { code: '6100', dealId: 'deal-1', phoneIndex: 1 },
+      phones: TWO,
+    });
+
+    const out = await service.resolve('6100', '+14045550134');
+
+    expect(out).toMatchObject({ to: '+14045555678' });
+  });
+
+  it('reads a code with no position (minted before positions) as the first number', async () => {
+    const { service } = makeService({ phones: TWO });
+
+    const out = await service.resolve('4729', '+14045550134');
+
+    expect(out).toMatchObject({ to: '+14045551234' });
+  });
+
+  it('never swaps the job’s own number in past the first position', async () => {
+    const { service } = makeService({
+      ext: { code: '6100', dealId: 'deal-1', phoneIndex: 1 },
+      deal: { ...DEAL, clientPhone: '+12035550123' },
+      phones: TWO,
+    });
+
+    const out = await service.resolve('6100', '+14045550134');
+
+    expect(out?.to).toBe('+14045555678');
+  });
+
+  /** Carried to the conference, which presses it once the client answers. */
+  it('carries the number’s extension', async () => {
+    const { service } = makeService({
+      ext: { code: '6100', dealId: 'deal-1', phoneIndex: 1 },
+      phones: TWO,
+    });
+
+    const out = await service.resolve('6100', '+14045550134');
+
+    expect(out?.extension).toBe('102');
+  });
+
+  /**
+   * The number was removed after its code was printed. Refused exactly as an
+   * unknown code is — the caller hears the ordinary "that did not work" and is
+   * offered another try, never somebody else's number.
+   */
+  it('refuses a code whose number is no longer on the client', async () => {
+    const { service } = makeService({
+      ext: { code: '7300', dealId: 'deal-1', phoneIndex: 2 },
+      phones: TWO,
+    });
+
+    await expect(service.resolve('7300', '+14045550134')).resolves.toBeNull();
   });
 });
 

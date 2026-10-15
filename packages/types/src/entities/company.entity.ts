@@ -19,6 +19,8 @@ export interface Company {
    * itself, so the phone stays dialable and the call log keeps matching it.
    */
   phoneExtensions?: Record<string, string>;
+  /** A masked viewer's extensions by position — see `Contact.phoneExtensionsByIndex`. */
+  phoneExtensionsByIndex?: string[];
   emails: string[];
   address?: string;
   website?: string;

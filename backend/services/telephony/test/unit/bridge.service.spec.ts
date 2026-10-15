@@ -54,13 +54,22 @@ function fakeRedis() {
 function makeService(
   over: {
     deal?: DealForCall | null;
-    phones?: { phones: string[]; name?: string } | null;
+    phones?: {
+      phones: string[];
+      name?: string;
+      extensions?: Record<string, string>;
+    } | null;
     callerId?: { callerId?: string; source?: string };
     activeCall?: unknown;
     /** What the client's call/SMS history answers; an Error makes it fail. */
     history?: string[] | Error;
+    /** Whether the caller's deals are scoped `assigned_only`. */
+    assignedOnly?: boolean;
   } = {},
 ) {
+  const permissions = {
+    isAssignedOnly: jest.fn(async () => over.assignedOnly ?? false),
+  };
   const redis = fakeRedis();
   const deals = {
     find: jest.fn().mockResolvedValue(
@@ -95,35 +104,87 @@ function makeService(
     callerIds as never,
     calls as never,
     history as never,
+    permissions as never,
   );
-  return { service, redis, deals, contacts, callerIds, calls, history };
+  return { service, redis, deals, contacts, callerIds, calls, history, permissions };
 }
 
 describe('BridgeService.mayReachDeal', () => {
-  it('admits a technician on the job roster', () => {
+  it('admits a technician on the job roster', async () => {
     const { service } = makeService();
-    expect(service.mayReachDeal(TECH, DEAL)).toBe(true);
+    await expect(service.mayReachDeal(TECH, DEAL)).resolves.toBe(true);
   });
 
-  it('admits the job dispatcher', () => {
+  it('admits the job dispatcher', async () => {
     const { service } = makeService();
-    expect(service.mayReachDeal(DISPATCHER, DEAL)).toBe(true);
+    await expect(service.mayReachDeal(DISPATCHER, DEAL)).resolves.toBe(true);
   });
 
-  it('refuses a technician who is not on the roster', () => {
+  it('refuses a technician who is not on the roster', async () => {
     const { service } = makeService();
-    expect(service.mayReachDeal(OUTSIDER, DEAL)).toBe(false);
+    await expect(service.mayReachDeal(OUTSIDER, DEAL)).resolves.toBe(false);
   });
 
-  it('admits anyone who is not a technician — dispatch calls whoever they need', () => {
+  it('admits anyone who is not a technician — dispatch calls whoever they need', async () => {
     const { service } = makeService();
     const manager = user('mgr-1', 'role-dept-manager');
-    expect(service.mayReachDeal(manager, DEAL)).toBe(true);
+    await expect(service.mayReachDeal(manager, DEAL)).resolves.toBe(true);
   });
 
-  it('refuses a technician on a job with an empty roster', () => {
+  it('refuses a technician on a job with an empty roster', async () => {
     const { service } = makeService();
-    expect(service.mayReachDeal(TECH, { ...DEAL, assignedTechIds: [] })).toBe(false);
+    await expect(service.mayReachDeal(TECH, { ...DEAL, assignedTechIds: [] })).resolves.toBe(false);
+  });
+
+  /**
+   * The role id alone missed a custom field role: anybody whose jobs are
+   * scoped `assigned_only` sees only their own jobs everywhere else, and must
+   * not reach the clients of the others through the phone. Only ever
+   * TIGHTENS — the technician role is refused off-roster whatever its scope.
+   */
+  describe('aligned with the deals data scope', () => {
+    const FIELD = user('field-1', 'role-custom-field');
+
+    it('refuses an assigned_only user who is not on the job', async () => {
+      const { service, permissions } = makeService({ assignedOnly: true });
+
+      await expect(service.mayReachDeal(FIELD, DEAL)).resolves.toBe(false);
+      expect(permissions.isAssignedOnly).toHaveBeenCalledWith(FIELD, 'deals');
+    });
+
+    it('admits an assigned_only user who is on the job', async () => {
+      const { service } = makeService({ assignedOnly: true });
+
+      await expect(
+        service.mayReachDeal(FIELD, { ...DEAL, assignedTechIds: ['field-1'] }),
+      ).resolves.toBe(true);
+    });
+
+    it('admits an assigned_only dispatcher on their own job', async () => {
+      const { service } = makeService({ assignedOnly: true });
+
+      await expect(service.mayReachDeal(DISPATCHER, DEAL)).resolves.toBe(true);
+    });
+
+    it('admits a user whose jobs are not scoped to their own', async () => {
+      const { service } = makeService({ assignedOnly: false });
+
+      await expect(service.mayReachDeal(FIELD, DEAL)).resolves.toBe(true);
+    });
+
+    it('never loosens the technician rule, whatever the scope says', async () => {
+      const { service } = makeService({ assignedOnly: false });
+
+      await expect(service.mayReachDeal(OUTSIDER, DEAL)).resolves.toBe(false);
+    });
+
+    it('asks nothing for somebody on the roster', async () => {
+      const { service, permissions } = makeService({ assignedOnly: true });
+
+      await service.mayReachDeal(TECH, DEAL);
+
+      expect(permissions.isAssignedOnly).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -166,6 +227,38 @@ describe('BridgeService.prepare', () => {
     expect(redis.hashes.get(`telephony:bridge:${first.bridgeId}`)!.to).toBe('+12035550123');
     // The other numbers are the client's own, as before.
     expect(redis.hashes.get(`telephony:bridge:${second.bridgeId}`)!.to).toBe('+14045555678');
+  });
+
+  /**
+   * The client's extension rides on the context, so the conference can press
+   * it once the client answers — never in the browser's hands.
+   */
+  it('stashes the extension of the number being rung', async () => {
+    const { service, redis } = makeService({
+      phones: {
+        phones: ['+14045551234', '+14045555678'],
+        name: 'Maria Alvarez',
+        extensions: { '+14045555678': '102' },
+      },
+    });
+
+    const out = await service.prepare(TECH, {
+      dealId: 'deal-1',
+      contactId: 'contact-1',
+      phoneIndex: 1,
+    });
+
+    const ctx = redis.hashes.get(`telephony:bridge:${out.bridgeId}`)!;
+    expect(ctx.extension).toBe('102');
+    expect(JSON.stringify(out)).not.toContain('102');
+  });
+
+  it('stashes no extension for a number without one', async () => {
+    const { service, redis } = makeService();
+
+    const out = await service.prepare(TECH, { dealId: 'deal-1', contactId: 'contact-1' });
+
+    expect(redis.hashes.get(`telephony:bridge:${out.bridgeId}`)!).not.toHaveProperty('extension');
   });
 
   it('stamps the market caller id on the context', async () => {

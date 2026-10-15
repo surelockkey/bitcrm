@@ -12,6 +12,7 @@ import { FlowRunnerService } from './flow-runner.service';
 import { agentFromEndpoint, CallsService } from '../calls/calls.service';
 import { BridgeService } from '../common/bridge.service';
 import { answeredByMachine, BRIDGE_REASONS } from '../common/bridge-progress';
+import { extensionKeys } from '../common/client-line';
 import { TelephonySettingsService } from '../telephony/telephony-settings.service';
 import { BlockedCallersService } from '../blocked-callers/blocked-callers.service';
 
@@ -172,6 +173,8 @@ export class VoiceService {
       origin: 'bridge',
       callerIdSource: ctx.callerIdSource as never,
       bridgeId,
+      // The client's extension, pressed once they answer.
+      sendDigits: extensionKeys(ctx.extension),
     });
 
     const dial = twiml.dial();
@@ -484,6 +487,8 @@ export class VoiceService {
       origin: 'bridge',
       callerIdSource: ctx.callerIdSource as never,
       bridgeId,
+      // The client's extension, pressed once they answer.
+      sendDigits: extensionKeys(ctx.extension),
     });
 
     const dial = twiml.dial();

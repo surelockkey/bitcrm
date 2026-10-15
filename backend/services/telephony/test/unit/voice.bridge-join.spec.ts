@@ -75,6 +75,31 @@ describe('VoiceService.buildBridgeJoin — telling the phone the client is being
     },
   );
 
+  /** The client's extension, read from the context, is pressed once they answer. */
+  it('hands the conference the client’s extension to press', async () => {
+    const { service, bridge, conference } = make();
+    bridge.context.mockResolvedValue({ ...CTX, extension: '102' });
+
+    await service.buildBridgeJoin('b-1', { CallSid: 'CAtech', AnsweredBy: 'human' }, true);
+
+    expect(conference.initOutbound).toHaveBeenCalledWith(
+      'CAtech',
+      'tech-1',
+      '+14045551234',
+      '+14045550100',
+      expect.objectContaining({ sendDigits: 'ww102' }),
+    );
+  });
+
+  it('presses nothing when the number has no extension', async () => {
+    const { service, conference } = make();
+
+    await service.buildBridgeJoin('b-1', { CallSid: 'CAtech', AnsweredBy: 'human' }, true);
+
+    const options = conference.initOutbound.mock.calls[0][4] as Record<string, unknown>;
+    expect(options.sendDigits).toBeUndefined();
+  });
+
   it('without a client name it still says what it is doing', async () => {
     const { service, bridge } = make();
     bridge.context.mockResolvedValue({ ...CTX, clientName: undefined, dealNumber: undefined });

@@ -6,6 +6,7 @@ import { ContactLookupService } from '../common/contact-lookup.service';
 import { CallerIdResolver } from '../voice/caller-id.resolver';
 import { BridgeService } from '../common/bridge.service';
 import { UserPhoneLookupService } from '../common/user-phone-lookup.service';
+import { clientLineAt } from '../common/client-line';
 
 /** Attempts a single caller's number may burn in an hour before it is parked. */
 const FAILS_PER_CALLER = 10;
@@ -29,6 +30,8 @@ export interface DialInMatch {
   clientName?: string;
   /** The client's real E.164. Never spoken, never sent to a browser. */
   to: string;
+  /** What to press once the client answers — that number's extension. */
+  extension?: string;
   /** The market number the client will see. */
   from: string;
   callerIdSource?: string;
@@ -113,9 +116,13 @@ export class DialInService {
     );
 
     const client = await this.contacts.phonesOf(deal.contactId);
-    // The job's own first number when it has one ("This job only").
-    const to = deal.clientPhone || client?.phones?.[0];
-    if (!to) return null;
+    // The number this code was minted for, in the bridge's order — the job's
+    // own first number at position 0 when it has one ("This job only"). A
+    // code minted before codes were per number has no position: the first.
+    // A number removed since the code was printed refuses like any other
+    // dead code.
+    const line = clientLineAt(deal, client, ext.phoneIndex ?? 0);
+    if (!line) return null;
 
     const { callerId, source } = await this.callerIds.forServerLeg(deal);
 
@@ -124,7 +131,8 @@ export class DialInService {
       dealNumber: deal.dealNumber,
       technicianId,
       clientName: client?.name,
-      to,
+      to: line.to,
+      ...(line.extension && { extension: line.extension }),
       from: callerId ?? '',
       callerIdSource: source,
     };
@@ -210,6 +218,7 @@ export class DialInService {
     return this.bridge.stash({
       technicianId: match.technicianId ?? '',
       to: match.to,
+      extension: match.extension,
       from: match.from,
       callerIdSource: match.callerIdSource,
       dealId: match.dealId,

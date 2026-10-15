@@ -49,6 +49,61 @@ describe('ConferenceService — outbound flow', () => {
     expect(callsService.appendChildSid).toHaveBeenCalledWith('CAagent1', 'CAcustomerLeg');
   });
 
+  /**
+   * A client behind an extension. A conference participant cannot be told to
+   * press keys — the Participants API has no `sendDigits` — so this one leg is
+   * placed as an ordinary call that presses the extension once answered and
+   * then joins the room, with the same label, flags and status callbacks the
+   * participant would have had.
+   */
+  describe('a client number with an extension', () => {
+    it('presses the extension once the client answers, then joins the conference', async () => {
+      const { service, twilio, redis, callsService } = makeHarness();
+      await service.initOutbound('CAagent1', 'agent-1', '+14045551234', '+12624061115', {
+        sendDigits: 'ww102',
+      });
+      await service.onParticipantJoin('conf-CAagent1', 'CF999', 'CAagent1');
+
+      expect(twilio.participantsCreate).not.toHaveBeenCalled();
+      expect(twilio.callsCreate).toHaveBeenCalledTimes(1);
+      const opts = twilio.callsCreate.mock.calls[0][0];
+      expect(opts).toMatchObject({
+        to: '+14045551234',
+        from: '+12624061115',
+        sendDigits: 'ww102',
+      });
+      expect(opts.twiml).toContain('<Conference');
+      expect(opts.twiml).toContain('conf-CAagent1');
+      expect(opts.twiml).toContain('endConferenceOnExit="true"');
+      expect(opts.twiml).toContain('participantLabel="customer"');
+      expect(opts.statusCallback).toContain(
+        '/api/telephony/voice/status?conf=conf-CAagent1&role=customer',
+      );
+      expect(opts.statusCallbackEvent).toEqual(['initiated', 'ringing', 'answered', 'completed']);
+      const meta = await redis.hgetall('telephony:conf:conf-CAagent1:meta');
+      expect(meta.customerSid).toBe('CAleg-+14045551234');
+      expect(callsService.appendChildSid).toHaveBeenCalledWith('CAagent1', 'CAleg-+14045551234');
+    });
+
+    it('keeps the keys out of the call record', async () => {
+      const { service, applied } = makeHarness();
+      await service.initOutbound('CAagent1', 'agent-1', '+14045551234', '+12624061115', {
+        sendDigits: 'ww102',
+      });
+
+      expect(JSON.stringify(applied)).not.toContain('ww102');
+    });
+
+    it('a number without one is dialled as a participant, as always', async () => {
+      const { service, twilio } = makeHarness();
+      await service.initOutbound('CAagent1', 'agent-1', '+14045551234', '+12624061115', {});
+      await service.onParticipantJoin('conf-CAagent1', 'CF999', 'CAagent1');
+
+      expect(twilio.participantsCreate).toHaveBeenCalledTimes(1);
+      expect(twilio.callsCreate).not.toHaveBeenCalled();
+    });
+  });
+
   it('only the agent leg joining dials the customer — and only once', async () => {
     const { service, twilio } = makeHarness();
     await service.initOutbound('CAagent1', 'agent-1', '+14045551234', '+12624061115');

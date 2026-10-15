@@ -13,6 +13,12 @@ import { ExtsRepository, type CallExt } from './exts.repository';
  *  the time, and ten draws put a spurious "try again" below one in ten
  *  thousand. A redraw is one conditional write, so the retries are cheap. */
 const MINT_ATTEMPTS = 10;
+/**
+ * At most this many client numbers on one job get a code. Workiz jobs carry
+ * two or three; the cap only stops a pathological record from minting a code
+ * per number into a four-digit space.
+ */
+const MAX_CODES_PER_JOB = 10;
 
 /**
  * Job codes for the technician dial-in.
@@ -27,9 +33,16 @@ const MINT_ATTEMPTS = 10;
  * Random, never sequential: a sequential code leaks job volume and makes
  * "yesterday's code plus one" a live guess.
  *
- * SCOPE — one code per JOB. Not per client (one leak would expose every job
- * that client will ever have) and not per (job, technician) — a job's roster
- * is a peer list, and the identity that would buy is bought better by the PIN.
+ * SCOPE — one code per (JOB, CLIENT NUMBER), Workiz style: every number on the
+ * job gets its own masked number, so the technician at the door can pick the
+ * mobile over the landline exactly as the in-app buttons let them. Never per
+ * client (one leak would expose every job that client will ever have) and not
+ * per (job, technician) — a job's roster is a peer list, and the identity that
+ * would buy is bought better by the PIN.
+ *
+ * The position is the bridge's `phoneIndex` (see `clientLineAt`). The first
+ * number's code lives where the one-code-per-job design kept it, so codes
+ * minted before this read as the first number's and keep working.
  */
 @Injectable()
 export class ExtsService {
@@ -44,8 +57,8 @@ export class ExtsService {
    * thing that asks. Idempotent through the reverse row, so re-rendering the
    * screen does not burn codes.
    */
-  async forDeal(dealId: string): Promise<CallExt> {
-    const existing = await this.repo.findByDeal(dealId);
+  async forDeal(dealId: string, phoneIndex = 0): Promise<CallExt> {
+    const existing = await this.repo.findByDeal(dealId, phoneIndex);
     if (existing && existing.status === 'active') {
       // A code minted at a different length can never be keyed in again: the
       // dial-in gathers exactly `extDigits` digits and stops. Rather than
@@ -60,9 +73,9 @@ export class ExtsService {
 
     for (let attempt = 0; attempt < MINT_ATTEMPTS; attempt += 1) {
       const code = this.draw();
-      const minted = await this.repo.claim(code, dealId);
+      const minted = await this.repo.claim(code, dealId, phoneIndex);
       if (minted) {
-        this.logger.log(`Minted a job code for deal ${dealId}`);
+        this.logger.log(`Minted a job code for deal ${dealId} (number ${phoneIndex + 1})`);
         return minted;
       }
     }
@@ -72,6 +85,25 @@ export class ExtsService {
     throw new ServiceUnavailableException(
       'Could not allocate a job code right now — please try again',
     );
+  }
+
+  /**
+   * The codes for every client number on a job, in position order — what the
+   * job screen shows beside each number.
+   *
+   * Always at least the first number's, which is the code the job always had
+   * (a client with no number on file, or one we could not read, still gets
+   * it). Capped, so a client record with dozens of numbers cannot mint dozens
+   * of codes. Sequential on purpose: each is a conditional write, and a job
+   * has two or three numbers.
+   */
+  async forDealPhones(dealId: string, count: number): Promise<CallExt[]> {
+    const wanted = Math.min(Math.max(1, Math.floor(count) || 0), MAX_CODES_PER_JOB);
+    const out: CallExt[] = [];
+    for (let phoneIndex = 0; phoneIndex < wanted; phoneIndex += 1) {
+      out.push(await this.forDeal(dealId, phoneIndex));
+    }
+    return out;
   }
 
   /** The job a code points at, or null. Never says WHY it is null. */
@@ -86,16 +118,24 @@ export class ExtsService {
    * Retire a job's code and mint a new one — the containment lever when a code
    * has been shared too widely. Scoped to one job on purpose.
    */
-  async rotate(dealId: string): Promise<CallExt> {
-    const existing = await this.repo.findByDeal(dealId);
+  async rotate(dealId: string, phoneIndex = 0): Promise<CallExt> {
+    const existing = await this.repo.findByDeal(dealId, phoneIndex);
     if (existing) await this.repo.release(existing.code);
-    return this.forDeal(dealId);
+    return this.forDeal(dealId, phoneIndex);
   }
 
-  /** Retire a job's code without replacing it — used when a job closes. */
+  /**
+   * Retire every one of a job's codes without replacing them — used when a
+   * job closes. (The dial-in also refuses a closed job on its own: it re-reads
+   * the job on every call.)
+   */
   async releaseForDeal(dealId: string): Promise<void> {
-    const existing = await this.repo.findByDeal(dealId);
-    if (existing) await this.repo.release(existing.code);
+    const all = await this.repo.listByDeal(dealId);
+    await Promise.all(
+      all
+        .filter((ext) => ext.status === 'active')
+        .map((ext) => this.repo.release(ext.code)),
+    );
   }
 
   /**

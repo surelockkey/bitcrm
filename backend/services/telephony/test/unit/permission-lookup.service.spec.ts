@@ -131,3 +131,57 @@ describe('PermissionLookupService', () => {
     expect(cacheReader.getPermissions).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * "Are this user's jobs scoped to their own?" — the masked call's roster rule
+ * for any role, not only the technician one. Read the way every service reads
+ * a data scope (`getDataScopeFilter`), and failing CLOSED: a user we cannot
+ * vouch for is treated as assigned_only, which only ever narrows who they may
+ * ring.
+ */
+describe('PermissionLookupService.isAssignedOnly', () => {
+  let cacheReader: { getPermissions: jest.Mock };
+  let fetchImpl: jest.Mock;
+  let service: PermissionLookupService;
+
+  beforeEach(() => {
+    cacheReader = { getPermissions: jest.fn() };
+    fetchImpl = jest.fn();
+    service = new PermissionLookupService(cacheReader as never, fetchImpl);
+  });
+
+  it('is true for a deals scope of assigned_only', async () => {
+    cacheReader.getPermissions.mockResolvedValue(
+      perms(false, { dataScope: { deals: 'assigned_only' } }),
+    );
+
+    await expect(service.isAssignedOnly(user(), 'deals')).resolves.toBe(true);
+  });
+
+  it.each([['all'], ['department']])('is false for a deals scope of %s', async (scope) => {
+    cacheReader.getPermissions.mockResolvedValue(perms(false, { dataScope: { deals: scope } }));
+
+    await expect(service.isAssignedOnly(user(), 'deals')).resolves.toBe(false);
+  });
+
+  it('is false for a Super Admin', async () => {
+    cacheReader.getPermissions.mockResolvedValue(
+      perms(false, { roleName: 'Super Admin', isSystemRole: true, dataScope: {} }),
+    );
+
+    await expect(service.isAssignedOnly(user(), 'deals')).resolves.toBe(false);
+  });
+
+  it('fails closed when the permissions cannot be read', async () => {
+    cacheReader.getPermissions.mockRejectedValue(new Error('redis is down'));
+
+    await expect(service.isAssignedOnly(user(), 'deals')).resolves.toBe(true);
+  });
+
+  it('fails closed when nobody can answer', async () => {
+    cacheReader.getPermissions.mockResolvedValue(null);
+    fetchImpl.mockResolvedValue(null);
+
+    await expect(service.isAssignedOnly(user(), 'deals')).resolves.toBe(true);
+  });
+});
