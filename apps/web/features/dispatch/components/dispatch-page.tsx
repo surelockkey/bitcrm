@@ -340,6 +340,7 @@ function DispatchBoardPage() {
       position={position}
       name={nameOf(position.userId)}
       address={addresses.get(position.userId)}
+      now={fixesAt}
       jobs={techJobsToday(todayDeals, position.userId, todayISO())}
       zoneOf={zoneOf}
       title={titleOf}
