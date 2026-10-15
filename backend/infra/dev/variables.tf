@@ -31,3 +31,9 @@ variable "portal_domain" {
   type        = string
   default     = "portal.bitcrm.tech-slk.com"
 }
+
+variable "web_app_url" {
+  description = "Where people use the web app and sign in (the invitation email's link). Not var.domain_name — that one is the API's host, where /login is a 404."
+  type        = string
+  default     = "https://bitcrm.tech-slk.com"
+}
