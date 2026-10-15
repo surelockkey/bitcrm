@@ -5,6 +5,7 @@ import { type Conversation, type ConversationAddressPointer } from '@bitcrm/type
 import { ConversationsRepository } from '../conversations/conversations.repository';
 import { TechScopeService } from '../tech-scope/tech-scope.service';
 import { CrmContactsClient } from '../outbound/internal/crm-contacts.client';
+import { TelephonyNumbersClient } from '../outbound/internal/telephony-numbers.client';
 import { ContactPointersRepository } from './contact-pointers.repository';
 import {
   isContactMergedPayload,
@@ -34,7 +35,10 @@ const sameList = (a: string[], b: string[]) => a.length === b.length && a.every(
  *   contact.updated  the contact's phones/emails are re-read from CRM and the
  *                    `ADDR#` rows plus `conversation.addresses` follow them:
  *                    added → pointer written, removed → pointer dropped (only
- *                    when it still points at this thread).
+ *                    when it still points at this thread). One of the
+ *                    workspace's own numbers on the contact is left out
+ *                    (texting it fails with Twilio 21266), so a thread that
+ *                    already holds one drops it here.
  *
  * Every step re-reads before it writes and is a no-op when the state is
  * already what it would produce, so an SQS redelivery (the consumer does not
@@ -51,6 +55,7 @@ export class ContactEventsHandler {
     private readonly crm: CrmContactsClient,
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly techScope?: TechScopeService,
+    @Optional() private readonly numbers?: TelephonyNumbersClient,
   ) {}
 
   // ------------------------------------------------------ contact.merged
@@ -185,7 +190,8 @@ export class ContactEventsHandler {
       return;
     }
 
-    const phones = uniq(contact.phones.map(tryNormalizePhone).filter((p): p is string => !!p));
+    const owned = await this.ownedNumbers();
+    const phones = uniq(contact.phones.map(tryNormalizePhone).filter((p): p is string => !!p && !owned.has(p)));
     const emails = uniq(contact.emails.map((e) => e.trim().toLowerCase()).filter(Boolean));
     const current = conversation.addresses;
     const added = [
@@ -226,5 +232,16 @@ export class ContactEventsHandler {
     this.logger.log(
       `contact.updated ${contactId}: +${added.length} / -${removed.length} address pointer(s) on conversation ${conversation.id}`,
     );
+  }
+
+  /** The workspace's own numbers (telephony, cached); empty when unknown or not wired — then nothing is filtered. */
+  private async ownedNumbers(): Promise<Set<string>> {
+    if (!this.numbers) return new Set();
+    try {
+      return await this.numbers.ownedSet();
+    } catch (error) {
+      this.logger.warn(`owned numbers read failed: ${error instanceof Error ? error.message : error}`);
+      return new Set();
+    }
   }
 }

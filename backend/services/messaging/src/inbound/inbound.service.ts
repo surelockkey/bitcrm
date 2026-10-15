@@ -22,6 +22,7 @@ import { MessagesRepository } from '../messages/messages.repository';
 import { OptOutsRepository } from '../opt-outs/opt-outs.repository';
 import { MediaQueueService } from '../media/media-queue.service';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
+import { TelephonyNumbersClient } from '../outbound/internal/telephony-numbers.client';
 import { BlockedNumbersClient } from './blocked-numbers.client';
 import { PartyResolver, type ResolvedParty } from './party-resolver';
 import { mediaFileName, type InboundMessageInput } from './twilio-inbound.payload';
@@ -87,6 +88,7 @@ export class InboundService {
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
     @Optional() private readonly realtime?: RealtimePublisher,
     @Optional() private readonly blockedNumbers?: BlockedNumbersClient,
+    @Optional() private readonly numbers?: TelephonyNumbersClient,
   ) {}
 
   async ingest(input: InboundMessageInput, opts: IngestOptions): Promise<IngestResult> {
@@ -165,8 +167,19 @@ export class InboundService {
    * The conversation an address belongs to (§4.3 step 4), creating it when
    * needed. Also what the reconciliation uses to place an outbound line it
    * only knows the recipient of.
+   *
+   * One of the workspace's own numbers is never a party's address (a client
+   * record may carry one; texting it fails with Twilio 21266): it keeps a
+   * thread of its own, keyed by the address, and is never adopted into — or
+   * routed by a stale `ADDR#` to — a client's thread.
    */
   async locateConversation(address: string, at: string = new Date().toISOString()): Promise<LocatedConversation> {
+    if (await this.isOwnNumber(address)) {
+      return this.conversations.findOrCreate({
+        conversation: this.newConversation(address, at),
+        pointer: { kind: 'address', id: address },
+      });
+    }
     let resolution = await this.parties.resolve(address);
 
     if (resolution.conversationId) {
@@ -196,6 +209,17 @@ export class InboundService {
   }
 
   // -------------------------------------------------------------- internals
+
+  /** One of telephony's owned numbers (cached)? Unknown or not wired → false. Never throws. */
+  private async isOwnNumber(address: string): Promise<boolean> {
+    if (!this.numbers) return false;
+    try {
+      return (await this.numbers.ownedSet()).has(address);
+    } catch (error) {
+      this.logger.warn(`owned numbers read failed: ${error instanceof Error ? error.message : error}`);
+      return false;
+    }
+  }
 
   private newConversation(
     address: string,

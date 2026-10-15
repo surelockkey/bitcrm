@@ -87,6 +87,8 @@ function makeService(opts: {
   deal?: Record<string, unknown> | null;
   /** Jobs by id, when the conversation's latest and the line's differ. */
   deals?: Record<string, Record<string, unknown>>;
+  /** The workspace's own numbers (telephony); absent = no numbers client wired. */
+  owned?: string[];
 } = {}) {
   const conversation = opts.conversation === undefined ? createMockConversation({ lastDealId: 'd1' }) : opts.conversation;
   const pages = opts.feed ?? [[failed()]];
@@ -125,6 +127,7 @@ function makeService(opts: {
     undefined,
     undefined,
     opts.email as any,
+    (opts.owned ? { ownedSet: jest.fn(async () => new Set(opts.owned)) } : undefined) as any,
   );
   return { service, conversations, messages, optOuts, sender, queue, deals, events, realtime };
 }
@@ -222,6 +225,18 @@ describe('SendService.resend — what may be resent', () => {
   });
 });
 
+describe('SendService.resend — never to one of our own numbers', () => {
+  it('400s when the failed line went to a company number (Twilio 21266) — nothing is written', async () => {
+    const own = '+14045551234';
+    const { service, messages, sender } = makeService({ owned: [own] });
+    const err = await service.resend('c1', 'm-fail', {}, caller()).catch((e) => e);
+    expect(err.getStatus()).toBe(400);
+    expect(err.message).toMatch(/company's own numbers/);
+    expect(messages.appendOutbound).not.toHaveBeenCalled();
+    expect(sender.resolve).not.toHaveBeenCalled();
+  });
+});
+
 describe('SendService.resend — already resent', () => {
   const copyOf = (status: Message['status']) =>
     createMockMessage({ id: 'm-copy', direction: 'outbound', channel: 'sms', status, resentFromMessageId: 'm-fail', createdAt: T1 });
@@ -295,7 +310,7 @@ describe('SendService.resend — the copy', () => {
     expect(m.attachments).not.toBe(failed().attachments);
 
     expect(optOuts.isOptedOut).toHaveBeenCalledWith('sms', '+14045551234');
-    expect(sender.resolve).toHaveBeenCalledWith({ requested: '+15550001111', conversation: expect.objectContaining({ id: 'c1' }), dealId: 'd1' });
+    expect(sender.resolve).toHaveBeenCalledWith({ requested: '+15550001111', conversation: expect.objectContaining({ id: 'c1' }), dealId: 'd1', to: '+14045551234' });
     expect(messages.appendOutbound).toHaveBeenCalledWith(expect.objectContaining({ message: m, clientMessageId: 'resend:m-fail:1', createdBy: 'u1', at: m.createdAt }));
     expect(queue.enqueue).toHaveBeenCalledWith({ conversationId: 'c1', createdAt: m.createdAt, messageId: m.id });
     expect(messages.markResent).toHaveBeenCalledWith({ conversationId: 'c1', createdAt: T0, messageId: 'm-fail' }, m.id, m.createdAt);

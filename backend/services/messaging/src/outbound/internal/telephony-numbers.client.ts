@@ -71,6 +71,15 @@ export class TelephonyNumbersClient {
     return fresh ?? this.cache?.numbers ?? [];
   }
 
+  /**
+   * Every number the workspace owns (SMS-capable or not), for "is this one of
+   * ours?". Served from `listOwned`'s cache. Empty means "unknown" (telephony
+   * not reached yet), so a caller filtering by it filters nothing.
+   */
+  async ownedSet(now: number = Date.now()): Promise<Set<string>> {
+    return new Set((await this.listOwned(now)).map((n) => n.phoneNumber));
+  }
+
   /** Drop the cache — after a number is bought or released, for instance. */
   forget(): void {
     this.cache = null;

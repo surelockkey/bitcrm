@@ -47,6 +47,7 @@ import { type ResendMessageDto } from './dto/resend-message.dto';
 import { MAX_ATTACHMENT_BYTES, type SendAttachmentDto, type SendMessageDto, type StartConversationMessageDto } from './dto/send-message.dto';
 import { CrmContactsClient } from './internal/crm-contacts.client';
 import { DealContextClient } from './internal/deal-context.client';
+import { TelephonyNumbersClient } from './internal/telephony-numbers.client';
 import { OutboundEventsPublisher } from './outbound-events';
 import { OutboundQueueProducer } from './outbound-queue.producer';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
@@ -200,6 +201,8 @@ export class SendService {
     @Optional() private readonly users?: UserLookupService,
     @Optional() private readonly inboxCounters?: InboxCountersRepository,
     @Optional() private readonly email?: EmailAddressResolver,
+    // The workspace's own numbers: never a recipient (Twilio 21266). Absent → nothing is filtered.
+    @Optional() private readonly numbers?: TelephonyNumbersClient,
   ) {}
 
   /** `POST /conversations/:id/messages`. */
@@ -296,7 +299,7 @@ export class SendService {
     // The employee path deliberately passes no job: a teammate is texted from
     // the workspace number, never the job's tracking line (design §6).
     const sender = await this.sender
-      .resolve({ conversation, dealId: target.employee ? undefined : conversation.lastDealId })
+      .resolve({ conversation, dealId: target.employee ? undefined : conversation.lastDealId, to: target.to })
       .catch((error) => {
         this.logger.warn(`sender preview for ${conversation.id} failed: ${error instanceof Error ? error.message : error}`);
         return undefined;
@@ -321,8 +324,12 @@ export class SendService {
       const phone = teammate.phone ? tryNormalizePhone(teammate.phone) : undefined;
       return phone ? { to: phone, toName: teammate.name, employee: true } : 'employee_has_no_phone';
     }
-    const phone = conversation.addresses?.phones?.[0];
-    return phone ? { to: phone, employee: conversation.partyKind === 'user' } : 'no_phone';
+    const phones = conversation.addresses?.phones ?? [];
+    if (!phones.length) return 'no_phone';
+    // The same pick as `recipient`: never one of the company's own numbers.
+    const owned = await this.ownedNumbers();
+    const phone = phones.find((p) => !owned.has(p));
+    return phone ? { to: phone, employee: conversation.partyKind === 'user' } : 'only_own_number';
   }
 
   /** The address `prepareEmail` would write to, the unsubscribe ledger, and the `From` SES would show. */
@@ -399,6 +406,9 @@ export class SendService {
     const to = source.to;
     if (!to) throw new ConflictException('The message has no recipient to resend to');
     if (!source.body && !source.attachments?.length) throw new ConflictException('The message has neither text nor attachments to resend');
+    if ((await this.ownedNumbers()).has(to)) {
+      throw new BadRequestException(`${to} is one of the company's own numbers — text another number of the client instead`);
+    }
     if (await this.optOuts.isOptedOut('sms', to)) throw new RecipientOptedOutException(to);
 
     const dealId = source.dealId ?? conversation.lastDealId;
@@ -407,6 +417,7 @@ export class SendService {
       requested: source.from,
       conversation,
       dealId: conversation.partyKind === 'user' ? undefined : dealId,
+      to,
     });
     const from = resolved.from ?? source.from;
     const senderSource = resolved.from ? resolved.source : source.senderSource;
@@ -574,6 +585,7 @@ export class SendService {
       requested: dto.fromNumber,
       conversation,
       dealId: target.employee ? undefined : dealId,
+      to,
     });
 
     const now = new Date().toISOString();
@@ -681,14 +693,14 @@ export class SendService {
   /** `sendSystem` over SMS — the original behaviour, unchanged. */
   private async sendSystemSms(input: SystemSendInput): Promise<SystemSendResult> {
     const { conversation } = input;
-    const to = this.recipient(conversation, input.to);
+    const to = await this.recipient(conversation, input.to);
     if (await this.optOuts.isOptedOut('sms', to)) throw new RecipientOptedOutException(to);
 
     const body = input.body.trim();
     if (!body) throw new BadRequestException('body must not be blank');
 
     const dealId = input.dealId ?? conversation.lastDealId;
-    const sender = await this.sender.resolve({ requested: input.fromNumber, conversation, dealId });
+    const sender = await this.sender.resolve({ requested: input.fromNumber, conversation, dealId, to });
 
     const now = new Date().toISOString();
     const message: Message = {
@@ -988,7 +1000,7 @@ export class SendService {
     dto: SendMessageDto,
   ): Promise<{ to: string; conversation: Conversation; employee: boolean }> {
     if (conversation.partyKind !== 'user' || !conversation.partyId || !this.users) {
-      return { to: this.recipient(conversation, dto.toAddress), conversation, employee: conversation.partyKind === 'user' };
+      return { to: await this.recipient(conversation, dto.toAddress), conversation, employee: conversation.partyKind === 'user' };
     }
     const teammate = await this.users.find(conversation.partyId);
     if (!teammate) throw new NotFoundException(`User ${conversation.partyId} not found`);
@@ -1124,17 +1136,41 @@ export class SendService {
     // `department` scope: conversations carry no department; nothing to narrow by.
   }
 
-  private recipient(conversation: Conversation, toAddress: string | undefined): string {
+  /**
+   * The client number a text goes to: `toAddress` when it is one of the
+   * thread's, else the first of them — never one of the workspace's own
+   * numbers (a client record can carry one: an import, a test client).
+   * Texting our own number makes Twilio pick it as the sender too and refuse
+   * with 21266, so it is skipped here, and refused when picked explicitly.
+   */
+  private async recipient(conversation: Conversation, toAddress: string | undefined): Promise<string> {
     const phones = conversation.addresses?.phones ?? [];
+    const owned = await this.ownedNumbers();
     if (toAddress) {
       const normalised = tryNormalizePhone(toAddress);
+      if (normalised && owned.has(normalised)) {
+        throw new BadRequestException(`${normalised} is one of the company's own numbers — text another number of the client instead`);
+      }
       if (!normalised || !phones.includes(normalised)) {
         throw new BadRequestException('toAddress is not one of the conversation phone numbers');
       }
       return normalised;
     }
     if (!phones.length) throw new BadRequestException('The conversation has no phone number to text');
-    return phones[0];
+    const to = phones.find((p) => !owned.has(p));
+    if (!to) throw new BadRequestException("This client's only number is one of the company's own numbers");
+    return to;
+  }
+
+  /** The workspace's own numbers (telephony, cached); empty when unknown or not wired — then nothing is filtered. */
+  private async ownedNumbers(): Promise<Set<string>> {
+    if (!this.numbers) return new Set();
+    try {
+      return await this.numbers.ownedSet();
+    } catch (error) {
+      this.logger.warn(`owned numbers read failed: ${error instanceof Error ? error.message : error}`);
+      return new Set();
+    }
   }
 
   /**
@@ -1295,10 +1331,13 @@ export class SendService {
 
     const contact = await this.crm.getContact(contactId);
     if (!contact) throw new NotFoundException('Contact not found');
-    const phones = contact.phones.map(tryNormalizePhone).filter((p): p is string => !!p);
-    if (phone && !phones.includes(normalizePhone(phone))) {
+    const listed = contact.phones.map(tryNormalizePhone).filter((p): p is string => !!p);
+    if (phone && !listed.includes(normalizePhone(phone))) {
       throw new BadRequestException('phone is not one of the contact phone numbers');
     }
+    // A company number on the client record never becomes one of the thread's addresses.
+    const owned = await this.ownedNumbers();
+    const phones = listed.filter((p) => !owned.has(p));
     return this.createConversation({
       kind: 'client',
       partyKind: 'contact',
@@ -1311,6 +1350,8 @@ export class SendService {
   }
 
   private async conversationForPhone(phone: string): Promise<FoundConversation> {
+    const owned = await this.ownedNumbers();
+    if (owned.has(phone)) throw new BadRequestException(`${phone} is one of the company's own numbers`);
     const pointer = await this.conversations.getByAddress(phone);
     if (pointer) {
       const routed = await this.conversations.get(pointer.conversationId);
@@ -1322,7 +1363,9 @@ export class SendService {
       const existing = await this.conversations.getByParty(owner.kind, owner.id);
       if (existing) return { conversation: existing, created: false };
       const contact = owner.kind === 'contact' ? await this.crm.getContact(owner.id) : null;
-      const phones = new Set([phone, ...(contact?.phones ?? []).map(tryNormalizePhone).filter((p): p is string => !!p)]);
+      const phones = new Set(
+        [phone, ...(contact?.phones ?? []).map(tryNormalizePhone)].filter((p): p is string => !!p && !owned.has(p)),
+      );
       return this.createConversation({
         kind: 'client',
         partyKind: owner.kind,

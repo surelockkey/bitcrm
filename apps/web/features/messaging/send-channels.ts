@@ -29,6 +29,7 @@ export const SEND_CHANNEL_LABEL: Record<SendableMessageChannel, string> = {
  */
 const REASON_TEXT: Record<SendUnavailableReason, string> = {
   no_phone: "No phone number on this conversation — add one to the contact first.",
+  only_own_number: "The client's only number is one of the company's own numbers — add their real number to the contact.",
   phone_hidden: "Their number is hidden from you, so this has to go out from someone who can see it.",
   opted_out_sms: "They replied STOP — texts stay blocked until they text START.",
   employee_has_no_phone: "No personal phone on their profile — add one, or send it in app.",

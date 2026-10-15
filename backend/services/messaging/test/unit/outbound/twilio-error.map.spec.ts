@@ -57,6 +57,14 @@ describe('describeTwilioError', () => {
   });
 });
 
+describe('21266 — To and From are the same number', () => {
+  it('reads as the client number being one of ours, not a bare code', () => {
+    expect(TWILIO_ERROR_MESSAGES['21266']).toMatch(/company's own numbers/);
+    expect(describeTwilioError('21266')).toBe(TWILIO_ERROR_MESSAGES['21266']);
+    expect(classifyTwilioError({ status: 400, code: 21266 })).toMatchObject({ kind: 'fail', errorCode: '21266', optOut: false });
+  });
+});
+
 describe('mapTwilioStatus', () => {
   it('maps every callback and create-response status onto ours', () => {
     expect(mapTwilioStatus('queued')).toBe('queued');

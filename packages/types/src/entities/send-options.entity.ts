@@ -7,6 +7,8 @@ import { type SendableMessageChannel } from '../enums/message-channel.enum';
  * the 4xx the send would have answered with.
  *
  * - `no_phone`              the thread has no number to text
+ * - `only_own_number`       every number on the thread is one of the
+ *                           company's own (a text to it fails, Twilio 21266)
  * - `phone_hidden`          — reserved: a masked viewer still sends, they
  *                             just never see the digits (`toMasked`)
  * - `opted_out_sms`         the recipient replied STOP
@@ -21,6 +23,7 @@ import { type SendableMessageChannel } from '../enums/message-channel.enum';
  */
 export const SEND_UNAVAILABLE_REASONS = [
   'no_phone',
+  'only_own_number',
   'phone_hidden',
   'opted_out_sms',
   'employee_has_no_phone',

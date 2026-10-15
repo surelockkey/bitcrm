@@ -28,6 +28,8 @@ function makeHandler(opts: {
   addresses?: Record<string, ConversationAddressPointer | null>;
   contact?: { id: string; phones: string[]; emails: string[] } | null;
   claim?: boolean;
+  /** The workspace's own numbers (telephony); absent = no numbers client wired. */
+  owned?: string[];
 } = {}) {
   const conversations = {
     getPointer: jest.fn(async (_kind: string, id: string) => opts.pointers?.[id] ?? null),
@@ -46,7 +48,8 @@ function makeHandler(opts: {
     removePartyPointer: jest.fn(async () => true),
   };
   const crm = { getContact: jest.fn(async () => opts.contact ?? null) };
-  const handler = new ContactEventsHandler(conversations as any, pointers as any, crm as any);
+  const numbers = opts.owned ? { ownedSet: jest.fn(async () => new Set(opts.owned)) } : undefined;
+  const handler = new ContactEventsHandler(conversations as any, pointers as any, crm as any, undefined, undefined, numbers as any);
   return { handler, conversations, pointers, crm };
 }
 
@@ -295,5 +298,42 @@ describe('ContactEventsHandler.onContactMerged — the technician inbox scope (C
     const handler = new ContactEventsHandler({} as any, {} as any, {} as any, undefined, techScope as any);
     await handler.onContactMerged({ oldContactId: 'dup' });
     expect(techScope.onContactMerged).not.toHaveBeenCalled();
+  });
+});
+
+describe('ContactEventsHandler.syncAddresses — never one of our own numbers', () => {
+  const OWN = '+14098777774';
+  const P2 = '+12034567865';
+
+  it('leaves a company number out of the thread and drops its ADDR# pointer (the 21266 client)', async () => {
+    const conv = createMockConversation({ id: 'c1', partyId: 'ct1', addresses: { phones: [OWN, P2], emails: [] } });
+    const { handler, conversations } = makeHandler({
+      pointers: { ct1: pointer('ct1', 'c1') },
+      conversations: { c1: conv },
+      addresses: { [OWN]: addr(OWN, 'c1', 'ct1'), [P2]: addr(P2, 'c1', 'ct1') },
+      contact: { id: 'ct1', phones: [OWN, P2], emails: [] },
+      owned: [OWN],
+    });
+
+    await handler.syncAddresses({ contactId: 'ct1' });
+
+    expect(conversations.removeAddressPointer).toHaveBeenCalledWith(OWN);
+    expect(conversations.putAddressPointer).not.toHaveBeenCalledWith(expect.objectContaining({ address: OWN }));
+    expect(conversations.update).toHaveBeenCalledWith(conv, { addresses: { phones: [P2], emails: [] } }, expect.anything());
+  });
+
+  it('never adds a company number the contact gained', async () => {
+    const conv = createMockConversation({ id: 'c1', partyId: 'ct1', addresses: { phones: [P2], emails: [] } });
+    const { handler, conversations } = makeHandler({
+      pointers: { ct1: pointer('ct1', 'c1') },
+      conversations: { c1: conv },
+      contact: { id: 'ct1', phones: [P2, OWN], emails: [] },
+      owned: [OWN],
+    });
+
+    await handler.syncAddresses({ contactId: 'ct1' });
+
+    expect(conversations.putAddressPointer).not.toHaveBeenCalled();
+    expect(conversations.update).not.toHaveBeenCalled();
   });
 });
