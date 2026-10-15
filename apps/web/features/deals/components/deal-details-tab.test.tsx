@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   company: undefined as { id: string; title: string } | undefined,
   createCompany: vi.fn(async (body: { title: string }) => ({ id: "co-new", title: body.title })),
   fetchAllCompanies: vi.fn(async () => [{ id: "co-2", title: "Zelli" }]),
+  jobCode: { data: { code: "4729" }, isError: false } as Record<string, unknown>,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -141,7 +142,7 @@ vi.mock("../attachments-hooks", () => ({ useAttachmentUrls: () => [] }));
 vi.mock("@/features/messaging/hooks", () => ({ useMessagingSettings: () => ({ data: undefined }) }));
 vi.mock("@/features/telephony/config-hooks", () => ({
   useTelephonyConfig: () => ({ data: { technicianLine: "+14045550140" }, isLoading: false, isError: false }),
-  useJobCode: () => ({ data: { code: "4729" }, isError: false }),
+  useJobCode: () => mocks.jobCode,
 }));
 // Calling places a bridged call through telephony; its own tests cover it.
 vi.mock("@/features/telephony/components/call-client-button", () => ({
@@ -233,6 +234,7 @@ beforeEach(() => {
   mocks.perms.contacts = true;
   mocks.perms.messages = true;
   mocks.contact = baseContact;
+  mocks.jobCode = { data: { code: "4729" }, isError: false };
   mocks.users = new Map([["t1", { firstName: "Bo", lastName: "Diaz", phone: "+14045550001" }]]);
   mocks.customFields = [gateCode];
   mocks.company = undefined;
@@ -743,6 +745,63 @@ describe("DetailsTab — the client", () => {
 
     expect(within(section("Client")).getByText("Number hidden")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Call number 0" })).toHaveAttribute("data-variant", "workiz");
+  });
+});
+
+/**
+ * Workiz style: every client number on the job has a masked number of its
+ * own — the technician line and a code — drawn under that number's row.
+ */
+describe("DetailsTab — a masked number per client number", () => {
+  const TWO_CODES = {
+    data: {
+      code: "4729",
+      phones: [
+        { phoneIndex: 0, code: "4729" },
+        { phoneIndex: 1, code: "6100" },
+      ],
+    },
+    isError: false,
+  };
+
+  it("draws a masked number under each of the client's numbers", () => {
+    mocks.contact = { ...baseContact, phones: ["+14045551234", "+14045555678"] };
+    mocks.jobCode = TWO_CODES;
+    renderTab();
+
+    const lines = screen.getAllByTestId("job-dial-in").map((el) => el.textContent);
+    expect(lines).toEqual(["(404) 555-0140 #4729", "(404) 555-0140 #6100"]);
+  });
+
+  it("gives a masked viewer's hidden numbers one each, with the extension", () => {
+    mocks.contact = {
+      ...baseContact,
+      phones: [],
+      phonesMasked: true,
+      phoneCount: 2,
+      phoneExtensionsByIndex: ["", "102"],
+    };
+    mocks.jobCode = TWO_CODES;
+    renderTab();
+
+    const lines = screen.getAllByTestId("job-dial-in").map((el) => el.textContent);
+    expect(lines).toEqual(["(404) 555-0140 #4729", "(404) 555-0140 #6100"]);
+    expect(within(section("Client")).getByText(/ext 102/)).toBeInTheDocument();
+  });
+
+  /**
+   * The technician's view of the job used to show nothing at all here when
+   * their read of the client failed — the whole client block waited on it.
+   * The masked numbers come from the job, so they still show, and still call.
+   */
+  it("still shows the masked numbers when the client could not be loaded", () => {
+    mocks.contact = undefined as unknown as Contact;
+    mocks.jobCode = TWO_CODES;
+    renderTab();
+
+    expect(screen.getAllByTestId("job-dial-in")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Call number 0" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Call number 1" })).toBeInTheDocument();
   });
 });
 

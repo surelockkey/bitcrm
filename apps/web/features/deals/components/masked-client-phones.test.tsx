@@ -7,6 +7,10 @@ vi.mock("@/features/telephony/components/call-client-button", () => ({
     <button type="button" aria-label={`Call number ${phoneIndex}`} data-variant={variant} />
   ),
 }));
+// The masked number has its own tests; here it only says which number it is for.
+vi.mock("@/features/telephony/components/job-dial-card", () => ({
+  JobDialCard: ({ phoneIndex }: { phoneIndex?: number }) => <div data-testid={`dial-in-${phoneIndex ?? 0}`} />,
+}));
 
 /**
  * The regression this exists for: the call button used to live INSIDE a loop
@@ -71,6 +75,30 @@ describe("MaskedClientPhones", () => {
       <MaskedClientPhones phoneCount={0} dealId="deal-1" contactId="contact-1" />,
     );
     expect(container).toBeEmptyDOMElement();
+  });
+
+  /** Workiz style: each hidden number has its own masked number under it. */
+  it("draws a masked number under every hidden number", () => {
+    render(<MaskedClientPhones phoneCount={2} dealId="deal-1" contactId="contact-1" />);
+
+    expect(screen.getByTestId("dial-in-0")).toBeInTheDocument();
+    expect(screen.getByTestId("dial-in-1")).toBeInTheDocument();
+  });
+
+  /** The extension is not a secret — the number is — so the row says what will be pressed. */
+  it("shows each number's extension, by position", () => {
+    render(
+      <MaskedClientPhones
+        phoneCount={2}
+        extensions={["", "102"]}
+        dealId="deal-1"
+        contactId="contact-1"
+      />,
+    );
+
+    const rows = document.querySelectorAll("[data-slot='masked-phone']");
+    expect(rows[0]).not.toHaveTextContent(/ext/);
+    expect(rows[1]).toHaveTextContent("Number 2 of 2, hidden · ext 102");
   });
 
   it("never renders a phone number", () => {

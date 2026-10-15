@@ -1,10 +1,18 @@
 "use client";
 
 import { Phone } from "lucide-react";
-import { getApiErrorMessage } from "@/lib/api/errors";
+import { ApiError, getApiErrorMessage } from "@/lib/api/errors";
 import { formatPhone } from "@/lib/phone";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { jobCodeFor } from "../api";
 import { useJobCode, useTelephonyConfig } from "../config-hooks";
+
+/**
+ * What a technician off the job's roster is told (the server answers 403):
+ * the rule is deliberate, so say what it is and who can change it.
+ */
+const NOT_ON_JOB =
+  "Only the technicians assigned to this job can call its client — ask the office to add you to the job.";
 
 /** Spoken and read in pairs — "47 29 13" is far easier to key than "472913". */
 function groupCode(code: string): string {
@@ -33,6 +41,7 @@ function groupCode(code: string): string {
 export function JobDialCard({
   dealId,
   variant = "card",
+  phoneIndex = 0,
 }: {
   dealId: string;
   /**
@@ -41,6 +50,11 @@ export function JobDialCard({
    * (job_b_01_details: "Masked number" over "(203) 769-9944 #6872").
    */
   variant?: "card" | "workiz";
+  /**
+   * Which of the client's numbers this masked number rings — the call
+   * buttons' `phoneIndex`. Every number has its own code (Workiz).
+   */
+  phoneIndex?: number;
 }) {
   // Read straight from workspace settings rather than taking a prop: "nobody
   // designated a line" and "we could not ask" look identical once flattened
@@ -52,7 +66,11 @@ export function JobDialCard({
     isLoading: configLoading,
   } = useTelephonyConfig();
   const technicianLine = config?.technicianLine;
-  const { data: ext, isError, error: codeError } = useJobCode(dealId);
+  const { data: codes, isError, error: codeError } = useJobCode(dealId);
+  const code = jobCodeFor(codes, phoneIndex);
+  // Refused, not failed: a technician who is not on the job's roster. No
+  // reload fixes that, so it must not read like an error that one would.
+  const notOnJob = isError && codeError instanceof ApiError && codeError.isForbidden;
   // Only somebody who can actually designate a line is worth sending to the
   // settings page; for everybody else that is a dead end.
   const { can } = usePermissions();
@@ -69,7 +87,9 @@ export function JobDialCard({
         ? canConfigure
           ? "Dial-in is not set up yet. Designate one of the workspace numbers as the technician line under Settings → Phone numbers."
           : "Dial-in is not set up yet — ask the office to designate a technician line."
-        : undefined;
+        : notOnJob
+          ? NOT_ON_JOB
+          : undefined;
     return (
       // details-module__masking: a padded column, the caption 10px/1em 5px
       // over the line; the line bold, the code after a "#".
@@ -84,12 +104,16 @@ export function JobDialCard({
             title="Dial the number, then key the job code. You will be asked to confirm the client's name."
           >
             <b className="font-bold">{formatPhone(technicianLine!)}</b>{" "}
-            {ext ? (
-              `#${ext.code}`
+            {code ? (
+              `#${code}`
             ) : isError ? (
               <span className="text-[12px] text-wz-error">
                 Code could not be issued: {getApiErrorMessage(codeError)} — reload the job
               </span>
+            ) : codes ? (
+              // A number added since the codes were read: never borrow
+              // another number's code — it would ring the wrong phone.
+              <span className="text-[12px] text-wz-caption">no code yet — reload the job</span>
             ) : (
               "#…"
             )}
@@ -141,8 +165,10 @@ export function JobDialCard({
         <div className="flex items-baseline gap-2">
           <dt className="w-16 shrink-0 text-xs text-muted-foreground">Job code</dt>
           <dd className="font-mono text-base tracking-wider">
-            {ext ? (
-              groupCode(ext.code)
+            {code ? (
+              groupCode(code)
+            ) : notOnJob ? (
+              <span className="font-sans text-xs text-muted-foreground">{NOT_ON_JOB}</span>
             ) : isError ? (
               <span className="font-sans text-xs text-destructive">
                 Code could not be issued — reload the job
