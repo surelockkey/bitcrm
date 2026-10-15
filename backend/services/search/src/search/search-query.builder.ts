@@ -1,6 +1,6 @@
 import { SearchMode, SearchType, SEARCH_TYPES } from '@bitcrm/types';
 import { FIELD_BOOSTS } from '../common/constants/opensearch.constants';
-import { phoneQueryDigits } from '../common/utils/search-normalize.util';
+import { phoneQueryDigits, phoneQueryTerms } from '../common/utils/search-normalize.util';
 import { QueryClause } from './authz/search-authz.builder';
 
 export interface BuildSearchParams {
@@ -47,15 +47,46 @@ const FIELDS = [
   `body^${FIELD_BOOSTS.body}`,
 ];
 
+/** Fewest digits that make a whole phone number (a local 7-digit one); fewer is a fragment. */
+const MIN_PHONE_NUMBER_DIGITS = 7;
+/** Constant scores of the phone clauses — far above any text score, so a number's owner ranks first. */
+const PHONE_EXACT_BOOST = 100;
+const PHONE_PREFIX_BOOST = 20;
+const PHONE_FRAGMENT_BOOST = 5;
+
 /**
- * The match clause for the query text. A phone-like query ("(728) 347-8370")
- * additionally tries its collapsed digit string, because phones are indexed as
- * digit variants — the formatted text and the digits compete as alternatives.
- * The digit alternative is exact (no fuzziness): one wrong digit is a
- * different number, not a typo.
+ * A phone-like query ("(728) 347-8370", "+1 728 347 8370", "8370") is looked
+ * up by its collapsed digits — never fuzzily: one wrong digit is a different
+ * number, and the old fuzzy clause let a 10-digit number match records two
+ * digits off and every edge-ngram fragment, so a client's own (second)
+ * number could fall out of the top 5 behind unrelated records.
+ *
+ * - a whole number (7+ digits) matches the exact `phoneDigits` variants
+ *   (with and without a leading +1) and ranks first;
+ * - a prefix of a variant — a number still being typed, or any 4+ digit run
+ *   inside a number, since the variants hold every suffix — ranks next;
+ * - the digits also match the text fields exactly (no fuzziness), which keeps
+ *   job numbers, zips and PO numbers findable.
  */
-function buildMatchClause(q: string): Record<string, any> {
-  const textMatch = {
+function buildPhoneMatchClause(digits: string): Record<string, any> {
+  const should: Record<string, any>[] = [];
+  if (digits.length >= MIN_PHONE_NUMBER_DIGITS) {
+    should.push(
+      { constant_score: { filter: { terms: { phoneDigits: phoneQueryTerms(digits) } }, boost: PHONE_EXACT_BOOST } },
+      { constant_score: { filter: { prefix: { phoneDigits: digits } }, boost: PHONE_PREFIX_BOOST } },
+    );
+  } else {
+    should.push({
+      constant_score: { filter: { prefix: { phoneDigits: digits } }, boost: PHONE_FRAGMENT_BOOST },
+    });
+  }
+  should.push({ multi_match: { query: digits, fields: FIELDS, operator: 'and' } });
+  return { bool: { should, minimum_should_match: 1 } };
+}
+
+/** The match clause for ordinary text: fuzzy, every word required. */
+function buildTextMatchClause(q: string): Record<string, any> {
+  return {
     multi_match: {
       query: q,
       fields: FIELDS,
@@ -63,25 +94,12 @@ function buildMatchClause(q: string): Record<string, any> {
       operator: 'and',
     },
   };
-
-  const digits = phoneQueryDigits(q);
-  if (!digits || digits === q) return textMatch;
-
-  return {
-    bool: {
-      should: [
-        textMatch,
-        { multi_match: { query: digits, fields: FIELDS, operator: 'and' } },
-      ],
-      minimum_should_match: 1,
-    },
-  };
 }
 
 /**
  * The same words without fuzziness, as a scoring bonus: an exact (or prefix)
  * hit — "cbre" in "CBRE Facilities Management" — must outrank a typo-distance
- * one ("Corey Barrettt").
+ * one ("Corey Barrettt"). For a phone query the words are its digits.
  */
 function exactBonus(q: string): Record<string, any> {
   return { multi_match: { query: q, fields: FIELDS, operator: 'and', boost: EXACT_BOOST } };
@@ -103,6 +121,7 @@ const RECENCY_FUNCTIONS = [
  * Builds the OpenSearch request body. The text match runs against edge-ngram
  * indexed fields (so it matches prefixes for typeahead), an exact match
  * scores above a fuzzy one, and recency nudges equally relevant matches.
+ * A phone-like query takes the exact phone path instead (no fuzziness).
  * Authorization + status hygiene live in the bool filter / must_not.
  */
 export function buildSearchBody(params: BuildSearchParams): Record<string, any> {
@@ -116,12 +135,13 @@ export function buildSearchBody(params: BuildSearchParams): Record<string, any> 
     mustNot.push({ terms: { type: [...LEFT_OUT_BY_DEFAULT] } });
   }
 
+  const phoneDigits = phoneQueryDigits(q);
   const scoredQuery = {
     function_score: {
       query: {
         bool: {
-          must: [buildMatchClause(q)],
-          should: [exactBonus(q)],
+          must: [phoneDigits ? buildPhoneMatchClause(phoneDigits) : buildTextMatchClause(q)],
+          should: [exactBonus(phoneDigits ?? q)],
           filter,
           must_not: mustNot,
         },

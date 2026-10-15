@@ -120,11 +120,17 @@ export class ContactsRepository {
     }
   }
 
-  async findById(id: string): Promise<Contact | null> {
+  /**
+   * `consistent` asks for a strongly consistent read — for a caller that must
+   * see a write it was just told about (the search indexer acting on
+   * `contact.updated`); everything else keeps the cheaper default read.
+   */
+  async findById(id: string, opts: { consistent?: boolean } = {}): Promise<Contact | null> {
     const result = await this.dynamoDb.client.send(
       new GetCommand({
         TableName: this.tableName,
         Key: { PK: `CONTACT#${id}`, SK: 'METADATA' },
+        ...(opts.consistent ? { ConsistentRead: true } : {}),
       }),
     );
 

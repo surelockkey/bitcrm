@@ -32,7 +32,13 @@ describe('index definition', () => {
     });
   });
 
-  it('is versioned past v3 because the mapping grew (productList)', () => {
-    expect(SEARCH_INDEX_NAME).toBe('bitcrm-search-v4');
+  // Phone numbers are matched as whole digit strings — never edge-ngram
+  // fragments, never fuzzily — so a number finds exactly the records that carry it.
+  it('maps the phone digit variants as an exact, unanalysed field (v5)', () => {
+    expect(props.phoneDigits).toEqual({ type: 'keyword' });
+  });
+
+  it('is versioned past v4 because the mapping grew (phoneDigits)', () => {
+    expect(SEARCH_INDEX_NAME).toBe('bitcrm-search-v5');
   });
 });

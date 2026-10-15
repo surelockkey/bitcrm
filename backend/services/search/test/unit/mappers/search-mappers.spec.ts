@@ -187,6 +187,20 @@ describe('search-mappers', () => {
       expect(doc.keywords).toEqual(expect.arrayContaining(['2035550123', '4045550100']));
     });
 
+    it('indexes the job\'s own number and every client number as exact phone terms', () => {
+      const doc = mapDeal(
+        { ...deal, clientPhone: '+12035550123', customFields: { 'cf-alt-phone': '(728) 347-8370' } } as Deal,
+        'Install',
+        [],
+        [{ id: 'cf-alt-phone', searchable: true }],
+        { name: 'Jane Smith', phones: ['+14045550100', '(860) 555-0199'], emails: [] },
+      );
+      expect(doc.phoneDigits).toEqual(
+        expect.arrayContaining(['2035550123', '4045550100', '8605550199', '18605550199', '7283478370']),
+      );
+      expect(doc.phoneDigits!.every((v) => /^\d+$/.test(v))).toBe(true);
+    });
+
     it('stamps contactId and companyId so client edits can reindex their deals', () => {
       const doc = mapDeal(deal);
       expect(doc.contactId).toBe('c1');
@@ -240,6 +254,38 @@ describe('search-mappers', () => {
       expect(doc.keywords).toContain('(212) 555-0100');
       expect(doc.keywords).toContain('2125550100');
       expect(doc.keywords).toContain('12125550100');
+    });
+
+    // The bug: a client's SECOND number did not find them. Every number goes
+    // into the exact phone field, as whole digit strings (never edge-ngrams).
+    it('indexes the digit variants of every number — the second one too — as exact phone terms', () => {
+      const doc = mapContact({ ...contact, phones: ['(212) 555-0100', '+1 (404) 555-0177', '860.555.0123'] } as Contact);
+      expect(doc.phoneDigits).toEqual(
+        expect.arrayContaining([
+          '2125550100',
+          '12125550100',
+          '4045550177',
+          '14045550177',
+          '5550177',
+          '0177',
+          '8605550123',
+          '18605550123',
+        ]),
+      );
+      // Only digit strings, no formatted text and no duplicates.
+      expect(doc.phoneDigits!.every((v) => /^\d+$/.test(v))).toBe(true);
+      expect(new Set(doc.phoneDigits).size).toBe(doc.phoneDigits!.length);
+    });
+
+    it('indexes a phone stored in a searchable client custom field as an exact phone term', () => {
+      const doc = mapContact({ ...contact, customFields: { 'cf-alt': '(728) 347-8370' } } as Contact, [
+        { id: 'cf-alt', searchable: true },
+      ]);
+      expect(doc.phoneDigits).toEqual(expect.arrayContaining(['7283478370', '2125550100']));
+    });
+
+    it('leaves the phone field empty for a client with no number', () => {
+      expect(mapContact({ ...contact, phones: [] } as Contact).phoneDigits).toEqual([]);
     });
 
     it('indexes phone suffixes so a pasted tail like "5550100" matches', () => {
@@ -313,6 +359,7 @@ describe('search-mappers', () => {
       expect(doc.keywords).toEqual(
         expect.arrayContaining(['212-555-0199', '2125550199', '12125550199']),
       );
+      expect(doc.phoneDigits).toEqual(expect.arrayContaining(['2125550199', '12125550199']));
     });
   });
 
@@ -371,6 +418,7 @@ describe('search-mappers', () => {
       expect(doc.ownerIds).toEqual(['u1']);
       expect(doc.department).toBe('field');
       expect(doc.keywords).toEqual(expect.arrayContaining(['HVAC', 'Plumbing', 'Queens']));
+      expect(doc.phoneDigits).toEqual(expect.arrayContaining(['2125550000', '12125550000']));
       expect(doc.title).toBe('Bob Lee');
     });
   });
@@ -427,6 +475,14 @@ describe('search-mappers', () => {
       expect(doc.title).toBe('John Smith');
       expect(doc.subtitle).toBe('On my way, be there in 10');
       expect(doc.keywords).toContain('John Smith');
+    });
+
+    it('indexes the thread and party numbers as exact phone terms', () => {
+      const doc = mapConversation(conversation, { partyPhones: ['(212) 555-0100'] });
+      expect(doc.phoneDigits).toEqual(
+        expect.arrayContaining(['17283478370', '7283478370', '2125550100', '12125550100']),
+      );
+      expect(doc.phoneDigits!.every((v) => /^\d+$/.test(v))).toBe(true);
     });
 
     it('indexes the thread addresses and the party addresses with digit variants, like a contact', () => {

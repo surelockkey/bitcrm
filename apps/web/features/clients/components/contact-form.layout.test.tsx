@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import type { Contact } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
@@ -97,5 +98,67 @@ describe("ContactForm layouts", () => {
     renderWithClient(<ContactForm contact={CONTACT} />);
     expect(await screen.findByText("Addresses")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /Remove address/ })).toHaveLength(3);
+  });
+});
+
+describe("ContactForm — Edit client info keeps every number", () => {
+  const THREE = {
+    ...CONTACT,
+    phones: ["+14047836342", "+16787836342", "+12127836342"],
+    phoneExtensions: { "+12127836342": "12" },
+    emails: ["ops@cbre.com"],
+  } as unknown as Contact;
+
+  function captureSave() {
+    const sent: Array<Record<string, unknown>> = [];
+    server.use(
+      http.get("*/crm/companies", () => HttpResponse.json({ success: true, data: [], pagination: {} })),
+      http.put("*/crm/contacts/c1", async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        sent.push(body);
+        return HttpResponse.json({ success: true, data: { ...THREE, ...body } });
+      }),
+    );
+    return sent;
+  }
+
+  it("shows a third number (and its extension) instead of hiding it", async () => {
+    captureSave();
+    renderWithClient(<ContactForm contact={THREE} layout="dialog" />);
+    expect(await screen.findByText("Client details")).toBeInTheDocument();
+    expect(screen.getByText("Phone 3", { selector: "label" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Phone 3")).toHaveValue("(212) 783-6342");
+    expect(screen.getAllByText("ext.")).toHaveLength(3);
+  });
+
+  it("saving untouched sends every number back", async () => {
+    const sent = captureSave();
+    renderWithClient(<ContactForm contact={THREE} layout="dialog" />);
+    await userEvent.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].phones).toEqual(["+14047836342", "+16787836342", "+12127836342"]);
+    expect(sent[0].phoneExtensions).toEqual({ "+12127836342": "12" });
+  });
+
+  // The bug: emptying the secondary number did `phones.slice(0, 1)`, which
+  // silently dropped the third (and every later) number on save.
+  it("emptying the secondary number removes only that number", async () => {
+    const sent = captureSave();
+    renderWithClient(<ContactForm contact={THREE} layout="dialog" />);
+    await userEvent.clear(await screen.findByLabelText("Secondary phone"));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].phones).toEqual(["+14047836342", "+12127836342"]);
+    expect(sent[0].phoneExtensions).toEqual({ "+12127836342": "12" });
+  });
+
+  it("emptying the third number removes it and keeps the secondary", async () => {
+    const sent = captureSave();
+    renderWithClient(<ContactForm contact={THREE} layout="dialog" />);
+    await userEvent.clear(await screen.findByLabelText("Phone 3"));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].phones).toEqual(["+14047836342", "+16787836342"]);
+    expect(sent[0].phoneExtensions).toEqual({});
   });
 });

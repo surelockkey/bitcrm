@@ -288,7 +288,20 @@ export class ContactsService {
     return contact;
   }
 
-  async findById(id: string): Promise<Contact> {
+  /**
+   * Read-through the per-contact cache. `fresh` skips the cache and reads the
+   * table strongly consistent (and leaves the cache alone) — the search
+   * indexer's read after `contact.updated`: a cached or eventually consistent
+   * copy could predate the edit (a just-added second number) and index the
+   * client without it.
+   */
+  async findById(id: string, opts: { fresh?: boolean } = {}): Promise<Contact> {
+    if (opts.fresh) {
+      const contact = await this.repository.findById(id, { consistent: true });
+      if (!contact) throw new NotFoundException('Contact not found');
+      return contact;
+    }
+
     const cached = await this.cache.get(id);
     if (cached) {
       this.businessMetrics?.cacheHits.inc({ entity_type: 'contact' });
@@ -409,6 +422,8 @@ export class ContactsService {
     }
 
     const updated = await this.repository.update(id, updateData);
+    // Invalidate BEFORE publishing: consumers of `contact.updated` re-read the
+    // contact and must never be answered the pre-edit copy.
     await this.cache.invalidate(id);
     this.businessMetrics?.entityUpdated.inc({ entity_type: 'contact' });
     this.publishEvent('contact.updated', { contactId: id });

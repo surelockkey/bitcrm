@@ -30,6 +30,18 @@ describe('EntityFetcher', () => {
     expect(init?.headers).toHaveProperty('x-internal-secret');
   });
 
+  // Reindexing on `contact.updated` must see the edit (a just-added second
+  // number): crm's fresh read skips its 5-minute cache and reads consistently.
+  it('reads a contact fresh from crm — past its cache, strongly consistent', async () => {
+    const fetchImpl = mockFetch({
+      '/api/crm/contacts/internal/c1': { body: { success: true, data: { id: 'c1' } } },
+    });
+    global.fetch = fetchImpl as any;
+
+    expect(await new EntityFetcher().fetch('contact', 'c1')).toEqual({ id: 'c1' });
+    expect(String(fetchImpl.mock.calls[0][0])).toMatch(/\/api\/crm\/contacts\/internal\/c1\?fresh=true$/);
+  });
+
   it('answers null for a conversation that no longer exists', async () => {
     global.fetch = mockFetch({}) as any;
     expect(await new EntityFetcher().fetch('conversation', 'gone')).toBeNull();

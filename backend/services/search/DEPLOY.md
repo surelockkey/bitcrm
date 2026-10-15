@@ -9,14 +9,17 @@ and let the indexer or the backfill catch up (`CLAUDE.md` §6, §10).
 ## Index version
 
 `SEARCH_INDEX_NAME` (`src/common/constants/opensearch.constants.ts`) names the
-concrete index; changing the mapping means a new version. Current: **v3**,
-which added the `conversation` document fields (`conversationKind`,
-`conversationState`, `partyKind`, `partyId`, `assignedUserId`, `flagged`,
-`lastMessageAt`, `dealIds`). Migrating a running environment:
+concrete index; changing the mapping means a new version. Current: **v5**,
+which added `phoneDigits` — every phone's digit variants (raw, 10-digit,
+1-prefixed, every 4+ digit suffix) as an exact `keyword` field. A phone-like
+query (`7283478370`, `(728) 347-8370`, `+1 728…`, `8370`) is matched there
+with `terms` (a whole number, ranked first) and `prefix` (a number being
+typed / a fragment), never fuzzily. (v4 added `productList`, v3 the `conversation` fields.) Migrating a running
+environment:
 
 ```bash
 cd backend
-npm run create-index -w backend/services/search   # creates bitcrm-search-v3 and moves the alias to it
+npm run create-index -w backend/services/search   # creates bitcrm-search-v5 and moves the alias to it
 npm run backfill      -w backend/services/search   # fills it — the alias points at an empty index until this finishes
 ```
 

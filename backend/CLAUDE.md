@@ -447,7 +447,7 @@ on every deploy, 31 times in one week). Run it by hand — `npm run backfill` or
 `POST /api/search/internal/reindex` — after every Workiz import, after a mapping
 change, and on a new environment. Its deal pages walk StageIndex `STATUS#`
 partitions and its product pages Query GSI4 `PRODUCTS#ALL`, so both depend on
-those keys being present (`backfill:product-catalog-index` for products). Index name is versioned (`bitcrm-search-v3`)
+those keys being present (`backfill:product-catalog-index` for products). Index name is versioned (`bitcrm-search-v5`; v5 added the exact `phoneDigits` field phone queries match)
 behind the alias `bitcrm-search`; changing the mapping means a new version plus
 `npm run create-index` and a reindex. The `conversation` document (messaging
 inbox threads, `message-events`) is assembled from three internal reads —
@@ -816,7 +816,7 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   `GET /products[/count]` (no category) to search's `POST
   /search/internal/products/query` and loads the rows by id (re-checked against the
   filters); unfiltered/category browsing stays on DynamoDB. It needs index
-  `bitcrm-search-v4` (`productList` fields) populated: `npm run create-index` then
+  `bitcrm-search-v4`+ (`productList` fields) populated: `npm run create-index` then
   `npm run backfill` in search — the product walk stamps the `meta#product-list`
   readiness doc; until then, or on any search error/timeout (1 s), inventory reads
   DynamoDB. Stock writes publish `product.updated {fields:['onHand']}` so stock-level

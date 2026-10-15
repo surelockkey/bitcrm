@@ -340,10 +340,13 @@ export function ContactForm({
     const setPhone = (i: number, v: string) => {
       const list = [...form.getValues("phones")];
       const exts = [...form.getValues("phoneExts")];
-      if (i === 1 && !v.trim()) {
-        // An emptied secondary number is no number, not an invalid one.
-        form.setValue("phones", list.slice(0, 1), { shouldValidate: true });
-        form.setValue("phoneExts", exts.slice(0, 1));
+      if (i >= 1 && !v.trim()) {
+        // An emptied secondary (or later) number is no number, not an invalid
+        // one — remove just that row; the numbers after it move up and stay.
+        list.splice(i, 1);
+        exts.splice(i, 1);
+        form.setValue("phones", list, { shouldValidate: true });
+        form.setValue("phoneExts", exts);
         return;
       }
       list[i] = v;
@@ -418,6 +421,22 @@ export function ContactForm({
                 <Input id="ec-ext-1" className="h-11" {...form.register("phoneExts.1")} />
               </Outlined>
             </div>
+            {/* Workiz's popup has two number slots; a client with more (an
+                import, the full form) keeps every one — shown, editable, and
+                sent back on Save rather than silently dropped. */}
+            {(watchedPhones ?? []).slice(2).map((_, k) => {
+              const i = k + 2;
+              return (
+                <div key={i} className="grid grid-cols-[1fr_7rem] gap-4">
+                  <Outlined label={`Phone ${i + 1}`} htmlFor={`ec-phone-${i}`} error={phoneErr?.[i]?.message}>
+                    <PhoneInput id={`ec-phone-${i}`} className="h-11" value={phoneAt(i)} onChange={(v) => setPhone(i, v)} />
+                  </Outlined>
+                  <Outlined label="ext." htmlFor={`ec-ext-${i}`}>
+                    <Input id={`ec-ext-${i}`} className="h-11" {...form.register(`phoneExts.${i}`)} />
+                  </Outlined>
+                </div>
+              );
+            })}
             <Outlined label="Email" htmlFor="ec-email" error={form.formState.errors.emails?.[0]?.message}>
               <Input id="ec-email" className="h-11" type="email" {...form.register("emails.0")} />
             </Outlined>
