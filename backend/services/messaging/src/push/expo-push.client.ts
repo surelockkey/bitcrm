@@ -66,7 +66,6 @@ export class ExpoPushClient {
         headers: {
           'content-type': 'application/json',
           accept: 'application/json',
-          'accept-encoding': 'gzip, deflate',
           ...(this.config.expoAccessToken ? { authorization: `Bearer ${this.config.expoAccessToken}` } : {}),
         },
         body: JSON.stringify(batch),

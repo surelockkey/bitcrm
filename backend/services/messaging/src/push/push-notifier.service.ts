@@ -331,7 +331,8 @@ export class PushNotifier {
         if (isDeviceNotRegistered(tickets[i])) await this.forget(userId, token);
       }
     }
-    this.logger.log(`Push ${label} "${content.title}": ${JSON.stringify(outcomes)}`);
+    // The type, never the title: a message push is titled with the client's name.
+    this.logger.log(`Push ${label} (${content.data.type}): ${JSON.stringify(outcomes)}`);
     return { recipients: outcomes };
   }
 
