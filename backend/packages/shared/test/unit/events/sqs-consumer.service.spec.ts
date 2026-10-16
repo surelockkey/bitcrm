@@ -56,7 +56,7 @@ describe('SqsConsumerService', () => {
 
     await service.pollOnce();
 
-    expect(mockHandler).toHaveBeenCalledWith({ userId: 'user-1' });
+    expect(mockHandler).toHaveBeenCalledWith({ userId: 'user-1' }, expect.objectContaining({ eventId: 'msg-1' }));
     const { DeleteMessageCommand } = jest.requireMock('@aws-sdk/client-sqs');
     expect(DeleteMessageCommand).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -142,6 +142,90 @@ describe('SqsConsumerService', () => {
 
     await service.pollOnce();
 
-    expect(mockHandler).toHaveBeenCalledWith({ userId: 'user-2' });
+    expect(mockHandler).toHaveBeenCalledWith({ userId: 'user-2' }, expect.objectContaining({ eventType: 'user.activated' }));
+  });
+
+  /**
+   * A consumer that must act once per event (a push notification, a text)
+   * needs an id that survives SQS redelivery. The payloads carry none, so
+   * the consumer hands over the delivery's own: the SNS MessageId when the
+   * body is an SNS envelope, else the SQS MessageId (raw delivery, which is
+   * what Terraform configures) — both are the same on every redelivery.
+   */
+  describe('delivery meta', () => {
+    it('hands the handler the SQS MessageId, event type, timestamp and source with a raw-delivery body', async () => {
+      service.registerHandler('deal.tech_assigned', mockHandler);
+      mockSend.mockResolvedValueOnce({
+        Messages: [
+          {
+            MessageId: 'sqs-msg-1',
+            ReceiptHandle: 'receipt-m1',
+            Body: JSON.stringify({
+              eventType: 'deal.tech_assigned',
+              timestamp: '2026-10-16T10:00:00.000Z',
+              source: 'deal-service',
+              payload: { dealId: 'd1', techId: 't1' },
+            }),
+          },
+        ],
+      });
+      mockSend.mockResolvedValueOnce({});
+
+      await service.pollOnce();
+
+      expect(mockHandler).toHaveBeenCalledWith(
+        { dealId: 'd1', techId: 't1' },
+        { eventId: 'sqs-msg-1', eventType: 'deal.tech_assigned', timestamp: '2026-10-16T10:00:00.000Z', source: 'deal-service' },
+      );
+    });
+
+    it('prefers the SNS MessageId of an SNS envelope (one publish delivered twice is still one event)', async () => {
+      service.registerHandler('deal.tech_assigned', mockHandler);
+      mockSend.mockResolvedValueOnce({
+        Messages: [
+          {
+            MessageId: 'sqs-msg-2',
+            ReceiptHandle: 'receipt-m2',
+            Body: JSON.stringify({
+              Type: 'Notification',
+              MessageId: 'sns-msg-2',
+              Message: JSON.stringify({
+                eventType: 'deal.tech_assigned',
+                timestamp: '2026-10-16T10:00:00.000Z',
+                source: 'deal-service',
+                payload: { dealId: 'd1', techId: 't1' },
+              }),
+            }),
+          },
+        ],
+      });
+      mockSend.mockResolvedValueOnce({});
+
+      await service.pollOnce();
+
+      expect(mockHandler).toHaveBeenCalledWith(
+        { dealId: 'd1', techId: 't1' },
+        expect.objectContaining({ eventId: 'sns-msg-2', eventType: 'deal.tech_assigned' }),
+      );
+    });
+
+    it('still accepts a one-argument handler (every consumer written before the meta existed)', async () => {
+      const legacy = jest.fn(async (_payload: unknown) => undefined);
+      service.registerHandler('user.activated', legacy);
+      mockSend.mockResolvedValueOnce({
+        Messages: [
+          {
+            MessageId: 'sqs-msg-3',
+            ReceiptHandle: 'receipt-m3',
+            Body: JSON.stringify({ eventType: 'user.activated', timestamp: 't', source: 's', payload: { userId: 'u1' } }),
+          },
+        ],
+      });
+      mockSend.mockResolvedValueOnce({});
+
+      await service.pollOnce();
+
+      expect(legacy.mock.calls[0][0]).toEqual({ userId: 'u1' });
+    });
   });
 });

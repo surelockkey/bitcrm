@@ -5,7 +5,7 @@ import {
   DeleteMessageCommand,
   Message,
 } from '@aws-sdk/client-sqs';
-import { ConsumerOptions, EventMessage } from './events.interfaces';
+import { ConsumerOptions, EventDeliveryMeta, EventMessage, EventPayloadHandler } from './events.interfaces';
 import { storage } from '../logger/trace-storage';
 import { TRACE_ID_ATTRIBUTE } from '../logger/logger.constants';
 
@@ -16,7 +16,7 @@ export class SqsConsumerService {
   private readonly queueUrl: string;
   private readonly waitTimeSeconds: number;
   private readonly maxMessages: number;
-  private readonly handlers = new Map<string, (payload: unknown) => Promise<void>>();
+  private readonly handlers = new Map<string, EventPayloadHandler>();
   private running = false;
   private pollTimeout: ReturnType<typeof setTimeout> | null = null;
   private consecutiveErrors = 0;
@@ -38,15 +38,16 @@ export class SqsConsumerService {
     this.maxMessages = options.maxMessages ?? 10;
   }
 
+  /** `handler(payload, meta)` — `meta.eventId` is stable across redeliveries (see `EventDeliveryMeta`). */
   registerHandler(
     eventType: string,
-    handler: (payload: unknown) => Promise<void>,
+    handler: EventPayloadHandler,
   ): void {
     this.handlers.set(eventType, handler);
     this.logger.log(`Registered handler for "${eventType}"`);
   }
 
-  getHandlers(): Map<string, (payload: unknown) => Promise<void>> {
+  getHandlers(): Map<string, EventPayloadHandler> {
     return this.handlers;
   }
 
@@ -125,12 +126,13 @@ export class SqsConsumerService {
     // Run the handler within the trace context so all logs get the traceId
     await storage.run(traceId, async () => {
       try {
-        const eventMessage = this.parseMessage(message.Body!);
-        if (!eventMessage) {
+        const parsed = this.parseMessage(message.Body!);
+        if (!parsed) {
           await this.deleteMessage(message.ReceiptHandle!);
           return;
         }
 
+        const { event: eventMessage, snsMessageId } = parsed;
         const handler = this.handlers.get(eventMessage.eventType);
         if (!handler) {
           this.logger.warn(
@@ -140,7 +142,13 @@ export class SqsConsumerService {
           return;
         }
 
-        await handler(eventMessage.payload);
+        const meta: EventDeliveryMeta = {
+          eventId: snsMessageId ?? message.MessageId,
+          eventType: eventMessage.eventType,
+          timestamp: eventMessage.timestamp,
+          source: eventMessage.source,
+        };
+        await handler(eventMessage.payload, meta);
         await this.deleteMessage(message.ReceiptHandle!);
         this.logger.log(
           `Processed ${eventMessage.eventType} (MessageId: ${message.MessageId})`,
@@ -168,18 +176,21 @@ export class SqsConsumerService {
     return undefined;
   }
 
-  private parseMessage(body: string): EventMessage | null {
+  private parseMessage(body: string): { event: EventMessage; snsMessageId?: string } | null {
     try {
       const parsed = JSON.parse(body);
 
-      // Handle SNS-wrapped messages
+      // Handle SNS-wrapped messages — the envelope's MessageId is the event's id
       if (parsed.Type === 'Notification' && parsed.Message) {
-        return JSON.parse(parsed.Message) as EventMessage;
+        return {
+          event: JSON.parse(parsed.Message) as EventMessage,
+          snsMessageId: typeof parsed.MessageId === 'string' ? parsed.MessageId : undefined,
+        };
       }
 
-      // Direct message
+      // Direct message (raw delivery)
       if (parsed.eventType) {
-        return parsed as EventMessage;
+        return { event: parsed as EventMessage };
       }
 
       this.logger.warn('Unrecognized message format');
