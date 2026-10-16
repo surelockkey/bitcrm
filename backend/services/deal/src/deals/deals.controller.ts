@@ -237,10 +237,13 @@ export class DealsController {
   @RequirePermission('deals', 'view')
   @ApiOperation({
     summary: 'Get deal by ID',
-    description: '**Guard:** `deals.view` permission required.',
+    description:
+      '**Guard:** `deals.view` permission required. The job carries its client\'s name as `contactName` ' +
+      '(`{ firstName, lastName }`, the jobs list\'s `included.clients` for one job) — names only, left out when ' +
+      'crm cannot answer. The job\'s own override, `clientName`, is unchanged and wins where a screen prints a name.',
   })
   async findById(@Param('id') id: string) {
-    const data = await this.dealsService.findById(id);
+    const data = await this.dealsService.findByIdWithClientName(id);
     return { success: true, data };
   }
 
