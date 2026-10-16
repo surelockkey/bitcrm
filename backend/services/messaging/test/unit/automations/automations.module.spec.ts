@@ -29,6 +29,8 @@ import { SendToTechService } from '../../../src/automations/send-to-tech.service
 import { TechNoticesController } from '../../../src/automations/tech-notices.controller';
 import { TechNoticesService } from '../../../src/automations/tech-notices.service';
 import { DealEventType } from '@bitcrm/types';
+import { PushModule } from '../../../src/push/push.module';
+import { PushNotifier } from '../../../src/push/push-notifier.service';
 
 /** The platform globals AppModule provides (see outbound.module.spec.ts). */
 @Global()
@@ -81,6 +83,9 @@ describe('AutomationsModule wiring', () => {
     expect(moduleRef.get(TechNoticesService)).toBeInstanceOf(TechNoticesService);
     expect(moduleRef.get(AutomationRuleEngine)).toBeInstanceOf(AutomationRuleEngine);
     expect(moduleRef.get(AutomationDealEventsHandler)).toBeInstanceOf(AutomationDealEventsHandler);
+    // The technician app's push notifications hang off the same job events.
+    expect(Reflect.getMetadata(MODULE_METADATA.IMPORTS, AutomationsModule)).toContain(PushModule);
+    expect((moduleRef.get(AutomationDealEventsHandler) as any).push).toBeInstanceOf(PushNotifier);
     expect(moduleRef.get(AUTOMATIONS_CONFIG)).toMatchObject({
       awsRegion: expect.any(String),
       consumerEnabled: false,
@@ -122,10 +127,20 @@ describe('AutomationsModule wiring', () => {
     const events = moduleRef.get(AutomationDealEventsHandler);
     const assigned = jest.spyOn(events, 'onTechAssigned').mockResolvedValue(undefined);
     const updated = jest.spyOn(events, 'onDealUpdated').mockResolvedValue(undefined);
-    await handlers.get(DEAL_TECH_ASSIGNED_EVENT)!({ dealId: 'd1', techId: 't1', assignedBy: 'u1' });
-    await handlers.get(DEAL_UPDATED_EVENT)!({ dealId: 'd1', updatedBy: 'u1' });
-    expect(assigned).toHaveBeenCalledWith({ dealId: 'd1', techId: 't1', assignedBy: 'u1' });
-    expect(updated).toHaveBeenCalledWith({ dealId: 'd1', updatedBy: 'u1' });
+    const unassigned = jest.spyOn(events, 'onTechUnassigned').mockResolvedValue(undefined);
+    const status = jest.spyOn(events, 'onDealStatusChanged').mockResolvedValue(undefined);
+    // The delivery's id rides along: the push notifier keys its once-per-event claim on it.
+    // Typed loosely on purpose: the handler signature is the shared consumer's (`(payload, meta?)`).
+    const deliver = (event: string, payload: unknown, eventId: string) =>
+      (handlers.get(event) as unknown as (p: unknown, m: unknown) => Promise<void>)(payload, { eventId, eventType: event });
+    await deliver(DEAL_TECH_ASSIGNED_EVENT, { dealId: 'd1', techId: 't1', assignedBy: 'u1' }, 'm1');
+    await deliver(DEAL_UPDATED_EVENT, { dealId: 'd1', updatedBy: 'u1' }, 'm2');
+    await deliver(DEAL_TECH_UNASSIGNED_EVENT, { dealId: 'd1', techId: 't1' }, 'm3');
+    await deliver(DEAL_STATUS_CHANGED_EVENT, { dealId: 'd1', newStatus: 'canceled' }, 'm4');
+    expect(assigned).toHaveBeenCalledWith({ dealId: 'd1', techId: 't1', assignedBy: 'u1' }, expect.objectContaining({ eventId: 'm1' }));
+    expect(updated).toHaveBeenCalledWith({ dealId: 'd1', updatedBy: 'u1' }, expect.objectContaining({ eventId: 'm2' }));
+    expect(unassigned).toHaveBeenCalledWith({ dealId: 'd1', techId: 't1' }, expect.objectContaining({ eventId: 'm3' }));
+    expect(status).toHaveBeenCalledWith({ dealId: 'd1', newStatus: 'canceled' }, expect.objectContaining({ eventId: 'm4' }));
 
     const sendToTech = moduleRef.get(SendToTechService);
     const sent = jest.spyOn(sendToTech, 'onSentToTech').mockResolvedValue('no_deal');

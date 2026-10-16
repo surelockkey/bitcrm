@@ -55,6 +55,9 @@ export interface AutomationUser {
    * nothing is posted to them in the app; texts and mail go as to anyone.
    */
   userType?: UserType;
+  roleId?: string;
+  /** Workiz "Field team member" — read through `isFieldTeamMember` (falls back to the role). */
+  fieldTeamMember?: boolean;
 }
 
 /**
@@ -188,6 +191,8 @@ export class AutomationPeersClient {
       email: raw.email || undefined,
       status: raw.status,
       ...(raw.userType ? { userType: raw.userType } : {}),
+      ...(raw.roleId ? { roleId: raw.roleId } : {}),
+      ...(typeof raw.fieldTeamMember === 'boolean' ? { fieldTeamMember: raw.fieldTeamMember } : {}),
     };
   }
 

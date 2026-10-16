@@ -58,6 +58,13 @@ describe('AutomationPeersClient', () => {
     expect(await withEmail.user('u1')).toMatchObject({ email: 'ann@example.com', phone: '+14045550001' });
   });
 
+  it('carries the role and the field-team flag — push goes to the field team only', async () => {
+    const client = new AutomationPeersClient(fakeFetch(async () => response(200, { id: 'u1', roleId: 'role-admin', fieldTeamMember: true })));
+    expect(await client.user('u1')).toMatchObject({ roleId: 'role-admin', fieldTeamMember: true });
+    const noFlag = new AutomationPeersClient(fakeFetch(async () => response(200, { id: 'u1', roleId: 'role-technician' })));
+    expect(await noFlag.user('u1')).not.toHaveProperty('fieldTeamMember');
+  });
+
   it("carries Workiz's user type: a subcontractor has no app to post to", async () => {
     const client = new AutomationPeersClient(fakeFetch(async () => response(200, { id: 'u1', userType: 'subcontractor' })));
     expect(await client.user('u1')).toMatchObject({ userType: 'subcontractor' });

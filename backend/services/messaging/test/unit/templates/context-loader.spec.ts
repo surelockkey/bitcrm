@@ -69,6 +69,12 @@ describe('ContextLoader', () => {
     process.env.INTERNAL_SERVICE_SECRET ??= '';
   });
 
+  it("carries the job's status — the push notifier skips closed and deleted jobs on it", async () => {
+    const { loader } = makeLoader({ '/api/deals/internal/d1': { data: { ...deal, superStatus: 'canceled', status: 'active' } } });
+    const ctx = await loader.load({ dealId: 'd1' });
+    expect(ctx.deal).toMatchObject({ superStatus: 'canceled', status: 'active' });
+  });
+
   it('assembles the full context from a deal id, resolving catalogs and custom-field names', async () => {
     const { loader, calls } = makeLoader();
     const ctx = await loader.load({ dealId: 'd1', userId: 'dispatcher' });
