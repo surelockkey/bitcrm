@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Stripe, StripeCardNumberElement, StripeElementStyle } from "@stripe/stripe-js";
 import { loadStripe } from "@stripe/stripe-js/pure";
 import {
@@ -14,22 +14,24 @@ import {
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cardServiceFee } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { WzButton } from "@/components/workiz/button";
+import { WzTextField } from "@/components/workiz/text-field";
 import { formatMoney } from "@/features/billing/lib";
 import { useContact } from "@/features/clients/hooks";
 import { contactName, primaryEmail } from "@/features/clients/lib";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { LIGHT } from "@/lib/theme/tokens";
+import { cn } from "@/lib/utils";
 import * as api from "../api";
 import { runCardCharge } from "../card-charge";
 import { useInvalidateLedger } from "../hooks";
+import { PAYMENT_BOX, PAYMENT_BUTTON, PAYMENT_FOOTER } from "./payment-boxes";
 
 /*
- * Add payment → Credit charge (Workiz): Name on card, Card number, MM/YY, CVV,
- * Zip code, Client's email (optional), then AMOUNT / SERVICE FEE (x%) / TOTAL
- * and Close · Charge. The card fields are Stripe Elements — the number never
+ * Add payment → Credit charge (Workiz): Name on card, Card number, MM/YY · CVV,
+ * Zip code (half a row), Client's email address (optional), then AMOUNT /
+ * SERVICE FEE (x%) / TOTAL and Close · Charge. The card fields are Stripe Elements — the number never
  * touches our page or our API; billing only receives the `pm_…`.
  *
  * This module is loaded on demand (React.lazy) the first time Credit charge is
@@ -50,13 +52,49 @@ function getStripe(publishableKey: string): Promise<Stripe | null> {
   return promise;
 }
 
+/**
+ * Inside Stripe's frames, as Workiz's own card boxes: 16px #666, the words
+ * ("Card number", "MM/YY", "CVV") in the kit labels' #8c8c8c, a plain sans.
+ * A frame cannot read our CSS variables, so the theme's values go in as is.
+ */
 const ELEMENT_STYLE: StripeElementStyle = {
-  base: { fontSize: "14px", color: "#0f172a", "::placeholder": { color: "#94a3b8" } },
-  invalid: { color: "#dc2626" },
+  base: {
+    fontSize: "16px",
+    color: LIGHT.wzText,
+    fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif',
+    "::placeholder": { color: LIGHT.wzLabel },
+  },
+  invalid: { color: LIGHT.wzError },
 };
 
-/** Looks like our `Input`, holds a Stripe iframe. */
-const FIELD = "border-input flex h-9 w-full items-center rounded-md border bg-transparent px-3 shadow-xs";
+/**
+ * A Stripe frame in the kit's 48px box (`WzTextField`'s look): 1px #ccc, 4px
+ * corners, the yellow edge while the frame has focus. The frame cannot be
+ * labelled from outside, so its box is the named group.
+ */
+function StripeBox({ label, children }: { label: string; children: (focus: FocusHandlers) => ReactNode }) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div className="min-h-[3.04rem] min-w-0">
+      <div
+        role="group"
+        aria-label={label}
+        data-focused={focused ? "true" : "false"}
+        className={cn(
+          PAYMENT_BOX,
+          "flex h-12 w-full items-center border border-input bg-white px-2.5 transition-[border-color] duration-300 data-[focused=true]:border-wz-focus",
+        )}
+      >
+        {children({ onFocus: () => setFocused(true), onBlur: () => setFocused(false) })}
+      </div>
+    </div>
+  );
+}
+
+interface FocusHandlers {
+  onFocus: () => void;
+  onBlur: () => void;
+}
 
 export interface CardChargeFormProps {
   invoiceId: string;
@@ -111,7 +149,6 @@ function ChargeFields({
   const stripe = useStripe();
   const elements = useElements();
   const invalidate = useInvalidateLedger(invoiceId, dealId);
-  const ids = useId();
   const [name, setName] = useState(clientName);
   const [zip, setZip] = useState("");
   const [email, setEmail] = useState(clientEmail);
@@ -198,102 +235,94 @@ function ChargeFields({
     }
   };
 
-  const id = (k: string) => `${ids}-${k}`;
+  const box = { overhang: false, inputClassName: PAYMENT_BOX } as const;
 
   return (
-    <div className="space-y-3">
-      <div className="space-y-1.5">
-        <Label htmlFor={id("name")}>Name on card</Label>
-        <Input
-          id={id("name")}
-          autoComplete="cc-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          aria-invalid={!!errors.name}
-        />
-        {errors.name ? <p className="text-sm text-destructive">{errors.name}</p> : null}
-      </div>
+    <div className="flex flex-col gap-2.5">
+      <WzTextField
+        {...box}
+        label="Name on card"
+        autoComplete="cc-name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        error={errors.name}
+      />
 
-      <div className="space-y-1.5">
-        <Label id={id("number")}>Card number</Label>
-        <div className={FIELD} aria-labelledby={id("number")}>
-          <CardNumberElement className="w-full" options={{ style: ELEMENT_STYLE, showIcon: true }} />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-3">
-        <div className="space-y-1.5">
-          <Label id={id("exp")}>MM/YY</Label>
-          <div className={FIELD} aria-labelledby={id("exp")}>
-            <CardExpiryElement className="w-full" options={{ style: ELEMENT_STYLE }} />
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <Label id={id("cvc")}>CVV</Label>
-          <div className={FIELD} aria-labelledby={id("cvc")}>
-            <CardCvcElement className="w-full" options={{ style: ELEMENT_STYLE }} />
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor={id("zip")}>Zip code</Label>
-          <Input
-            id={id("zip")}
-            autoComplete="postal-code"
-            inputMode="numeric"
-            maxLength={10}
-            value={zip}
-            onChange={(e) => setZip(e.target.value)}
-            aria-invalid={!!errors.zip}
+      <StripeBox label="Card number">
+        {(focus) => (
+          <CardNumberElement
+            {...focus}
+            className="w-full"
+            options={{ style: ELEMENT_STYLE, placeholder: "Card number", showIcon: false, disableLink: true }}
           />
-        </div>
-      </div>
-      {errors.zip ? <p className="text-sm text-destructive">{errors.zip}</p> : null}
+        )}
+      </StripeBox>
 
-      <div className="space-y-1.5">
-        <Label htmlFor={id("email")}>Client&apos;s email (optional)</Label>
-        <Input
-          id={id("email")}
-          type="email"
-          autoComplete="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          aria-invalid={!!errors.email}
+      <div data-slot="card-row" className="grid grid-cols-2 gap-x-4">
+        <StripeBox label="MM/YY">
+          {(focus) => <CardExpiryElement {...focus} className="w-full" options={{ style: ELEMENT_STYLE, placeholder: "MM/YY" }} />}
+        </StripeBox>
+        <StripeBox label="CVV">
+          {(focus) => <CardCvcElement {...focus} className="w-full" options={{ style: ELEMENT_STYLE, placeholder: "CVV" }} />}
+        </StripeBox>
+      </div>
+
+      {/* Workiz: the ZIP alone on its row, as wide as MM/YY. */}
+      <div data-slot="card-row" className="grid grid-cols-2 gap-x-4">
+        <WzTextField
+          {...box}
+          label="Zip code"
+          autoComplete="postal-code"
+          inputMode="numeric"
+          maxLength={10}
+          value={zip}
+          onChange={(e) => setZip(e.target.value)}
+          error={errors.zip}
         />
-        {errors.email ? <p className="text-sm text-destructive">{errors.email}</p> : null}
       </div>
 
-      <dl data-testid="charge-breakdown" className="space-y-1 border-t pt-3 text-sm">
-        <div className="flex justify-between">
-          <dt className="text-xs font-semibold tracking-wide text-muted-foreground">AMOUNT</dt>
+      <WzTextField
+        {...box}
+        label="Client's email address (optional)"
+        type="email"
+        autoComplete="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        error={errors.email}
+      />
+
+      {/* AMOUNT / SERVICE FEE / TOTAL: 14px ink rows 24px apart, 8px in, a
+          rule over the bold TOTAL. */}
+      <dl data-testid="charge-breakdown" className="mt-2 text-sm leading-6 text-foreground">
+        <div className="flex justify-between px-2">
+          <dt>AMOUNT</dt>
           <dd className="tabular-nums">{formatMoney(amount)}</dd>
         </div>
         {surchargePercent > 0 ? (
-          <div className="flex justify-between">
-            <dt className="text-xs font-semibold tracking-wide text-muted-foreground">
-              {`${surchargeLabel.toUpperCase()} (${surchargePercent}%)`}
-            </dt>
+          <div className="flex justify-between px-2">
+            <dt>{`${surchargeLabel.toUpperCase()} (${surchargePercent}%)`}</dt>
             <dd className="tabular-nums">{formatMoney(fee)}</dd>
           </div>
         ) : null}
-        <div className="flex justify-between font-semibold">
-          <dt className="text-xs tracking-wide">TOTAL</dt>
+        <div className="mt-1.5 flex justify-between border-t border-[#eeeeee] px-2 pt-[3px] font-semibold">
+          <dt>TOTAL</dt>
           <dd className="tabular-nums">{formatMoney(total)}</dd>
         </div>
       </dl>
 
       {failure ? (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-sm text-wz-error">
           {failure}
         </p>
       ) : null}
 
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+      <DialogFooter className={PAYMENT_FOOTER}>
+        <WzButton variant="secondary" size="regular" className={PAYMENT_BUTTON} onClick={onClose} disabled={busy}>
           Close
-        </Button>
-        <Button type="button" variant="brand" onClick={charge} disabled={busy}>
-          {busy ? <Loader2 className="animate-spin" /> : null} Charge
-        </Button>
+        </WzButton>
+        <WzButton variant="primary" size="regular" className={PAYMENT_BUTTON} onClick={charge} loading={busy}>
+          Charge
+        </WzButton>
       </DialogFooter>
     </div>
   );

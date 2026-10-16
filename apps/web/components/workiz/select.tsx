@@ -92,6 +92,11 @@ export interface WzSelectProps extends WzSelectBaseProps {
   valueLabel?: string;
   /** An action row first in the list ("+ Add new"); gets the typed text. */
   createOption?: { label?: string; onCreate: (input: string) => void };
+  /**
+   * The 1px rule before the chevron (default). Workiz's Add payment draws its
+   * "Payment type" with the chevron alone.
+   */
+  separator?: boolean;
 }
 
 function useFocusFlag() {
@@ -132,6 +137,7 @@ export function WzSelect({
   createOption,
   shape = "rounded",
   geometry = "labelled",
+  separator = true,
   error,
   className,
   renderOption,
@@ -228,10 +234,13 @@ export function WzSelect({
                   <RsCrossIcon />
                 </button>
               ) : null}
-              <span
-                aria-hidden
-                className="my-2 w-px self-stretch bg-input group-data-[disabled=true]/wzsel:bg-wz-disabled-border"
-              />
+              {separator ? (
+                <span
+                  aria-hidden
+                  data-slot="wz-select-separator"
+                  className="my-2 w-px self-stretch bg-input group-data-[disabled=true]/wzsel:bg-wz-disabled-border"
+                />
+              ) : null}
               <span aria-hidden className={INDICATOR}>
                 <RsChevronIcon />
               </span>

@@ -518,3 +518,18 @@ describe('WzSelect geometry="bare" — a select with no floating label (Call Tra
     expect(value.className).not.toContain("top-[24.32px]");
   });
 });
+
+describe("WzSelect separator — the 1px rule before the chevron", () => {
+  const rules = () => control().querySelectorAll("[data-slot=wz-select-separator]");
+
+  it("draws the rule by default, as react-select does", () => {
+    render(<Uncontrolled />);
+    expect(rules()).toHaveLength(1);
+  });
+
+  // Workiz's Add payment draws its "Payment type" with the chevron alone.
+  it("leaves it out with separator={false}", () => {
+    render(<Uncontrolled separator={false} />);
+    expect(rules()).toHaveLength(0);
+  });
+});
