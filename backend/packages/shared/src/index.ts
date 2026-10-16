@@ -71,6 +71,8 @@ export { SqsConsumerService } from './events/sqs-consumer.service';
 export {
   EventMessage,
   EventHandler,
+  EventDeliveryMeta,
+  EventPayloadHandler,
   PublisherOptions,
   ConsumerOptions,
 } from './events/events.interfaces';

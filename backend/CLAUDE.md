@@ -43,7 +43,7 @@ documented surface; keep it in sync when you add a variable.
 | inventory | 4004 | `api/inventory`  | products, brands, item categories, warehouses, containers, stock, transfers |
 | search    | 4005 | `api/search`     | global search — OpenSearch read model + indexer (CQRS) |
 | telephony | 4006 | `api/telephony`  | Twilio softphone: tokens, TwiML, call records, presence, call groups/flows, numbers, job dial-in codes, blocked callers |
-| messaging | 4007 | `api/messaging`  | client inbox + team chat (Workiz Inbox model): conversations, messages (SMS/MMS, email, in-app), templates, opt-outs, settings — Twilio Messages API traffic; telephony stays the owner of the numbers |
+| messaging | 4007 | `api/messaging`  | client inbox + team chat (Workiz Inbox model): conversations, messages (SMS/MMS, email, in-app), templates, opt-outs, settings — Twilio Messages API traffic; telephony stays the owner of the numbers; **push notifications to the technician app** (Expo push service, `src/push/`: `PUT`/`DELETE /push-tokens`) |
 | billing   | 4008 | `api/billing`    | job invoices + estimates (Workiz model), **the payment ledger + Stripe** (offline payments, portal card/ACH, refunds, webhook), document templates + headless-Chromium PDF rendering (`@bitcrm/document-renderer`), companies (many business profiles, one default — jobs pick one), template images, client-portal API (`/public/portal/:token`, `@Public` + Redis rate limit; the pages are `apps/portal`, see §10), the client's confirm-your-appointment page API (`/public/confirm/:token`, B12) |
 
 ---
@@ -354,6 +354,11 @@ SETTINGS           / PAYMENTS        the PaymentSettings singleton (never holds 
 CONV#<id>          / MSG#<createdAt>#<msgId>   the feed, paged in the partition; GSI4 JOB#<dealId> when job-linked
 CONVOF#<kind>#<id> / ADDR#<e164|email> / PSID#<sid> / CLIENTMSG#<uuid>   pointers: find-or-create, inbound routing,
                                      webhook dedup, double-submit guard (the last one carries the TTL)
+PUSHTOKEN#<token>  / METADATA        (messaging) an Expo push token's ONE owner {token, userId, platform}; written with
+PUSHUSER#<userId>  / TOKEN#<token>   the user's copy in one TransactWrite guarded on the owner read — a token signed in
+                                     elsewhere moves (old user's row deleted). No GSI keys: a user's devices = one Query
+PUSHSENT#<occurrence> / METADATA     (messaging) "already pushed" claim, conditional Put, TTL `expiresAt` 7 d;
+                                     `<type>#<SQS eventId>` for job events, `message#<messageId>` for a line
 ```
 
 Rules:
@@ -788,6 +793,16 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   contact events); the user directory is an SWR Redis entry. Recordings are copied
   to S3 (`calls/recordings/<callSid>/<recordingSid>.mp3`) after the webhook and
   served from there with Range support; not-yet-copied ones still stream from Twilio.
+- **Push notifications (messaging `src/push/`, owner 2026-10-16).** The technician app registers its
+  Expo token (`PUT /api/messaging/push-tokens {token, platform}`, any signed-in user, self only;
+  `DELETE …/push-tokens/:token` on sign-out). `PushNotifier` sends through `POST
+  https://exp.host/--/api/v2/push/send` (plain fetch, ≤100 per request, `EXPO_ACCESS_TOKEN` as Bearer
+  when set, `PUSH_ENABLED=false` switches sending off): assigned / rescheduled / canceled / removed from
+  the job events, new team / group / client lines from the realtime bus (`data.type` + `dealId` /
+  `conversationId` is what the phone routes on). Field-team, active, regular users with a device only —
+  no subcontractors, no office roles, never the author of the change. Once per event (`PUSHSENT#`),
+  `DeviceNotRegistered` deletes the token, and nothing here ever fails or retries the event consumer.
+  Receipts (the delayed second check Expo offers) are not polled yet.
 - **Messaging caches** (Redis, generation-keyed so a racing load never restores a
   pre-edit value): automations list (5 min, key carries `TRANSLATOR_VERSION`),
   templates list (5 min), party names (10 min / 5 min unknown, cleared by

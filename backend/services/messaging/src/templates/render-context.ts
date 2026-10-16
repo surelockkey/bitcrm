@@ -51,6 +51,10 @@ export interface RenderDeal {
   jobTypeName?: string;
   jobSourceName?: string;
   externalCompanyName?: string;
+  /** `Deal.superStatus` — no short code reads it; the push notifier skips closed jobs on it. */
+  superStatus?: string;
+  /** `Deal.status` — `deleted` for a soft-deleted job. */
+  status?: string;
 }
 
 /** The CLIENT's company (CRM `Company`) — `{{company_name}}`. The business itself comes from `settings`. */

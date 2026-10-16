@@ -2,6 +2,8 @@ import { Inject, Logger, Module, OnModuleDestroy, OnModuleInit, Optional } from 
 import { SqsConsumerService } from '@bitcrm/shared';
 import { DealEventType } from '@bitcrm/types';
 import { TechScopeModule } from '../tech-scope/tech-scope.module';
+import { PushModule } from '../push/push.module';
+import { type PushDelivery } from '../push/push-notifier.service';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { OutboundModule } from '../outbound/outbound.module';
 import { MessagingSettingsModule } from '../settings/messaging-settings.module';
@@ -58,7 +60,8 @@ export const CALL_EVENTS_SQS_CONSUMER = Symbol('CALL_EVENTS_SQS_CONSUMER');
  */
 @Module({
   // TechScopeModule: the technician inbox scope (C4) every job event keeps current.
-  imports: [ConversationsModule, MessagingSettingsModule, MessageTemplatesModule, OutboundModule, TechScopeModule],
+  // PushModule: the technician app's push notifications, fed by the same job events.
+  imports: [ConversationsModule, MessagingSettingsModule, MessageTemplatesModule, OutboundModule, TechScopeModule, PushModule],
   // TechNoticesController first: its `GET /automations/tech-notices` would otherwise be
   // swallowed by AutomationsController's `GET /automations/:id` (routes mount in this order).
   controllers: [TechNoticesController, AutomationsController],
@@ -135,15 +138,17 @@ export class AutomationsModule implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     if (this.consumer) {
       // One handler per event type: `SqsConsumerService` keeps a single
-      // handler per name, so the built-in SMS and the rule engine are fanned
-      // out inside `AutomationDealEventsHandler`.
-      this.consumer.registerHandler(DEAL_CREATED_EVENT, (p) => this.events.onDealCreated(p));
-      this.consumer.registerHandler(DEAL_STATUS_CHANGED_EVENT, (p) => this.events.onDealStatusChanged(p));
-      this.consumer.registerHandler(DEAL_TECH_ASSIGNED_EVENT, (p) => this.events.onTechAssigned(p));
-      this.consumer.registerHandler(DEAL_UPDATED_EVENT, (p) => this.events.onDealUpdated(p));
+      // handler per name, so the built-in SMS, the rule engine and the push
+      // notifications are fanned out inside `AutomationDealEventsHandler`.
+      // `delivery` (the shared consumer's meta) carries the event id the
+      // push notifier's once-per-event claim is keyed on.
+      this.consumer.registerHandler(DEAL_CREATED_EVENT, (p, delivery?: PushDelivery) => this.events.onDealCreated(p, delivery));
+      this.consumer.registerHandler(DEAL_STATUS_CHANGED_EVENT, (p, delivery?: PushDelivery) => this.events.onDealStatusChanged(p, delivery));
+      this.consumer.registerHandler(DEAL_TECH_ASSIGNED_EVENT, (p, delivery?: PushDelivery) => this.events.onTechAssigned(p, delivery));
+      this.consumer.registerHandler(DEAL_UPDATED_EVENT, (p, delivery?: PushDelivery) => this.events.onDealUpdated(p, delivery));
       this.consumer.registerHandler(DEAL_SCHEDULED_CHANGED_EVENT, (p) => this.events.onScheduledChanged(p));
       // Not rule triggers: the technician inbox scope (C4) follows roster removals and deletes.
-      this.consumer.registerHandler(DEAL_TECH_UNASSIGNED_EVENT, (p) => this.events.onTechUnassigned(p));
+      this.consumer.registerHandler(DEAL_TECH_UNASSIGNED_EVENT, (p, delivery?: PushDelivery) => this.events.onTechUnassigned(p, delivery));
       this.consumer.registerHandler(DEAL_DELETED_EVENT, (p) => this.events.onDealDeleted(p));
       // The client confirmed the visit through {{confirm_link}} (B12): rules only.
       this.consumer.registerHandler(DealEventType.DEAL_CLIENT_CONFIRMED, (p) => this.events.onClientConfirmed(p));

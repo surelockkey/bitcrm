@@ -11,6 +11,7 @@ import {
   type DealStatusChangedPayload,
 } from '../deal-events';
 import { TechScopeService } from '../../tech-scope/tech-scope.service';
+import { PushNotifier, type PushDelivery, type PushResult } from '../../push/push-notifier.service';
 import { NewJobSmsService } from '../new-job-sms.service';
 import { AutomationPeersClient } from '../internal/peers.client';
 import {
@@ -37,8 +38,15 @@ import { type AutomationEvent } from './trigger-event';
  * so a move of the date, end date or slot is detected by comparison and
  * raised as the synthetic event a reschedule rule listens for.
  *
+ * Push notifications to the technician app go first, after the tech scope
+ * (`PushNotifier`: assigned / unassigned / canceled here, the reschedule
+ * where the snapshot comparison finds it). Each handler takes the SQS
+ * delivery as its second argument — its `eventId` keys the notifier's
+ * once-per-event claim — and the notifier never throws.
+ *
  * Errors propagate: SQS retries, and every path is idempotent (the
- * `AUTOSENT#` marker, the `ONCE#` claim, the `CLIENTMSG#` guard).
+ * `AUTOSENT#` marker, the `ONCE#` claim, the `CLIENTMSG#` guard, the
+ * `PUSHSENT#` claim).
  */
 @Injectable()
 export class AutomationDealEventsHandler {
@@ -50,20 +58,22 @@ export class AutomationDealEventsHandler {
     private readonly peers: AutomationPeersClient,
     private readonly snapshots: DealSnapshotRepository,
     @Optional() private readonly techScope?: TechScopeService,
+    @Optional() private readonly push?: PushNotifier,
   ) {}
 
   /** `deal.created`. */
-  async onDealCreated(payload: unknown): Promise<void> {
+  async onDealCreated(payload: unknown, delivery?: PushDelivery): Promise<void> {
     if (!hasDealId(payload)) return this.drop('deal.created', payload);
     await this.keepTechScope(payload.dealId);
-    await this.dispatch({ kind: 'deal.created', at: this.now(), dealId: payload.dealId });
+    await this.dispatch({ kind: 'deal.created', at: this.now(), dealId: payload.dealId }, { eventId: delivery?.eventId });
   }
 
   /** `deal.status_changed` — the sub-status ids are filled from the job by the engine. */
-  async onDealStatusChanged(payload: unknown): Promise<void> {
+  async onDealStatusChanged(payload: unknown, delivery?: PushDelivery): Promise<void> {
     if (!isDealStatusChangedPayload(payload)) return this.drop('deal.status_changed', payload);
     const p = payload as DealStatusChangedPayload;
     await this.keepTechScope(p.dealId);
+    await this.notify(() => this.push?.onStatusChanged(payload, delivery));
     await this.dispatch({
       kind: 'deal.status_changed',
       at: this.now(),
@@ -74,12 +84,13 @@ export class AutomationDealEventsHandler {
         fromSubStatusId: p.oldSubStatusId ?? undefined,
         toSubStatusId: p.newSubStatusId ?? undefined,
       },
-    });
+    }, { eventId: delivery?.eventId, actorId: p.changedBy });
   }
 
   /** `deal.tech_assigned` — the built-in New-job SMS, then the rules. */
-  async onTechAssigned(payload: unknown): Promise<void> {
+  async onTechAssigned(payload: unknown, delivery?: PushDelivery): Promise<void> {
     if (isDealTechAssignedPayload(payload)) await this.keepTechScope(payload.dealId, [payload.techId]);
+    await this.notify(() => this.push?.onTechAssigned(payload, delivery));
     await this.newJobSms.onTechAssigned(payload);
     if (!isDealTechAssignedPayload(payload)) return;
     await this.dispatch({
@@ -87,21 +98,26 @@ export class AutomationDealEventsHandler {
       at: this.now(),
       dealId: payload.dealId,
       techId: payload.techId,
-    });
+    }, { eventId: delivery?.eventId, actorId: payload.assignedBy });
   }
 
   /** `deal.updated` — the built-in reschedule text, then the rules (and the reschedule detector). */
-  async onDealUpdated(payload: unknown): Promise<void> {
+  async onDealUpdated(payload: unknown, delivery?: PushDelivery): Promise<void> {
     if (hasDealId(payload)) await this.keepTechScope(payload.dealId);
     await this.newJobSms.onDealUpdated(payload);
     if (!hasDealId(payload)) return;
-    await this.dispatch({ kind: 'deal.updated', at: this.now(), dealId: payload.dealId });
+    const updatedBy = (payload as { updatedBy?: unknown }).updatedBy;
+    await this.dispatch(
+      { kind: 'deal.updated', at: this.now(), dealId: payload.dealId },
+      { eventId: delivery?.eventId, actorId: typeof updatedBy === 'string' ? updatedBy : undefined },
+    );
   }
 
   /** `deal.tech_unassigned` — no rule listens; the technician it names leaves the job's inbox scope. */
-  async onTechUnassigned(payload: unknown): Promise<void> {
+  async onTechUnassigned(payload: unknown, delivery?: PushDelivery): Promise<void> {
     if (!isDealTechUnassignedPayload(payload)) return this.drop('deal.tech_unassigned', payload);
     await this.keepTechScope(payload.dealId, [payload.techId]);
+    await this.notify(() => this.push?.onTechUnassigned(payload, delivery));
   }
 
   /** `deal.deleted` — no rule listens; the job leaves its technicians' inbox scope. */
@@ -169,9 +185,11 @@ export class AutomationDealEventsHandler {
 
   /**
    * Reads the job once, raises a synthetic reschedule when its schedule
-   * moved since we last saw it, and hands both events to the engine.
+   * moved since we last saw it — and pushes it to the technicians — and
+   * hands both events to the engine. `push` is the delivery's id and who
+   * caused the change, for the reschedule notification.
    */
-  private async dispatch(event: AutomationEvent): Promise<void> {
+  private async dispatch(event: AutomationEvent, push: { eventId?: string; actorId?: string } = {}): Promise<void> {
     const deal = event.dealId ? await this.peers.deal(event.dealId) : null;
     const facts: AutomationFacts = deal ? { deal: this.engine.dealFacts(deal) } : {};
 
@@ -186,7 +204,10 @@ export class AutomationDealEventsHandler {
           `Schedule snapshot for ${facts.deal.id} not updated: ${error instanceof Error ? error.message : error}`,
         );
       }
-      if (isReschedule(previous, next)) {
+      if (isReschedule(previous, next) && previous) {
+        await this.notify(() =>
+          this.push?.onRescheduled({ dealId: facts.deal!.id, previous: previous!, next, eventId: push.eventId, actorId: push.actorId }),
+        );
         await this.engine.handle(
           {
             kind: 'deal.scheduled_changed',
@@ -214,6 +235,15 @@ export class AutomationDealEventsHandler {
    */
   private async keepTechScope(dealId: string, techIds: string[] = []): Promise<void> {
     await this.techScope?.onDealEvent(dealId, techIds);
+  }
+
+  /** The notifier promises never to throw; this keeps the automations safe if it ever does. */
+  private async notify(send: () => Promise<PushResult> | undefined): Promise<void> {
+    try {
+      await send();
+    } catch (error) {
+      this.logger.warn(`Push notification failed: ${error instanceof Error ? error.message : error}`);
+    }
   }
 
   private now(): string {

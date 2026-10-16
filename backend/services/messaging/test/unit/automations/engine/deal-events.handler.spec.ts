@@ -27,8 +27,22 @@ function harness(over: Record<string, any> = {}) {
     put: jest.fn(async () => undefined),
     ...(over.snapshots ?? {}),
   };
-  const handler = new AutomationDealEventsHandler(newJobSms as any, engine as any, peers as any, snapshots as any);
-  return { handler, newJobSms, engine, peers, snapshots };
+  const push = {
+    onTechAssigned: jest.fn(async () => ({ recipients: {} })),
+    onTechUnassigned: jest.fn(async () => ({ recipients: {} })),
+    onStatusChanged: jest.fn(async () => ({ recipients: {} })),
+    onRescheduled: jest.fn(async () => ({ recipients: {} })),
+    ...(over.push ?? {}),
+  };
+  const handler = new AutomationDealEventsHandler(
+    newJobSms as any,
+    engine as any,
+    peers as any,
+    snapshots as any,
+    undefined,
+    over.withoutPush ? undefined : (push as any),
+  );
+  return { handler, newJobSms, engine, peers, snapshots, push };
 }
 
 describe('AutomationDealEventsHandler', () => {
@@ -250,6 +264,86 @@ describe('AutomationDealEventsHandler — the technician inbox scope', () => {
     const { handler, engine } = harness();
     await handler.onDealUpdated({ dealId: 'd1' });
     await expect(handler.onDealDeleted({ dealId: 'd1' })).resolves.toBeUndefined();
+    expect(engine.handle).toHaveBeenCalled();
+  });
+});
+
+/**
+ * Push notifications to the technician app ride the same queue: the handler
+ * hands every job event — with the delivery's id, which keys the
+ * once-per-event claim — to the notifier, first (it never throws), so a
+ * failing automation that makes SQS retry cannot hold a notification back.
+ */
+describe('AutomationDealEventsHandler → push notifications', () => {
+  const MOVED = {
+    dealId: 'd1',
+    scheduledDate: '2026-09-18',
+    scheduledTimeSlot: '09:00-11:00',
+    seenAt: '2026-09-15T10:00:00.000Z',
+  };
+
+  it('hands deal.tech_assigned to the notifier with the delivery, before the New-job SMS and the rules', async () => {
+    const { handler, push, newJobSms } = harness();
+    const payload = { dealId: 'd1', techId: 't1', assignedBy: 'u1' };
+    await handler.onTechAssigned(payload, { eventId: 'evt-1' });
+
+    expect(push.onTechAssigned).toHaveBeenCalledWith(payload, { eventId: 'evt-1' });
+    expect(push.onTechAssigned.mock.invocationCallOrder[0]).toBeLessThan(newJobSms.onTechAssigned.mock.invocationCallOrder[0]);
+  });
+
+  it('hands deal.tech_unassigned and deal.status_changed over too', async () => {
+    const { handler, push } = harness();
+    await handler.onTechUnassigned({ dealId: 'd1', techId: 't1' }, { eventId: 'evt-2' });
+    await handler.onDealStatusChanged({ dealId: 'd1', oldStatus: 'submitted', newStatus: 'canceled' }, { eventId: 'evt-3' });
+
+    expect(push.onTechUnassigned).toHaveBeenCalledWith({ dealId: 'd1', techId: 't1' }, { eventId: 'evt-2' });
+    expect(push.onStatusChanged).toHaveBeenCalledWith({ dealId: 'd1', oldStatus: 'submitted', newStatus: 'canceled' }, { eventId: 'evt-3' });
+  });
+
+  it('a reschedule found by the snapshot comparison is pushed with the event id and who moved the job', async () => {
+    const { handler, push } = harness({ snapshots: { get: jest.fn(async () => MOVED), put: jest.fn(async () => undefined) } });
+    await handler.onDealUpdated({ dealId: 'd1', updatedBy: 'u9' }, { eventId: 'evt-4' });
+
+    expect(push.onRescheduled).toHaveBeenCalledWith({
+      dealId: 'd1',
+      previous: MOVED,
+      next: expect.objectContaining({ dealId: 'd1', scheduledDate: '2026-09-20', scheduledTimeSlot: '09:00-11:00' }),
+      eventId: 'evt-4',
+      actorId: 'u9',
+    });
+  });
+
+  it('no move, no reschedule push — and the first sighting of a job is not a move', async () => {
+    const same = harness({ snapshots: { get: jest.fn(async () => ({ ...MOVED, scheduledDate: '2026-09-20' })), put: jest.fn(async () => undefined) } });
+    await same.handler.onDealUpdated({ dealId: 'd1' }, { eventId: 'e' });
+    expect(same.push.onRescheduled).not.toHaveBeenCalled();
+
+    const first = harness();
+    await first.handler.onDealUpdated({ dealId: 'd1' }, { eventId: 'e' });
+    expect(first.push.onRescheduled).not.toHaveBeenCalled();
+  });
+
+  it('a notifier that blows up anyway never stops the automations', async () => {
+    const boom = jest.fn(async () => {
+      throw new Error('push down');
+    });
+    const { handler, engine, newJobSms } = harness({
+      push: { onTechAssigned: boom, onStatusChanged: boom, onRescheduled: boom, onTechUnassigned: boom },
+      snapshots: { get: jest.fn(async () => MOVED), put: jest.fn(async () => undefined) },
+    });
+    await expect(handler.onTechAssigned({ dealId: 'd1', techId: 't1' }, { eventId: 'e' })).resolves.toBeUndefined();
+    await expect(handler.onDealStatusChanged({ dealId: 'd1', newStatus: 'canceled' }, { eventId: 'e' })).resolves.toBeUndefined();
+    await expect(handler.onTechUnassigned({ dealId: 'd1', techId: 't1' }, { eventId: 'e' })).resolves.toBeUndefined();
+    await expect(handler.onDealUpdated({ dealId: 'd1' }, { eventId: 'e' })).resolves.toBeUndefined();
+    expect(newJobSms.onTechAssigned).toHaveBeenCalled();
+    // Three dispatched job events, each also raising the synthetic reschedule (the snapshot mock never catches up).
+    expect(engine.handle).toHaveBeenCalledTimes(6);
+    expect(boom).toHaveBeenCalledTimes(6); // assigned, status, unassigned + three reschedules
+  });
+
+  it('works without a notifier wired (unit construction)', async () => {
+    const { handler, engine } = harness({ withoutPush: true });
+    await handler.onTechAssigned({ dealId: 'd1', techId: 't1' }, { eventId: 'e' });
     expect(engine.handle).toHaveBeenCalled();
   });
 });

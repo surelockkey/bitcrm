@@ -190,6 +190,8 @@ export class ContextLoader {
       customFields: raw.customFields as Record<string, CustomFieldValue> | undefined,
       jobTimezone: raw.jobTimezone as string | undefined,
       serviceAreaId: raw.serviceAreaId as string | undefined,
+      superStatus: raw.superStatus as string | undefined,
+      status: raw.status as string | undefined,
     };
     const [jobTypeName, jobSourceName, externalCompanyName] = await Promise.all([
       deal.jobTypeId ? this.catalogName('job-types', deal.jobTypeId) : undefined,
