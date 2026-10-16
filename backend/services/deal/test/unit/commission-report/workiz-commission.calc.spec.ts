@@ -205,6 +205,31 @@ describe('splitWorkizPayments', () => {
     expect(s.cash).toBe(215);
     expect(s.cashByExternal).toBe(210);
   });
+
+  // BitCRM's own Add payment: Cash with "Charged by referral" ticked is Workiz's
+  // charged cash — the referral partner took it, not the technician.
+  it('marks cash recorded with "Charged by referral" as collected by the external company', () => {
+    const s = splitWorkizPayments([
+      pay({ method: 'cash', amount: 120, chargedByReferral: true }),
+      pay({ method: 'cash', amount: 30 }),
+    ]);
+    expect(s.cash).toBe(150);
+    expect(s.cashByExternal).toBe(120);
+  });
+
+  it('keeps a referral flag on anything but cash out of Cash by external', () => {
+    const s = splitWorkizPayments([
+      pay({ method: 'check', amount: 80, chargedByReferral: true }),
+      pay({ method: 'other', methodDetail: 'zelle', amount: 40, chargedByReferral: true }),
+    ]);
+    expect(s.cashByExternal).toBe(0);
+    expect(s.check).toBe(80);
+  });
+
+  it('counts referral cash net of its refund, like any cash', () => {
+    const s = splitWorkizPayments([pay({ method: 'cash', amount: 100, refundedAmount: 25, chargedByReferral: true })]);
+    expect(s.cashByExternal).toBe(75);
+  });
 });
 
 describe('configInForce', () => {

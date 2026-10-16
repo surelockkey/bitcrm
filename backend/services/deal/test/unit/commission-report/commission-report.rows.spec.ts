@@ -260,6 +260,24 @@ describe('buildRow — a job done in BitCRM goes through the Workiz formula', ()
     });
   });
 
+  // Add payment → Cash with "Charged by referral": the referral partner took the
+  // money, so it is Workiz's Cash By External and the technician owes none of it.
+  it('files cash charged by referral under Cash By External, out of the technician’s balance', () => {
+    const referralCash = new Map([
+      ['deal-new', [{ method: 'cash', status: 'settled', amount: 320, refundedAmount: 0, chargedByReferral: true }] as never],
+    ]);
+    const plainCash = new Map([['deal-new', [{ method: 'cash', status: 'settled', amount: 320, refundedAmount: 0 }] as never]]);
+    const configs = new Map([['tech-new', [config()]]]);
+    // tech = (320 − 20 − 40 − 30) × 50 % = 115; balance = 115 + 40 − (cash − cash by external)
+    expect(buildRow(native(), ctx({ payments: referralCash, configs }))).toMatchObject({
+      cash: 320,
+      cashByExternal: 320,
+      techProfit: 115,
+      balance: 155,
+    });
+    expect(buildRow(native(), ctx({ payments: plainCash, configs }))).toMatchObject({ cashByExternal: 0, balance: -165 });
+  });
+
   it('uses the version in force on the job’s closing day', () => {
     const history = [config({ baseRatePct: 30 }), config({ baseRatePct: 35, effectiveDate: '2026-09-04T00:00:00.000Z' })];
     const before = buildRow(native({ scheduledDate: '2026-09-03', scheduledEndDate: '2026-09-03' }), ctx({ configs: new Map([['tech-new', history]]) }));

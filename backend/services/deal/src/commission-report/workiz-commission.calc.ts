@@ -105,7 +105,10 @@ export function workizBalance(row: { techProfit: number; parts: number; cash: nu
 const CREDIT_DETAILS: ReadonlySet<string> = new Set(['charge', 'credit', 'installments']);
 
 /** A ledger row with the attributes the Workiz import adds on top of `Payment`. */
-export type LedgerPayment = Pick<Payment, 'method' | 'status' | 'amount' | 'refundedAmount' | 'tipAmount'> & {
+export type LedgerPayment = Pick<
+  Payment,
+  'method' | 'status' | 'amount' | 'refundedAmount' | 'tipAmount' | 'chargedByReferral'
+> & {
   /** Workiz's own payment kind: charge, credit, installments, cash, check, zelle, … */
   methodDetail?: string;
   /** Workiz `charged`: a cash payment the external company collected. */
@@ -140,7 +143,9 @@ export function splitWorkizPayments(payments: LedgerPayment[]): WorkizPaymentSpl
     tip += tipNet;
     if (p.method === 'cash') {
       cash += collected;
-      if (p.charged) cashByExternal += collected;
+      // Workiz's import says `charged`; BitCRM's Add payment says "Charged by
+      // referral". Either way the referral partner holds the cash.
+      if (p.charged || p.chargedByReferral) cashByExternal += collected;
     } else if (p.method === 'check') {
       check += collected;
     } else if (p.method === 'card' || (p.methodDetail && CREDIT_DETAILS.has(p.methodDetail))) {

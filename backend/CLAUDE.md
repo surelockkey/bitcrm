@@ -974,7 +974,9 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   Stripe is `bank`) and a method sent with it must agree (400). A method-only body works as
   before. Credit charge is the web's `POST /deals/:dealId/card-intent` (the phone's typed-card
   rules, on the job with or without an invoice, NO signature gate); every phone/web card row
-  carries `methodDetail: 'charge'`. The fee shown anywhere is `cardServiceFee` (@bitcrm/types),
+  carries `methodDetail: 'charge'`. Cash with `chargedByReferral` is the commissions report's
+  Cash By External, exactly like an imported Workiz `charged` cash payment
+  (`splitWorkizPayments`): the referral partner holds it, so the technician's balance does not. The fee shown anywhere is `cardServiceFee` (@bitcrm/types),
   the very function billing charges with.
 - **The Payments report is a projection, and a deploy is not done until it is rebuilt.**
   `GET /payments/report[/totals|/export]` (Workiz Reports → Payments) read only
