@@ -95,19 +95,72 @@ export async function selectInputDevice(deviceId: string | null): Promise<void> 
 const HEARTBEAT_MS = 25_000;
 const store = () => useSoftphoneStore.getState();
 
+/*
+ * The voice token lasts an hour (TWILIO_TOKEN_TTL_SECONDS). A tab left open
+ * past it said "AccessTokenExpired (20104)" and the phone went dead (owner,
+ * 2026-10-16): Twilio's warning came 10 s ahead by default, which a background
+ * tab's once-a-minute timers miss; a refresh that failed was never retried;
+ * and a laptop waking from sleep finds the token already gone. So: the
+ * warning comes 5 minutes ahead, a failed refresh is retried every 30 s, the
+ * heartbeat and the tab coming back renew a token close to its end, and an
+ * expired token is replaced and the phone registered again instead of
+ * showing the error.
+ */
+const TOKEN_REFRESH_MS = 5 * 60_000;
+const TOKEN_RETRY_MS = 30_000;
+/** Twilio's "the token has expired" — 20104 (AccessTokenExpired); 31205 from older signalling. */
+const TOKEN_EXPIRED_CODES = new Set([20104, 31205]);
+/** Epoch ms the current token runs out; 0 = unknown. */
+let tokenExpiresAt = 0;
+let tokenRetry: ReturnType<typeof setTimeout> | null = null;
+let refreshing: Promise<void> | null = null;
+
+function rememberExpiry(expiresAt: number | undefined) {
+  tokenExpiresAt = typeof expiresAt === "number" && expiresAt > 0 ? expiresAt * 1000 : 0;
+}
+
+/** Renew the token when it is within the warning window of running out (heartbeat, tab back). */
+function renewIfDue() {
+  if (device && tokenExpiresAt && tokenExpiresAt - Date.now() < TOKEN_REFRESH_MS) void refreshToken();
+}
+
 /** Refresh online presence immediately (used by heartbeat + focus/visibility). */
 function pingPresence() {
   if (device) void setPresence(true).catch(() => {});
 }
 
-async function refreshToken() {
-  try {
-    const fresh = await fetchVoiceToken();
-    iceServers = fresh.iceServers;
-    device?.updateToken(fresh.token);
-  } catch {
-    /* the next tokenWillExpire / re-register will retry */
-  }
+/**
+ * A fresh token on the Device; registered again when the old one had already
+ * lapsed (Twilio drops the registration with it). One at a time; a failure
+ * tries again in 30 s for as long as the phone is on.
+ */
+function refreshToken(): Promise<void> {
+  if (refreshing) return refreshing;
+  const mySession = sessionId;
+  refreshing = (async () => {
+    try {
+      const fresh = await fetchVoiceToken();
+      if (mySession !== sessionId || !device) return;
+      iceServers = fresh.iceServers;
+      rememberExpiry(fresh.expiresAt);
+      device.updateToken(fresh.token);
+      if (tokenRetry) {
+        clearTimeout(tokenRetry);
+        tokenRetry = null;
+      }
+      if ((device.state as string) !== "registered") await device.register();
+    } catch {
+      if (mySession === sessionId && device && !tokenRetry) {
+        tokenRetry = setTimeout(() => {
+          tokenRetry = null;
+          void refreshToken();
+        }, TOKEN_RETRY_MS);
+      }
+    } finally {
+      refreshing = null;
+    }
+  })();
+  return refreshing;
 }
 
 /** Destroy a Device safely regardless of its current state. */
@@ -142,16 +195,23 @@ export async function enableSoftphone(): Promise<void> {
   try {
     const voice = await fetchVoiceToken();
     iceServers = voice.iceServers;
+    rememberExpiry(voice.expiresAt);
     const { token } = voice;
     const { Device } = await import("@twilio/voice-sdk");
     if (mySession !== sessionId) return; // superseded while loading
 
-    const d = new Device(token, { logLevel: "error", closeProtection: true });
+    const d = new Device(token, { logLevel: "error", closeProtection: true, tokenRefreshMs: TOKEN_REFRESH_MS });
     d.on("registered", () => store().setStatus("online"));
     d.on("unregistered", () => store().setStatus("offline"));
-    d.on("error", (e: { message?: string }) =>
-      store().setStatus("error", e?.message ?? "Softphone error"),
-    );
+    d.on("error", (e: { message?: string; code?: number }) => {
+      // An expired token is not the agent's problem: renew it and register again.
+      if (typeof e?.code === "number" && TOKEN_EXPIRED_CODES.has(e.code)) {
+        store().setStatus("connecting");
+        void refreshToken();
+        return;
+      }
+      store().setStatus("error", e?.message ?? "Softphone error");
+    });
     d.on("tokenWillExpire", () => void refreshToken());
     d.on("incoming", (call: Call) => void handleIncoming(call));
     d.audio?.on("deviceChange", syncInputDevices);
@@ -167,13 +227,19 @@ export async function enableSoftphone(): Promise<void> {
     }
 
     await setPresence(true).catch(() => {});
-    heartbeat = setInterval(pingPresence, HEARTBEAT_MS);
+    heartbeat = setInterval(() => {
+      pingPresence();
+      renewIfDue();
+    }, HEARTBEAT_MS);
 
     // Background tabs throttle the heartbeat timer, so also refresh presence
     // the moment the tab regains focus/visibility — this closes the window
     // where an agent is reachable (Device still connected) but marked offline.
     onVisible = () => {
-      if (document.visibilityState === "visible") pingPresence();
+      if (document.visibilityState !== "visible") return;
+      pingPresence();
+      // Back from a sleep or a long-frozen tab: the token may be near its end, or past it.
+      renewIfDue();
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
@@ -192,6 +258,11 @@ export async function enableSoftphone(): Promise<void> {
 export async function disableSoftphone(): Promise<void> {
   sessionId++; // cancel any in-flight enable
   starting = false;
+  if (tokenRetry) {
+    clearTimeout(tokenRetry);
+    tokenRetry = null;
+  }
+  tokenExpiresAt = 0;
   if (heartbeat) {
     clearInterval(heartbeat);
     heartbeat = null;

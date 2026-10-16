@@ -29,6 +29,9 @@ interface FakeDeviceShape {
   handlers: Record<string, (...a: unknown[]) => void>;
   connect: ReturnType<typeof vi.fn>;
   updateToken: ReturnType<typeof vi.fn>;
+  options: Record<string, unknown>;
+  state: string;
+  registrations: number;
 }
 
 function fakeCall(parameters: Record<string, string> = {}): FakeCallShape {
@@ -54,13 +57,17 @@ vi.mock("@twilio/voice-sdk", () => {
     disconnectAll = vi.fn();
     destroy = vi.fn();
     unregister = vi.fn(async () => {});
-    constructor() {
+    options: Record<string, unknown>;
+    registrations = 0;
+    constructor(_token: string, options: Record<string, unknown> = {}) {
+      this.options = options;
       mocks.devices.push(this as unknown as FakeDeviceShape);
     }
     on(event: string, h: (...a: unknown[]) => void) {
       this.handlers[event] = h;
     }
     async register() {
+      this.registrations += 1;
       this.state = "registered";
       this.handlers.registered?.();
     }
@@ -225,5 +232,67 @@ describe("softphone-manager — hold", () => {
     const { useSoftphoneStore } = await import("./softphone-store");
     useSoftphoneStore.getState().setCall("idle", null);
     expect(await held()).toBe(false);
+  });
+});
+
+/**
+ * A tab left open past the token's hour said "AccessTokenExpired (20104)" and
+ * the phone went dead (owner, 2026-10-16). Twilio warns only 10 s ahead by
+ * default — a background tab's timers run once a minute — a failed refresh
+ * was never retried, and a laptop waking from sleep finds the token already
+ * gone. The phone now renews early, retries, and recovers from an expired
+ * token on its own.
+ */
+describe("softphone-manager — the voice token never runs out", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  const inAnHour = () => Math.floor(Date.now() / 1000) + 3600;
+
+  it("asks Twilio to warn well ahead of expiry, not 10 seconds before", async () => {
+    const device = await freshManager({ ...TOKEN, expiresAt: inAnHour() });
+    expect(Number(device.options.tokenRefreshMs)).toBeGreaterThanOrEqual(5 * 60_000);
+  });
+
+  it("an expired token (20104) is replaced and the phone registers again — no dead phone, no error", async () => {
+    const device = await freshManager({ ...TOKEN, expiresAt: inAnHour() });
+    mocks.fetchVoiceToken.mockResolvedValue({ ...TOKEN, token: "jwt-2", expiresAt: inAnHour() });
+    device.state = "unregistered";
+
+    device.handlers.error({ code: 20104, message: "AccessTokenExpired (20104)" });
+    await vi.waitFor(() => expect(device.updateToken).toHaveBeenCalledWith("jwt-2"));
+    await vi.waitFor(() => expect(device.registrations).toBe(2));
+    const { useSoftphoneStore } = await import("./softphone-store");
+    expect(useSoftphoneStore.getState().status).not.toBe("error");
+  });
+
+  it("retries a refresh that failed, instead of waiting for a warning that will not come again", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const device = await freshManager({ ...TOKEN, expiresAt: inAnHour() });
+    mocks.fetchVoiceToken.mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ ...TOKEN, token: "jwt-3", expiresAt: inAnHour() });
+
+    device.handlers.tokenWillExpire();
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(device.updateToken).toHaveBeenCalledWith("jwt-3");
+    vi.useRealTimers();
+  });
+
+  it("coming back to the tab with the token about to lapse renews it at once", async () => {
+    const device = await freshManager({ ...TOKEN, expiresAt: Math.floor(Date.now() / 1000) + 60 });
+    mocks.fetchVoiceToken.mockResolvedValue({ ...TOKEN, token: "jwt-4", expiresAt: inAnHour() });
+
+    window.dispatchEvent(new Event("focus"));
+
+    await vi.waitFor(() => expect(device.updateToken).toHaveBeenCalledWith("jwt-4"));
+  });
+
+  it("leaves a token with plenty of time alone when the tab comes back", async () => {
+    const device = await freshManager({ ...TOKEN, expiresAt: inAnHour() });
+    window.dispatchEvent(new Event("focus"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(device.updateToken).not.toHaveBeenCalled();
   });
 });
