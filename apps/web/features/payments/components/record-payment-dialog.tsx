@@ -1,11 +1,9 @@
 "use client";
 
 import { lazy, Suspense, useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -14,22 +12,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { WzButton } from "@/components/workiz/button";
+import { WzSelect } from "@/components/workiz/select";
+import { WzTextField } from "@/components/workiz/text-field";
+import { WzTextarea } from "@/components/workiz/textarea";
+import { WzCheckbox } from "@/components/workiz/toggles";
 import { formatMoney } from "@/features/billing/lib";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { ctToday } from "@/lib/timezone";
 import { usePaymentSettings, useRecordPayment, type RecordPaymentTarget } from "../hooks";
 import { addPaymentTypes, canChargeCard, parseMoney, takenAtIso } from "../lib";
 import { recordPaymentSchema, toRecordPaymentBody, type RecordPaymentValues } from "../schemas";
+import { PAYMENT_BOX, PAYMENT_BUTTON, PAYMENT_FOOTER, PAYMENT_PAIR } from "./payment-boxes";
 
 /** Stripe's card form, fetched the first time Credit charge is picked. */
 const CardChargeForm = lazy(() => import("./card-charge-form"));
@@ -70,10 +64,20 @@ export function RecordPaymentDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      {/* Workiz's 520px window; the balance line 20px under the title, the
+          boxes 10px under it (payment-boxes.ts). */}
+      <DialogContent
+        className="gap-2.5 sm:max-w-[520px]"
+        // Workiz opens it with every box at rest (the balance in Amount is not
+        // selected): the window takes the focus, so Tab starts inside it.
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement | null)?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Add payment</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="mt-3 text-sm leading-5 font-semibold text-foreground">
             {balanceDue > 0 ? `Balance due: ${formatMoney(balanceDue)}` : "This job doesn't have any balance"}
           </DialogDescription>
         </DialogHeader>
@@ -147,145 +151,103 @@ function AddPaymentForm({
     });
   });
 
+  const errors = form.formState.errors;
+  const box = { overhang: false, inputClassName: PAYMENT_BOX } as const;
+
   return (
-    <Form {...form}>
-      <form onSubmit={onSubmit} className="space-y-3" noValidate>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <FormField
-            control={form.control}
-            name="amount"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Amount</FormLabel>
-                <FormControl>
-                  <Input type="text" inputMode="decimal" placeholder="0.00" className="tabular-nums" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="type"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Payment type</FormLabel>
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <FormControl>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {types.map((t) => (
-                      <SelectItem key={t.value} value={t.value}>
-                        {t.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        {charging && dealId && settings.data?.publishableKey ? (
-          <Suspense
-            fallback={
-              <div className="flex justify-center py-6" aria-busy="true">
-                <Loader2 className="size-5 animate-spin text-muted-foreground" />
-              </div>
-            }
-          >
-            <CardChargeForm
-              invoiceId={invoiceId}
-              dealId={dealId}
-              contactId={contactId}
-              publishableKey={settings.data.publishableKey}
-              surchargePercent={settings.data.surchargePercent ?? 0}
-              surchargeLabel={settings.data.surchargeLabel || "Service fee"}
-              amount={Number.isFinite(typedAmount) && typedAmount > 0 ? parseMoney(String(typedAmount)) : 0}
-              resolveAmount={resolveAmount}
-              onDone={onDone}
-              onClose={onDone}
+    <form onSubmit={onSubmit} className="flex flex-col gap-2.5" noValidate>
+      <div className={PAYMENT_PAIR}>
+        <WzTextField
+          {...box}
+          {...form.register("amount")}
+          label="Amount"
+          inputMode="decimal"
+          error={errors.amount?.message}
+        />
+        <Controller
+          control={form.control}
+          name="type"
+          render={({ field }) => (
+            <WzSelect
+              label="Payment type"
+              options={types}
+              value={field.value}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              separator={false}
+              // Workiz's Add payment draws the chosen type at 14px, not the job page's 16px.
+              className="[&_[data-slot=wz-select-value]]:text-[14px]"
             />
-          </Suspense>
-        ) : (
-          <>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="reference"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Confirmation code</FormLabel>
-                    <FormControl>
-                      <Input maxLength={120} {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="takenAt"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Paid on</FormLabel>
-                    <FormControl>
-                      <Input type="date" max={today} {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+          )}
+        />
+      </div>
+
+      {charging && dealId && settings.data?.publishableKey ? (
+        <Suspense
+          fallback={
+            <div className="flex justify-center py-6" aria-busy="true">
+              <Loader2 className="size-5 animate-spin text-muted-foreground" />
             </div>
-
-            <FormField
-              control={form.control}
-              name="chargedByReferral"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center gap-2 space-y-0">
-                  <FormControl>
-                    <Checkbox checked={field.value} onCheckedChange={(v) => field.onChange(v === true)} />
-                  </FormControl>
-                  <FormLabel className="font-normal">Charged by referral</FormLabel>
-                </FormItem>
-              )}
+          }
+        >
+          <CardChargeForm
+            invoiceId={invoiceId}
+            dealId={dealId}
+            contactId={contactId}
+            publishableKey={settings.data.publishableKey}
+            surchargePercent={settings.data.surchargePercent ?? 0}
+            surchargeLabel={settings.data.surchargeLabel || "Service fee"}
+            amount={Number.isFinite(typedAmount) && typedAmount > 0 ? parseMoney(String(typedAmount)) : 0}
+            resolveAmount={resolveAmount}
+            onDone={onDone}
+            onClose={onDone}
+          />
+        </Suspense>
+      ) : (
+        <>
+          <div className={PAYMENT_PAIR}>
+            <WzTextField
+              {...box}
+              {...form.register("reference")}
+              label="Confirmation code"
+              maxLength={120}
+              error={errors.reference?.message}
             />
-
-            <FormField
-              control={form.control}
-              name="note"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Note (optional)</FormLabel>
-                  <FormControl>
-                    <Textarea rows={2} maxLength={1000} placeholder="Paid to the tech on site…" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+            <WzTextField
+              {...box}
+              {...form.register("takenAt")}
+              label="Paid on"
+              type="date"
+              max={today}
+              error={errors.takenAt?.message}
             />
+          </div>
 
-            {error ? (
-              <p role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-            ) : null}
+          <WzCheckbox {...form.register("chargedByReferral")} label="Charged by referral" className="self-start" />
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={onDone} disabled={record.isPending}>
-                Close
-              </Button>
-              <Button type="submit" variant="brand" disabled={record.isPending}>
-                {record.isPending ? <Loader2 className="animate-spin" /> : <Plus />} Add payment
-              </Button>
-            </DialogFooter>
-          </>
-        )}
-      </form>
-    </Form>
+          <WzTextarea
+            {...form.register("note")}
+            placeholder="Note (optional)"
+            maxLength={1000}
+            error={errors.note?.message}
+          />
+
+          {error ? (
+            <p role="alert" className="text-sm text-wz-error">
+              {error}
+            </p>
+          ) : null}
+
+          <DialogFooter className={PAYMENT_FOOTER}>
+            <WzButton variant="secondary" size="regular" className={PAYMENT_BUTTON} onClick={onDone} disabled={record.isPending}>
+              Close
+            </WzButton>
+            <WzButton type="submit" variant="primary" size="regular" className={PAYMENT_BUTTON} loading={record.isPending}>
+              Add payment
+            </WzButton>
+          </DialogFooter>
+        </>
+      )}
+    </form>
   );
 }

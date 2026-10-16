@@ -16,11 +16,22 @@ const stripe = vi.hoisted(() => ({
 }));
 const loadStripe = vi.hoisted(() => vi.fn(async () => stripe));
 vi.mock("@stripe/stripe-js/pure", () => ({ loadStripe }));
+/** What each card box was given, as Stripe would get it. */
+const elementOptions = vi.hoisted(() => ({}) as Record<"number" | "expiry" | "cvc", unknown>);
 vi.mock("@stripe/react-stripe-js", () => ({
   Elements: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  CardNumberElement: () => <div data-testid="card-number" />,
-  CardExpiryElement: () => <div data-testid="card-expiry" />,
-  CardCvcElement: () => <div data-testid="card-cvc" />,
+  CardNumberElement: ({ options }: { options?: unknown }) => {
+    elementOptions.number = options;
+    return <div data-testid="card-number" />;
+  },
+  CardExpiryElement: ({ options }: { options?: unknown }) => {
+    elementOptions.expiry = options;
+    return <div data-testid="card-expiry" />;
+  },
+  CardCvcElement: ({ options }: { options?: unknown }) => {
+    elementOptions.cvc = options;
+    return <div data-testid="card-cvc" />;
+  },
   useStripe: () => stripe,
   useElements: () => ({ getElement: () => ({ kind: "card-number" }) }),
 }));
@@ -266,7 +277,7 @@ describe("RecordPaymentDialog — Credit charge", () => {
     expect(screen.getByTestId("card-expiry")).toBeInTheDocument();
     expect(screen.getByTestId("card-cvc")).toBeInTheDocument();
     expect(screen.getByLabelText("Zip code")).toBeInTheDocument();
-    expect(screen.getByLabelText("Client's email (optional)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Client's email address (optional)")).toBeInTheDocument();
     // No fee configured: no fee line.
     expect(screen.queryByText(/service fee/i)).toBeNull();
     expect(screen.getByText("TOTAL")).toBeInTheDocument();
@@ -295,7 +306,7 @@ describe("RecordPaymentDialog — Credit charge", () => {
     await pickType(u, "Credit charge");
     await u.type(await screen.findByLabelText("Zip code"), "06103");
     // The client's own email, ready for the receipt.
-    expect(screen.getByLabelText("Client's email (optional)")).toHaveValue("walter@example.com");
+    expect(screen.getByLabelText("Client's email address (optional)")).toHaveValue("walter@example.com");
     await u.click(screen.getByRole("button", { name: "Charge" }));
 
     await waitFor(() => expect(charged).toBeTruthy());
@@ -335,5 +346,91 @@ describe("RecordPaymentDialog — Credit charge", () => {
     expect(screen.getByText("Enter the card's ZIP code")).toBeInTheDocument();
     expect(stripe.createPaymentMethod).not.toHaveBeenCalled();
     expect(charged).toBeUndefined();
+  });
+});
+
+/** The kit box a labelled field sits in. */
+const kitSlot = (label: string) =>
+  screen.getByLabelText(label).closest("[data-slot]")?.getAttribute("data-slot");
+
+describe("RecordPaymentDialog — Workiz's look", () => {
+  // Workiz opens the window with every box at rest: the balance in Amount is
+  // not selected for overtyping.
+  it("opens with nothing focused, the dialog itself holding focus", async () => {
+    open();
+    const amount = await screen.findByLabelText("Amount");
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveFocus());
+    expect(amount).not.toHaveFocus();
+  });
+
+  it("says the balance in bold ink under the title", async () => {
+    open();
+    expect(await screen.findByText("Balance due: $240.50")).toHaveClass("font-semibold", "text-foreground");
+  });
+
+  it("draws Amount and Payment type in the Workiz kit's boxes, the chevron with no rule before it", async () => {
+    open();
+    await screen.findByLabelText("Amount");
+    expect(kitSlot("Amount")).toBe("wz-text-field");
+    const type = screen.getByLabelText("Payment type").closest("[data-slot=wz-select]")!;
+    expect(type).not.toBeNull();
+    expect(type.querySelector("[data-slot=wz-select-separator]")).toBeNull();
+  });
+
+  it("draws the offline types in the kit's boxes too, with Close and Add payment in the footer", async () => {
+    open();
+    await screen.findByLabelText("Amount");
+    expect(kitSlot("Confirmation code")).toBe("wz-text-field");
+    expect(kitSlot("Paid on")).toBe("wz-text-field");
+    expect(screen.getByLabelText("Charged by referral").closest("[data-slot]")?.getAttribute("data-slot")).toBe("wz-checkbox");
+    expect(screen.getByLabelText(/note/i).closest("[data-slot]")?.getAttribute("data-slot")).toBe("wz-textarea");
+    const footer = screen.getByRole("button", { name: "Add payment" }).closest("[data-slot=dialog-footer]") as HTMLElement;
+    expect(within(footer).getByRole("button", { name: "Close" })).toHaveAttribute("data-slot", "wz-button");
+    expect(within(footer).getByRole("button", { name: "Add payment" })).toHaveAttribute("data-slot", "wz-button");
+  });
+
+  it("gives the card boxes Workiz's words inside, no card-brand icon and no Link autofill", async () => {
+    const u = user();
+    open();
+    await pickType(u, "Credit charge");
+    await screen.findByTestId("card-number");
+    expect(elementOptions.number).toMatchObject({ placeholder: "Card number", showIcon: false, disableLink: true });
+    expect(elementOptions.expiry).toMatchObject({ placeholder: "MM/YY" });
+    expect(elementOptions.cvc).toMatchObject({ placeholder: "CVV" });
+    // Stripe's frames cannot be labelled from outside: their boxes are.
+    expect(within(screen.getByRole("group", { name: "Card number" })).getByTestId("card-number")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "MM/YY" })).getByTestId("card-expiry")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "CVV" })).getByTestId("card-cvc")).toBeInTheDocument();
+  });
+
+  it("lays the card out as Workiz: MM/YY beside CVV, then Zip code alone at half width, then the email", async () => {
+    const u = user();
+    open();
+    await pickType(u, "Credit charge");
+    const expiryRow = (await screen.findByTestId("card-expiry")).closest("[data-slot=card-row]") as HTMLElement;
+    expect(within(expiryRow).getByTestId("card-cvc")).toBeInTheDocument();
+    expect(within(expiryRow).queryByLabelText("Zip code")).toBeNull();
+    const zipRow = screen.getByLabelText("Zip code").closest("[data-slot=card-row]") as HTMLElement;
+    expect(zipRow).not.toBe(expiryRow);
+    expect(zipRow).toHaveClass("grid-cols-2");
+    expect(zipRow.querySelectorAll("input")).toHaveLength(1);
+    for (const label of ["Name on card", "Zip code", "Client's email address (optional)"]) {
+      expect(kitSlot(label)).toBe("wz-text-field");
+    }
+  });
+
+  it("puts Close and Charge in the footer as Workiz's two 200px pills", async () => {
+    const u = user();
+    open();
+    await pickType(u, "Credit charge");
+    const charge = await screen.findByRole("button", { name: "Charge" });
+    const footer = charge.closest("[data-slot=dialog-footer]") as HTMLElement;
+    const close = within(footer).getByRole("button", { name: "Close" });
+    for (const b of [close, charge]) {
+      expect(b).toHaveAttribute("data-slot", "wz-button");
+      expect(b).toHaveClass("w-[200px]");
+    }
+    expect(close).toHaveAttribute("data-variant", "secondary");
+    expect(charge).toHaveAttribute("data-variant", "primary");
   });
 });
