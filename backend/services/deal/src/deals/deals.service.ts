@@ -186,6 +186,12 @@ import { BusinessProfilesClient } from '../common/services/business-profiles.cli
  */
 const INCLUDED_ID_CAP = 100;
 
+/**
+ * A job as `GET /deals/:id` answers it: the row and its client's name — a
+ * name and nothing else, as in `JobsListIncluded` (see `findByIdWithClientName`).
+ */
+export type DealWithClientName = Deal & { contactName?: { firstName: string; lastName: string } };
+
 /** Tax snapshot fields: written by resolution, never diffed as plain field edits. */
 const TAX_KEYS = new Set(['taxSource', 'taxRateId', 'taxRateName', 'taxRatePercent']);
 /** Company fields: one FIELD_UPDATED entry (with names) instead of two raw diffs. */
@@ -672,6 +678,24 @@ export class DealsService {
 
     await this.cache.set(deal);
     return deal;
+  }
+
+  /**
+   * One job as `GET /deals/:id` answers it: the row, plus its client's name
+   * (`contactName`) — the side-load the jobs list carries in
+   * `included.clients`. The row stores only `contactId`, so a screen holding
+   * one job and no list (the phone's job opened from a push, or one that left
+   * the open lists when it was marked Done) had no name to print. Names only,
+   * from crm's internal names route, for the same reason as `includedFor`;
+   * the name is never written into the cached job, and crm being down costs
+   * the name, never the job. The job's own override (`clientName`) is
+   * untouched and still wins where a screen prints it.
+   */
+  async findByIdWithClientName(id: string): Promise<DealWithClientName> {
+    const deal = await this.findById(id);
+    const [client] = deal.contactId ? await this.includedClients([deal.contactId]) : [];
+    if (!client || client.id !== deal.contactId) return deal;
+    return { ...deal, contactName: { firstName: client.firstName, lastName: client.lastName } };
   }
 
   async list(

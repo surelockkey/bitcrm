@@ -15,6 +15,8 @@ describe('DealsController', () => {
     service = {
       create: jest.fn(),
       findById: jest.fn(),
+      // GET /deals/:id names the client (see deals.find-by-id-client-name.spec).
+      findByIdWithClientName: jest.fn(),
       list: jest.fn(),
       // The names side-loaded with a page of jobs (see deals.list-included.spec).
       includedFor: jest.fn().mockResolvedValue({ technicians: [], clients: [] }),
@@ -111,13 +113,14 @@ describe('DealsController', () => {
   });
 
   describe('findById', () => {
-    it('should return deal by ID', async () => {
-      const deal = createMockDeal();
-      service.findById.mockResolvedValue(deal);
+    it('should return deal by ID, with its client\'s name', async () => {
+      const deal = { ...createMockDeal(), contactName: { firstName: 'Bo', lastName: 'Client' } };
+      service.findByIdWithClientName.mockResolvedValue(deal);
 
       const result = await controller.findById('deal-1');
 
       expect(result).toEqual({ success: true, data: deal });
+      expect(service.findByIdWithClientName).toHaveBeenCalledWith('deal-1');
     });
   });
 
