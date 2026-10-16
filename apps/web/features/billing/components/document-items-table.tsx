@@ -47,6 +47,11 @@ export interface DocumentLineItem {
   costCompany: number;
   costForTech: number;
   taxable: boolean;
+  /** An estimate line's Workiz "Sold by", custom fields and Optional Item (a client invoice's has none). */
+  soldBy?: string;
+  customAttributes?: Record<string, string>;
+  optional?: boolean;
+  optionalSelected?: boolean;
 }
 
 export interface DocumentItemsTableProps {
@@ -73,6 +78,12 @@ export interface DocumentItemsTableProps {
    * pill under it (`addClassName` is the card's only). Same callbacks.
    */
   variant?: "card" | "workiz";
+  /**
+   * `workiz` (the estimate's): Add item and a line's Edit open Workiz's item
+   * card — the job's, with Optional Item. Left out (a client invoice), the
+   * picker's own form.
+   */
+  itemCard?: "workiz";
   /**
    * Workiz variant: the page's own item window. Given, "Add item" (`null`),
    * the empty grid's words and a line (its id) open it instead of the
@@ -123,6 +134,7 @@ function CardDocumentItems({
   addClassName = "rounded-pill px-4 font-semibold",
   showCost = true,
   onAddGroup,
+  itemCard,
 }: DocumentItemsTableProps) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<DocumentLineItem | null>(null);
@@ -209,6 +221,7 @@ function CardDocumentItems({
       ) : null}
 
       <ProductPickerDialog
+        itemCard={itemCard}
         open={adding || editing !== null}
         onOpenChange={(v) => {
           if (!v) close();

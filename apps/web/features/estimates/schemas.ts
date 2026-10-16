@@ -33,5 +33,11 @@ export const estimateItemSchema = z.object({
   costCompany: z.coerce.number().min(0),
   costForTech: z.coerce.number().min(0),
   taxable: z.boolean().optional(),
+  // Workiz "Sold by": a user id; "" clears it on an edit, absent leaves the line's.
+  soldBy: z.string().optional(),
+  // The line's custom field values, by field name (the item catalog's).
+  customAttributes: z.record(z.string(), z.string()).optional(),
+  // Workiz "Optional Item": out of the Total and of Sync to job until the client picks it.
+  optional: z.boolean().optional(),
 });
 export type EstimateItemBody = z.output<typeof estimateItemSchema>;

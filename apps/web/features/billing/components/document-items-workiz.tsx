@@ -68,6 +68,7 @@ export function WorkizDocumentItems({
   emptyAction = "Add items",
   addHeightClassName = "h-[34px]",
   onAddGroup,
+  itemCard,
 }: DocumentItemsTableProps) {
   const [addingHere, setAdding] = useState(false);
   const [editingHere, setEditing] = useState<DocumentLineItem | null>(null);
@@ -179,6 +180,7 @@ export function WorkizDocumentItems({
       ) : null}
 
       <ProductPickerDialog
+        itemCard={itemCard}
         open={adding || editing !== null}
         onOpenChange={(v) => {
           if (!v) close();
@@ -224,6 +226,7 @@ function WorkizItemRow({
   const isProduct = item.productType === ProductType.PRODUCT;
   const editNumbers = canEdit && inlineEdit;
   const taxable = item.taxable !== false;
+  const optional = item.optional === true;
   const margin = marginPercent(item.priceClient, item.costCompany);
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
@@ -280,11 +283,13 @@ function WorkizItemRow({
             {item.description ? (
               <p className="mt-[5px] break-words whitespace-break-spaces text-wz-text">{item.description}</p>
             ) : null}
-            {isService || isProduct || taxable ? (
+            {isService || isProduct || taxable || optional ? (
               <div className="mt-2.5 flex flex-wrap gap-x-2 gap-y-1">
                 {isService ? <span className={cn(TAG, "border-wz-link text-wz-link")}>Service</span> : null}
                 {isProduct ? <span className={cn(TAG, "border-wz-link text-wz-link")}>Product</span> : null}
                 {taxable ? <span className={cn(TAG, "border-[#d574e4] bg-[#d574e4] text-white")}>Taxable</span> : null}
+                {/* Workiz "Optional Item": out of the Total until the client picks it. */}
+                {optional ? <span className={cn(TAG, "border-[#3c8ddc] text-[#3c8ddc]")}>Optional</span> : null}
               </div>
             ) : null}
           </div>

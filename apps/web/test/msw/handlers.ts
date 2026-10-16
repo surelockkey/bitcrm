@@ -128,4 +128,9 @@ export const handlers = [
       data: { ...DEFAULT_PAYMENT_SETTINGS, stripeConfigured: false, publishableKey: null },
     }),
   ),
+
+  // What the item card reads ahead on a page that edits lines (the estimate's):
+  // the people for "Sold by" and the item catalog's custom fields — none here.
+  http.get("*/users", () => HttpResponse.json({ success: true, data: [], pagination: { count: 0 } })),
+  http.get("*/inventory/item-attributes", () => HttpResponse.json({ success: true, data: [] })),
 ];
