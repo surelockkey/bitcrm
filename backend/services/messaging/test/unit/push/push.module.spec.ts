@@ -8,6 +8,8 @@ import { PushModule } from '../../../src/push/push.module';
 import { PushRepository } from '../../../src/push/push.repository';
 import { PushTokensController } from '../../../src/push/push-tokens.controller';
 import { PushTokensService } from '../../../src/push/push-tokens.service';
+import { PushNotifier } from '../../../src/push/push-notifier.service';
+import { PushMessageListener } from '../../../src/push/push-message.listener';
 
 /** The platform globals AppModule provides (see outbound.module.spec.ts). */
 @Global()
@@ -29,6 +31,9 @@ describe('PushModule wiring', () => {
 
     expect(moduleRef.get(PushRepository)).toBeInstanceOf(PushRepository);
     expect(moduleRef.get(PushTokensService)).toBeInstanceOf(PushTokensService);
+    expect(moduleRef.get(PushNotifier)).toBeInstanceOf(PushNotifier);
+    // The fake Redis cannot subscribe: the listener logs it and the module still boots.
+    expect(moduleRef.get(PushMessageListener)).toBeInstanceOf(PushMessageListener);
     expect(Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, PushModule)).toContain(PushTokensController);
 
     await moduleRef.close();

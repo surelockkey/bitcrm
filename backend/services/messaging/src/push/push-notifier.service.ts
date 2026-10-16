@@ -1,5 +1,5 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { DealStatus, JobSuperStatus, isFieldTeamMember, isSubcontractor } from '@bitcrm/types';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { DealStatus, JobSuperStatus, isFieldTeamMember, isSubcontractor, type Conversation, type Message } from '@bitcrm/types';
 import {
   isDealStatusChangedPayload,
   isDealTechAssignedPayload,
@@ -7,20 +7,25 @@ import {
 } from '../automations/deal-events';
 import { type DealScheduleSnapshot } from '../automations/engine/deal-snapshot.repository';
 import { AutomationPeersClient, type AutomationUser } from '../automations/internal/peers.client';
+import { ConversationsRepository } from '../conversations/conversations.repository';
+import { type MessageUpsertedEvent } from '../realtime/realtime-events';
 import { ContextLoader } from '../templates/context-loader';
 import { splitTimeSlot } from '../templates/date-format';
 import type { RenderContext, RenderDeal } from '../templates/render-context';
 import { ExpoPushClient, isDeviceNotRegistered, type ExpoPushMessage } from './expo-push.client';
 import { PUSH_CONFIG, type PushConfig } from './push.config';
-import { type PushType } from './push.constants';
+import { type PushData, type PushType } from './push.constants';
 import { PushRepository } from './push.repository';
 import {
+  clientNameOf,
   jobAssignedPush,
   jobCanceledPush,
   jobRescheduledPush,
   jobUnassignedPush,
+  messagePreview,
   type PushContent,
 } from './push-texts';
+import { fullName } from '../templates/short-codes';
 
 /**
  * The SQS delivery an event came in (`EventDeliveryMeta` from the shared
@@ -42,6 +47,11 @@ export type PushSkip =
   | 'not_canceled'
   | 'not_rescheduled'
   | 'no_recipients'
+  // messages
+  | 'not_pushable'
+  | 'own_message'
+  | 'stale'
+  | 'no_conversation'
   | 'failed';
 
 /** What happened for one person. */
@@ -62,6 +72,65 @@ export interface ReschedulePush {
 }
 
 const CLOSED: ReadonlyArray<string> = [JobSuperStatus.CANCELED, JobSuperStatus.DONE];
+
+/**
+ * A realtime frame for a line older than this is a status update or a late
+ * catch-up (reconciliation, fallback replay) — not news worth waking a phone.
+ */
+export const MESSAGE_PUSH_MAX_AGE_MS = 15 * 60_000;
+
+/** Team threads are the office talking — the technician sees "Office", whoever typed it. */
+export const OFFICE_TITLE = 'Office';
+
+/**
+ * What can be ruled out from the line alone, before its thread is read:
+ * notes, and every outbound text or email (only an in-app line goes out
+ * to a technician). Most frames are delivery-status updates of exactly
+ * those, and every messaging task hears every frame.
+ */
+export const mayBePushed = (m: Message): boolean =>
+  m.channel !== 'note' && (m.direction === 'inbound' || m.channel === 'in_app');
+
+/** Who a message is for, decided from the line and its thread alone (no reads). */
+export type MessageRoute =
+  | { kind: 'team' | 'group'; recipients: string[]; title: string }
+  | { kind: 'client' };
+
+/**
+ * Which threads wake a technician (the `assigned_only` scope, narrowed to
+ * news):
+ *
+ *   team (their 1:1 with the office)  an in-app line from the office → the employee, "Office".
+ *                                     Their own lines are `inbound` there; an SMS / email to
+ *                                     their phone or mailbox already reached them.
+ *   group                             an in-app line → the members but its author, "<author> · <group>".
+ *   client (contact / company)        an inbound text or email → the technicians on the thread's job.
+ *
+ * Anything else — unknown numbers, notes, outbound client texts — is not pushed.
+ */
+export function routeMessage(m: Message, c: Conversation): MessageRoute | PushSkip {
+  if (!mayBePushed(m)) return 'not_pushable';
+  if (c.kind === 'team' && c.partyKind === 'user' && c.partyId) {
+    if (m.channel !== 'in_app') return 'not_pushable';
+    if (m.direction !== 'outbound' || m.sentByUserId === c.partyId) return 'own_message';
+    return { kind: 'team', recipients: [c.partyId], title: OFFICE_TITLE };
+  }
+  if (c.kind === 'group') {
+    if (m.channel !== 'in_app') return 'not_pushable';
+    const author = m.sentByName?.trim() || 'Team';
+    return {
+      kind: 'group',
+      recipients: (c.memberIds ?? []).filter((id) => id !== m.sentByUserId),
+      title: c.name?.trim() ? `${author} · ${c.name.trim()}` : author,
+    };
+  }
+  if ((c.partyKind === 'contact' || c.partyKind === 'company') && c.partyId) {
+    if (m.direction !== 'inbound') return 'not_pushable';
+    if (m.origin === 'system') return 'not_pushable';
+    return { kind: 'client' };
+  }
+  return 'not_pushable';
+}
 const isDeleted = (deal: RenderDeal) => deal.status === DealStatus.DELETED;
 const isClosed = (deal: RenderDeal) => isDeleted(deal) || CLOSED.includes(deal.superStatus ?? '');
 
@@ -85,9 +154,11 @@ export const isTechReschedule = (previous: DealScheduleSnapshot, next: DealSched
  *   reschedule (DEALSNAP# diff)  → the job's technicians    "Job rescheduled"
  *   deal.status_changed→canceled → the job's technicians    "Job canceled"
  *   deal.tech_unassigned         → that technician          "Removed from job"
+ *   message.upserted (new line)  → see `routeMessage`       "<sender>": the text, ≤ 140 chars
  *
- * Once per event: `PUSHSENT#<type>#<eventId>` is claimed before anything is
- * read, so an SQS redelivery pushes nothing. Recipients must be active,
+ * Once per event: `PUSHSENT#<type>#<eventId>` (`message#<messageId>` for a
+ * line) is claimed before anything is read, so an SQS redelivery — or the
+ * other messaging tasks hearing the same realtime frame — pushes nothing. Recipients must be active,
  * regular (a subcontractor cannot sign in), on the field team (no office
  * roles in this first version) and have a registered device; whoever
  * caused the change is not told about it. Never throws: the event consumer
@@ -103,6 +174,7 @@ export class PushNotifier {
     private readonly expo: ExpoPushClient,
     private readonly peers: AutomationPeersClient,
     private readonly context: ContextLoader,
+    @Optional() private readonly conversations?: ConversationsRepository,
   ) {}
 
   /** `deal.tech_assigned` — one technician joined the roster. */
@@ -165,6 +237,47 @@ export class PushNotifier {
         jobRescheduledPush,
         input.actorId,
       );
+    });
+  }
+
+  /**
+   * A message was appended (or its status changed) — the realtime frame
+   * every task hears. Pushed once per message, by whichever task claims it.
+   */
+  onMessageUpserted(event: MessageUpsertedEvent): Promise<PushResult> {
+    return this.safely('message.upserted', async () => {
+      const m = event?.message;
+      if (!m?.id || !m.conversationId) return skip('malformed');
+      if (!mayBePushed(m)) return skip('not_pushable');
+      const age = Date.now() - Date.parse(m.createdAt);
+      if (!(age <= MESSAGE_PUSH_MAX_AGE_MS)) return skip('stale');
+      const conversation = event.conversation ?? (await this.conversations?.get(m.conversationId)) ?? null;
+      if (!conversation) return skip('no_conversation');
+      const route = routeMessage(m, conversation);
+      if (typeof route === 'string') return skip(route);
+      const preview = messagePreview(m);
+      if (!preview) return skip('not_pushable');
+      if (!(await this.claim('message', m.id))) return skip('duplicate');
+
+      const data: PushData = { type: 'message', conversationId: conversation.id, ...(m.dealId ? { dealId: m.dealId } : {}) };
+      if (route.kind !== 'client') {
+        const recipients = route.recipients.filter((id) => id !== m.sentByUserId);
+        if (!recipients.length) return skip('no_recipients');
+        return this.deliver(recipients, { title: route.title, body: preview, data }, `message ${m.id}`);
+      }
+
+      // A client's thread: the technicians on its job, while the job is open.
+      const ctx = await this.context.load({ conversationId: conversation.id, dealId: m.dealId });
+      const deal = ctx.deal;
+      if (!deal?.id) return skip('no_deal');
+      if (isClosed(deal)) return skip('closed_deal');
+      const recipients = (deal.assignedTechIds ?? []).filter((id) => id !== m.sentByUserId);
+      if (!recipients.length) return skip('no_recipients');
+      const title =
+        (conversation.partyKind === 'company' ? ctx.company?.title?.trim() : fullName(ctx.contact)) ||
+        clientNameOf(ctx) ||
+        'Client';
+      return this.deliver(recipients, { title, body: preview, data: { ...data, dealId: deal.id } }, `message ${m.id}`);
     });
   }
 
