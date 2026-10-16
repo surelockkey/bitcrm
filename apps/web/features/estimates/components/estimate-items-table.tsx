@@ -51,6 +51,8 @@ export function EstimateItemsTable({
       toolbar={toolbar}
       addClassName={addClassName}
       variant={variant}
+      // Workiz's estimate item card — the job's card with Optional Item (owner, 2026-10-16).
+      itemCard="workiz"
       pending={{
         add: add.isPending,
         update: update.isPending,

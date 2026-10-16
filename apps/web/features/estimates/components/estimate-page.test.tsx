@@ -37,9 +37,18 @@ vi.mock("@/features/clients/hooks", () => ({
   }),
 }));
 vi.mock("@/features/billing/components/document-summary-panel", () => ({
-  DocumentSummaryPanel: ({ totals, extraRows }: { totals: { total: number }; extraRows?: React.ReactNode }) => (
+  DocumentSummaryPanel: ({
+    totals,
+    extraRows,
+    leftRows,
+  }: {
+    totals: { total: number };
+    extraRows?: React.ReactNode;
+    leftRows?: React.ReactNode;
+  }) => (
     <div data-testid="summary">
       {totals.total}
+      {leftRows}
       {extraRows}
     </div>
   ),
@@ -240,5 +249,30 @@ describe("StandaloneEstimatePage — a job's estimate", () => {
     await user().click(await screen.findByRole("button", { name: /^send$/i }));
     expect(await screen.findByRole("menuitem", { name: /send estimate/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /send all \(proposal\)/i })).toBeInTheDocument();
+  });
+});
+
+/** Workiz "Optional Item": the line is tagged, the Total leaves it out, "With optional :" counts it. */
+describe("StandaloneEstimatePage — optional lines", () => {
+  it("tags an optional line and shows Workiz's With optional under the Total", async () => {
+    const withOptional = estimate({
+      items: [
+        line,
+        { ...line, lineId: "l2", position: 1, productId: "p2", name: "Painting", priceClient: 750, optional: true },
+      ],
+      totals: { ...totals, lineCount: 2, subtotal: 80, total: 80 },
+    });
+    server.use(http.get("*/billing/estimates/e9", () => HttpResponse.json({ success: true, data: withOptional })));
+    renderWithClient(<StandaloneEstimatePage estimateId="e9" />);
+
+    const painting = await screen.findByRole("button", { name: "Edit Painting" });
+    const row = painting.closest("tr")!;
+    expect(within(row).getByText("Optional")).toBeInTheDocument();
+    const deadbolt = screen.getByRole("button", { name: "Edit Deadbolt" }).closest("tr")!;
+    expect(within(deadbolt).queryByText("Optional")).toBeNull();
+
+    const summary = screen.getByTestId("summary");
+    expect(within(summary).getByText(/With optional/)).toBeInTheDocument();
+    expect(within(summary).getByText("830.00")).toBeInTheDocument();
   });
 });

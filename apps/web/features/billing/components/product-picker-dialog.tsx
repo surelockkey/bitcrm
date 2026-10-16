@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Package, Search, Wrench } from "lucide-react";
 import { ProductType, type ItemGroup, type Product } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,14 @@ import { CATALOG_PAGE_SIZE, useCatalogProduct, useCatalogProducts, useCatalogSea
 import { useItemGroups } from "@/features/price-book/item-groups/hooks";
 import { groupEstimateLines, pickableGroups } from "@/features/price-book/item-groups/lib";
 import { ItemGroupChoices, ItemGroupConfirm } from "@/features/price-book/item-groups/item-group-picker";
+import { useUserMap } from "@/features/deals/hooks";
+import { itemAttributesKey, useItemAttributes } from "@/features/inventory/item-attributes/hooks";
+import { listItemAttributes } from "@/features/inventory/item-attributes/api";
+import { fetchAllUsers } from "@/features/technicians/api";
+import { queryKeys } from "@/lib/query-keys";
+import { WzDialogContent } from "@/features/inventory/item-edit/wz";
+import { settled } from "@/lib/use-page-ready";
+import { EstimateItemCard } from "./estimate-item-card";
 
 /** An existing document line being edited. */
 export interface PickerLine {
@@ -38,6 +47,9 @@ export interface PickerLine {
   costCompany: number;
   costForTech: number;
   taxable: boolean;
+  soldBy?: string;
+  customAttributes?: Record<string, string>;
+  optional?: boolean;
 }
 
 interface PickerProps {
@@ -53,11 +65,17 @@ interface PickerProps {
 }
 
 /**
- * Catalog picker for document lines (estimates). Same catalog search as the
- * job's Add item dialog, without the van-stock sourcing — an estimate
- * reserves nothing until it is synced to the job. The price is anyone's to
- * set, below zero too (owner, 2026-10-15); the Markup % and Cost boxes (the
- * line's own company cost, as on the job's card) are the office's.
+ * Catalog picker for document lines (estimates, client invoices). Same
+ * catalog search as the job's Add item dialog, without the van-stock
+ * sourcing — an estimate reserves nothing until it is synced to the job. The
+ * price is anyone's to set, below zero too (owner, 2026-10-15); the Markup %
+ * and Cost boxes (the line's own company cost, as on the job's card) are the
+ * office's.
+ *
+ * `itemCard="workiz"` (the estimate's): a picked item — and a line's own
+ * Edit — opens Workiz's item card, the job's card with Optional Item and
+ * without the van (`EstimateItemCard`). Without it (a client invoice) the
+ * line is set in the picker's own form, as before.
  *
  * What was typed and what was picked live in the body, which the dialog
  * mounts afresh on every open: a page that closes the picker by its own
@@ -68,17 +86,130 @@ interface PickerProps {
 export function ProductPickerDialog({
   open,
   onOpenChange,
+  itemCard,
   ...picker
 }: PickerProps & {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** `workiz`: the estimate's item card for a picked item and a line's Edit. */
+  itemCard?: "workiz";
 }) {
+  usePrefetchItemCard(itemCard === "workiz");
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
-        <PickerBody {...picker} />
-      </DialogContent>
+      {itemCard === "workiz" ? (
+        open ? <WorkizPickerFlow {...picker} onClose={() => onOpenChange(false)} /> : null
+      ) : (
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
+          <PickerBody {...picker} />
+        </DialogContent>
+      )}
     </Dialog>
+  );
+}
+
+/**
+ * Reads the card's lists ahead while the page is open — the custom fields and
+ * the people for "Sold by" — so a line's Edit opens whole at once, as the
+ * job's Items tab does (`usePrefetchJobItemCard`). Same keys as the card's own
+ * reads; the people only for a viewer who may list them.
+ */
+function usePrefetchItemCard(enabled: boolean) {
+  const qc = useQueryClient();
+  const { can } = usePermissions();
+  const mayListUsers = can("users", "view");
+  useEffect(() => {
+    if (!enabled) return;
+    void qc.prefetchQuery({ queryKey: itemAttributesKey, queryFn: listItemAttributes, staleTime: 5 * 60_000 });
+    if (mayListUsers) {
+      void qc.prefetchQuery({ queryKey: queryKeys.technicians.userMap(), queryFn: fetchAllUsers, staleTime: 5 * 60_000 });
+    }
+  }, [qc, enabled, mayListUsers]);
+}
+
+/** The search step both flows share: the item groups (when the page takes one), then the catalog. */
+function CatalogSearchStep({
+  search,
+  onSearch,
+  catalog,
+  groups,
+  onPick,
+  onPickGroup,
+}: {
+  search: string;
+  onSearch: (v: string) => void;
+  catalog: ReturnType<typeof useCatalogSearch>;
+  groups: ItemGroup[];
+  onPick: (p: Product) => void;
+  onPickGroup: (g: ItemGroup) => void;
+}) {
+  return (
+    <>
+      <div className="relative">
+        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          className="h-9 pl-8"
+          placeholder="Search catalog by name or SKU"
+          aria-label="Search catalog"
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          autoFocus
+        />
+      </div>
+      <div className="max-h-80 space-y-1.5 overflow-y-auto">
+        <ItemGroupChoices groups={groups} limit={search.trim() ? undefined : 3} onPick={onPickGroup} />
+        {catalog.isLoading ? (
+          <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> Loading catalog…
+          </div>
+        ) : catalog.isError ? (
+          <div className="py-3 text-sm text-destructive">
+            <p>Couldn&apos;t load the catalog.</p>
+            <p className="text-xs text-muted-foreground">{getApiErrorMessage(catalog.error)}</p>
+          </div>
+        ) : catalog.products.length === 0 ? (
+          <p className="py-3 text-sm text-muted-foreground">No products found.</p>
+        ) : (
+          <>
+            {/* The last answer stays, dimmed, while the next search runs. */}
+            <div className={cn("space-y-1.5", catalog.isStale && "opacity-70")}>
+              {catalog.products.map((p) => {
+                const isService = p.type === ProductType.SERVICE;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => onPick(p)}
+                    className="flex w-full items-center gap-2.5 rounded-lg border p-2 text-left hover:bg-accent/50"
+                  >
+                    <span
+                      className={cn(
+                        "grid size-7 flex-none place-items-center rounded-md border",
+                        isService
+                          ? "bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300"
+                          : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      {isService ? <Wrench className="size-3.5" /> : <Package className="size-3.5" />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{p.name}</div>
+                      <div className="truncate font-mono text-[11px] text-muted-foreground">{p.sku}</div>
+                    </div>
+                    <span className="flex-none font-mono text-sm tabular-nums">{formatMoney(p.priceClient)}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {catalog.hasMore ? (
+              <p className="text-[11px] text-muted-foreground">
+                Showing the first {CATALOG_PAGE_SIZE} — type to narrow it down.
+              </p>
+            ) : null}
+          </>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -140,74 +271,102 @@ function PickerBody({ onSubmit, editing, pending, onAddGroup }: PickerProps) {
           }}
         />
       ) : (
-        <>
-          <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="h-9 pl-8"
-              placeholder="Search catalog by name or SKU"
-              aria-label="Search catalog"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              autoFocus
-            />
-          </div>
-          <div className="max-h-80 space-y-1.5 overflow-y-auto">
-            <ItemGroupChoices groups={matchedGroups} limit={search.trim() ? undefined : 3} onPick={setPickedGroup} />
-            {catalog.isLoading ? (
-              <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" /> Loading catalog…
-              </div>
-            ) : catalog.isError ? (
-              <div className="py-3 text-sm text-destructive">
-                <p>Couldn&apos;t load the catalog.</p>
-                <p className="text-xs text-muted-foreground">{getApiErrorMessage(catalog.error)}</p>
-              </div>
-            ) : catalog.products.length === 0 ? (
-              <p className="py-3 text-sm text-muted-foreground">No products found.</p>
-            ) : (
-              <>
-                {/* The last answer stays, dimmed, while the next search runs. */}
-                <div className={cn("space-y-1.5", catalog.isStale && "opacity-70")}>
-                  {catalog.products.map((p) => {
-                    const isService = p.type === ProductType.SERVICE;
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => setPicked(p)}
-                        className="flex w-full items-center gap-2.5 rounded-lg border p-2 text-left hover:bg-accent/50"
-                      >
-                        <span
-                          className={cn(
-                            "grid size-7 flex-none place-items-center rounded-md border",
-                            isService
-                              ? "bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300"
-                              : "bg-muted text-muted-foreground",
-                          )}
-                        >
-                          {isService ? <Wrench className="size-3.5" /> : <Package className="size-3.5" />}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium">{p.name}</div>
-                          <div className="truncate font-mono text-[11px] text-muted-foreground">{p.sku}</div>
-                        </div>
-                        <span className="flex-none font-mono text-sm tabular-nums">{formatMoney(p.priceClient)}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                {catalog.hasMore ? (
-                  <p className="text-[11px] text-muted-foreground">
-                    Showing the first {CATALOG_PAGE_SIZE} — type to narrow it down.
-                  </p>
-                ) : null}
-              </>
-            )}
-          </div>
-        </>
+        <CatalogSearchStep
+          search={search}
+          onSearch={setSearch}
+          catalog={catalog}
+          groups={matchedGroups}
+          onPick={setPicked}
+          onPickGroup={setPickedGroup}
+        />
       )}
     </>
+  );
+}
+
+/**
+ * The estimate's flow: the search in the house dialog (groups as before),
+ * then Workiz's item card in Workiz's dialog — one dialog, two windows, as
+ * the job's Add item. The card shows whole or not at all: never one whose
+ * custom fields or "Sold by" list drop in a moment later. An edit shows
+ * nothing until then; a pick keeps the search on screen.
+ */
+function WorkizPickerFlow({ onSubmit, editing, pending, onAddGroup, onClose }: PickerProps & { onClose: () => void }) {
+  const { can } = usePermissions();
+  const mayCost = can("financials", "view");
+  const [search, setSearch] = useState("");
+  const [picked, setPicked] = useState<Product | null>(null);
+  const [changing, setChanging] = useState(false);
+  const [pickedGroup, setPickedGroup] = useState<ItemGroup | null>(null);
+  const editingLine = editing && !changing ? editing : undefined;
+  const wantsCard = picked !== null || editingLine !== undefined;
+  const catalog = useCatalogSearch(search, !wantsCard && !pickedGroup);
+  const editingQuery = useCatalogProduct(editing?.productId);
+  // `undefined` while the edited line's item is read, `null` once it has left the catalog.
+  const editingProduct: Product | null | undefined = editingQuery.isError ? null : editingQuery.data;
+  const groups = useItemGroups(!!onAddGroup && !editing);
+  const matchedGroups = useMemo(
+    () => (onAddGroup && !editing ? pickableGroups(groups.data, search) : []),
+    [onAddGroup, editing, groups.data, search],
+  );
+  const memberIds = useMemo(() => pickedGroup?.members.map((m) => m.productId) ?? [], [pickedGroup]);
+  const members = useCatalogProducts(memberIds);
+  // The card's own reads: the people for "Sold by", the catalog's custom fields.
+  const { users, isLoading: usersLoading } = useUserMap();
+  const attributes = useItemAttributes();
+  const cardReady = settled(attributes) && !usersLoading;
+
+  const product = picked ?? (editingLine ? editingProduct : undefined);
+  if (wantsCard && product !== undefined && cardReady) {
+    return (
+      <WzDialogContent className="w-[620px]" testId="estimate-item-dialog">
+        <EstimateItemCard
+          key={picked?.id ?? editing?.productId}
+          product={product}
+          line={picked ? undefined : editingLine}
+          mayCost={mayCost}
+          users={users}
+          fields={attributes.data ?? []}
+          pending={!!pending}
+          onSave={onSubmit}
+          onClose={onClose}
+          // Back to the search to swap the item (our flow): a line's own, or a pick's.
+          onChangeItem={() => {
+            setPicked(null);
+            setChanging(true);
+          }}
+        />
+      </WzDialogContent>
+    );
+  }
+  // An edit opens on the card alone: nothing until it can show whole.
+  if (editingLine && !picked) return null;
+
+  return (
+    <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
+      <DialogHeader>
+        <DialogTitle>{pickedGroup ? "Add to estimate" : editing ? "Change item" : "Add an item"}</DialogTitle>
+        <DialogDescription className="sr-only">Pick a catalog product or service</DialogDescription>
+      </DialogHeader>
+      {pickedGroup && onAddGroup ? (
+        <ItemGroupConfirm
+          group={pickedGroup}
+          submitLabel="Add group"
+          pending={pending || members.isPending}
+          onBack={() => setPickedGroup(null)}
+          onSubmit={() => onAddGroup(groupEstimateLines(pickedGroup, members.map))}
+        />
+      ) : (
+        <CatalogSearchStep
+          search={search}
+          onSearch={setSearch}
+          catalog={catalog}
+          groups={matchedGroups}
+          onPick={setPicked}
+          onPickGroup={setPickedGroup}
+        />
+      )}
+    </DialogContent>
   );
 }
 

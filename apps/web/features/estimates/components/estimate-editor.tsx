@@ -86,7 +86,7 @@ import {
   useSyncEstimateToJob,
   useUpdateEstimate,
 } from "../hooks";
-import { estimateLocalTotals, estimateTitle, syncBlockReason } from "../lib";
+import { estimateLocalTotals, estimateTitle, estimateWithOptionalTotal, syncableItemCount, syncBlockReason } from "../lib";
 import { estimateHeaderSchema, type EstimateHeaderValues } from "../schemas";
 import { EstimateCoverField } from "./estimate-cover-field";
 import { EstimateItemsTable } from "./estimate-items-table";
@@ -202,7 +202,8 @@ export function EstimateEditor({
   const canDelete = can("estimates", "delete");
   const canSync = can("estimates", "sync");
   const canSeeCost = can("financials", "view");
-  const syncBlocked = syncBlockReason(estimate, items.length, canSync, !!deal);
+  // Sync to job leaves optional lines the client has not picked behind (Workiz).
+  const syncBlocked = syncBlockReason(estimate, syncableItemCount(items), canSync, !!deal);
   const jobItemCount = jobItems ?? deal?.itemCount ?? 0;
   // Workiz asks Replace / Add only when the job already has items; an empty job takes them at once.
   const startSync = () => (jobItemCount > 0 ? setSyncing(true) : sync.mutate("replace"));
@@ -210,7 +211,12 @@ export function EstimateEditor({
   const totals = isFetching ? localTotals : (estimate.totals ?? localTotals);
   const c = client.data;
   const clientFullName = c ? contactName(c) : "";
-  const itemCost = items.reduce((sum, i) => sum + i.costCompany * i.quantity, 0);
+  // The cost of what the Total counts: an unpicked optional line is in neither.
+  const itemCost = items.reduce(
+    (sum, i) => (i.optional === true && i.optionalSelected !== true ? sum : sum + i.costCompany * i.quantity),
+    0,
+  );
+  const withOptional = estimateWithOptionalTotal(estimate, items);
   const margin = totals.subtotal > 0 ? Math.round(((totals.subtotal - itemCost) / totals.subtotal) * 1000) / 10 : null;
 
   const saveHeader = (patch: Partial<EstimateHeaderValues>) => {
@@ -656,6 +662,8 @@ export function EstimateEditor({
           pending={update.isPending && (update.variables?.taxRateId !== undefined || update.variables?.discount !== undefined)}
           onTaxChange={(taxRateId) => update.mutate({ taxRateId })}
           onDiscountChange={(discount) => update.mutate({ discount })}
+          // Workiz's "With optional :" under "Total :" — the Total with every optional line picked.
+          leftRows={<WzTotalsBoxRow label="With optional">{formatBoxAmount(withOptional)}</WzTotalsBoxRow>}
           extraRows={
             <>
               {canSeeCost ? (

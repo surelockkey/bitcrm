@@ -1,6 +1,8 @@
 import {
   ESTIMATE_STATUSES,
   calculateDocumentTotals,
+  countsTowardTotals,
+  withOptionalSelected,
   type DocumentTotals,
   type Estimate,
   type EstimateItem,
@@ -132,16 +134,34 @@ export function syncBlockReason(
 
 /* --------------------------------------------------------------- items */
 
-/** Same formula as the server; used while the server totals are refetching. */
+type TotalsItem = Pick<EstimateItem, "quantity" | "priceClient" | "taxable" | "optional" | "optionalSelected">;
+
+/**
+ * Same formula as the server; used while the server totals are refetching.
+ * An optional line the client has not picked is out of it (Workiz's Total).
+ */
 export function estimateLocalTotals(
   e: Pick<Estimate, "taxRatePercent" | "discount" | "taxSource">,
-  items: Pick<EstimateItem, "quantity" | "priceClient" | "taxable">[],
+  items: TotalsItem[],
 ): DocumentTotals {
   return calculateDocumentTotals({
     lines: items,
     taxRatePercent: e.taxSource === "exempt" ? 0 : e.taxRatePercent,
     discount: e.discount,
   });
+}
+
+/** Workiz's "With optional :" — the Total with every optional line picked. */
+export function estimateWithOptionalTotal(
+  e: Pick<Estimate, "taxRatePercent" | "discount" | "taxSource">,
+  items: TotalsItem[],
+): number {
+  return estimateLocalTotals(e, withOptionalSelected(items)).total;
+}
+
+/** The lines Sync to job takes: the required ones and the optional ones the client picked. */
+export function syncableItemCount(items: Pick<EstimateItem, "optional" | "optionalSelected">[]): number {
+  return items.filter(countsTowardTotals).length;
 }
 
 export function reorderLineIds(ids: string[], activeId: string, overId: string): string[] {
@@ -159,7 +179,8 @@ export function itemBodyFrom(
   item: Pick<
     EstimateItem,
     "productId" | "productType" | "name" | "sku" | "description" | "quantity" | "priceClient" | "costCompany" | "costForTech" | "taxable"
-  >,
+  > &
+    Partial<Pick<EstimateItem, "soldBy" | "customAttributes" | "optional">>,
   changes: Partial<EstimateItemBody>,
 ): EstimateItemBody {
   return {
@@ -173,6 +194,9 @@ export function itemBodyFrom(
     costCompany: item.costCompany,
     costForTech: item.costForTech,
     taxable: item.taxable,
+    ...(item.soldBy && { soldBy: item.soldBy }),
+    ...(item.customAttributes && { customAttributes: item.customAttributes }),
+    ...(item.optional && { optional: true }),
     ...changes,
   };
 }

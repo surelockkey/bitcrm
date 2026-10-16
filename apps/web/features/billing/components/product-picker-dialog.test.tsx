@@ -54,8 +54,9 @@ const group = {
  * /inventory/products` that narrows by `status` and `search` (name or SKU,
  * any case) the way the server does, one item by id, and the item groups.
  */
-function catalogServer() {
+function catalogServer(extra: Parameters<typeof installFakeServer>[0] = []) {
   return installFakeServer([
+    ...extra,
     {
       match: /\/inventory\/products$/,
       raw: true,
@@ -388,5 +389,101 @@ describe("ProductPickerDialog", () => {
 
       expect(onSubmit.mock.calls[0][0]).toMatchObject({ costCompany: 15, costForTech: 18 });
     });
+  });
+});
+
+/** The card's own reads besides the catalog: the people for "Sold by" and the item catalog's custom fields. */
+const cardRoutes: Parameters<typeof installFakeServer>[0] = [
+  {
+    match: /\/users$/,
+    raw: true,
+    reply: () => ({
+      success: true,
+      data: [
+        { id: "u1", firstName: "Ann", lastName: "Seller" },
+        { id: "u2", firstName: "Carl", lastName: "Sales" },
+      ],
+      pagination: { count: 2 },
+    }),
+  },
+  {
+    match: /\/inventory\/item-attributes$/,
+    reply: () => [{ id: "a1", name: "SKU_CRM", type: "text", visible: false, resource: "items" }],
+  },
+];
+
+describe("ProductPickerDialog — Workiz's item card (estimates)", () => {
+  it("a pick opens Workiz's \"Add estimate items\" card — Optional Item, no van — and Save hands the line back", async () => {
+    catalogServer(cardRoutes);
+    const onSubmit = vi.fn();
+    renderWithClient(<ProductPickerDialog open itemCard="workiz" onOpenChange={() => {}} onSubmit={onSubmit} />);
+    const u = user();
+    await u.click(await screen.findByText("Deadbolt"));
+
+    expect(await screen.findByText("Add estimate items")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Inventory location" })).toBeNull();
+    expect(screen.getByLabelText("SKU_CRM")).toBeInTheDocument();
+    await u.click(screen.getByRole("switch", { name: "Optional Item" }));
+    await u.click(screen.getByRole("combobox", { name: "Sold by" }));
+    await u.click(screen.getByRole("option", { name: "Carl Sales" }));
+    await u.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith({
+        productId: "p1",
+        productType: ProductType.PRODUCT,
+        name: "Deadbolt",
+        sku: "DB-1",
+        quantity: 1,
+        priceClient: 100,
+        costCompany: 20,
+        costForTech: 25,
+        taxable: true,
+        soldBy: "u2",
+        customAttributes: {},
+        optional: true,
+      }),
+    );
+  });
+
+  it("an edit opens straight on the card with the line's Sold by, fields and Optional; Change item goes back to the search", async () => {
+    catalogServer(cardRoutes);
+    renderWithClient(
+      <ProductPickerDialog
+        open
+        itemCard="workiz"
+        onOpenChange={() => {}}
+        onSubmit={() => {}}
+        editing={{
+          productId: "p1", name: "Deadbolt", sku: "DB-1", quantity: 2, priceClient: 90, costCompany: 20, costForTech: 25,
+          taxable: true, soldBy: "u1", customAttributes: { SKU_CRM: "X-1" }, optional: true,
+        }}
+      />,
+    );
+    expect(await screen.findByText("Edit estimate items")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Sold by" })).toHaveTextContent("Ann Seller");
+    expect(screen.getByLabelText("SKU_CRM")).toHaveValue("X-1");
+    expect(screen.getByRole("switch", { name: "Optional Item" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByLabelText("Quantity")).toHaveValue(2);
+
+    const u = user();
+    await u.click(screen.getByRole("button", { name: "Change item" }));
+    expect(await screen.findByRole("textbox", { name: "Search catalog" })).toBeInTheDocument();
+  });
+
+  it("an edited line whose item left the catalog still opens on the card", async () => {
+    catalogServer(cardRoutes);
+    renderWithClient(
+      <ProductPickerDialog
+        open
+        itemCard="workiz"
+        onOpenChange={() => {}}
+        onSubmit={() => {}}
+        editing={{ productId: "gone", name: "Old hinge", sku: "H-0", quantity: 1, priceClient: 9, costCompany: 1, costForTech: 1, taxable: true }}
+      />,
+    );
+    expect(await screen.findByText("Edit estimate items")).toBeInTheDocument();
+    expect(screen.getByText(/no longer in the catalog/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Item Name")).toHaveValue("Old hinge");
   });
 });

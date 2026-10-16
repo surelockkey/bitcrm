@@ -9,6 +9,8 @@ import {
   estimateStatusLabel,
   estimateTitle,
   itemBodyFrom,
+  estimateWithOptionalTotal,
+  syncableItemCount,
   normalizeEstimateSummary,
   reorderLineIds,
   syncBlockReason,
@@ -80,6 +82,25 @@ describe("estimateLocalTotals", () => {
   });
 });
 
+describe("optional lines (Workiz \"Optional Item\")", () => {
+  const e = { taxRatePercent: 10, discount: undefined, taxSource: "manual" } as Estimate;
+  const items = [
+    { quantity: 1, priceClient: 100, taxable: true },
+    { quantity: 1, priceClient: 50, taxable: true, optional: true },
+  ] as EstimateItem[];
+
+  it("leaves an unpicked optional line out of the Total; \"With optional\" counts it", () => {
+    expect(estimateLocalTotals(e, items).total).toBe(110);
+    expect(estimateWithOptionalTotal(e, items)).toBe(165);
+  });
+
+  it("counts only the lines Sync to job takes: required ones and optional ones the client picked", () => {
+    expect(syncableItemCount(items)).toBe(1);
+    expect(syncableItemCount([...items, { ...items[1], optionalSelected: true }])).toBe(2);
+    expect(syncBlockReason({ status: "pending" }, syncableItemCount([items[1]]), true)).toMatch(/at least one item/i);
+  });
+});
+
 describe("reorderLineIds", () => {
   it("moves a line to a new slot", () => {
     expect(reorderLineIds(["a", "b", "c"], "c", "a")).toEqual(["c", "a", "b"]);
@@ -110,6 +131,18 @@ describe("misc", () => {
     expect(itemBodyFrom(item, { quantity: 3 })).toEqual({
       productId: "p1", productType: undefined, name: "Lock", sku: "L-1", description: undefined,
       quantity: 3, priceClient: 10, costCompany: 4, costForTech: 5, taxable: false,
+    });
+  });
+
+  it("keeps the line's Sold by, custom fields and Optional in the body (an in-place edit wipes none of them)", () => {
+    const item = {
+      lineId: "l1", estimateId: "e1", position: 0, productId: "p1", name: "Lock", sku: "L-1",
+      quantity: 2, priceClient: 10, costCompany: 4, costForTech: 5, taxable: false,
+      soldBy: "u-7", customAttributes: { SKU_CRM: "X" }, optional: true,
+      createdAt: "", updatedAt: "",
+    } as EstimateItem;
+    expect(itemBodyFrom(item, { priceClient: 12 })).toMatchObject({
+      priceClient: 12, soldBy: "u-7", customAttributes: { SKU_CRM: "X" }, optional: true,
     });
   });
 });
