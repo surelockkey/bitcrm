@@ -27,6 +27,28 @@ export interface TotalsLine {
    * out of the amount a percent discount is taken of.
    */
   discountable?: boolean;
+  /**
+   * Workiz "Optional Item" (estimates only): offered, not required. Left out
+   * of every figure until the client picks it (`optionalSelected`) — Workiz's
+   * estimate Total is the required lines alone, and "With optional" is the
+   * figure with every optional line picked (`withOptionalSelected`).
+   */
+  optional?: boolean;
+  /** The client picked this optional line (Workiz `optional_selected`). */
+  optionalSelected?: boolean;
+}
+
+/** Whether a line counts toward the totals: a required line, or an optional one the client picked. */
+export function countsTowardTotals(line: Pick<TotalsLine, 'optional' | 'optionalSelected'>): boolean {
+  return line.optional !== true || line.optionalSelected === true;
+}
+
+/**
+ * The same lines with every optional one picked — Workiz's "With optional"
+ * total on an estimate. The lines given are left as they are.
+ */
+export function withOptionalSelected<T extends TotalsLine>(lines: readonly T[]): T[] {
+  return lines.map((l) => (l.optional === true && l.optionalSelected !== true ? { ...l, optionalSelected: true } : l));
 }
 
 export interface DocumentTotals {
@@ -91,6 +113,8 @@ export function lineAmount(line: Pick<TotalsLine, 'quantity' | 'priceClient'>): 
  * 3. tax = rate × (taxable amount − its share of the discount), rounded to
  *    the cent once. A negative base (credit lines) owes no tax.
  * 4. total = (subtotal − discount) rounded to the cent, plus tax.
+ * 5. An optional line the client has not picked (estimates) is in none of
+ *    it; `lineCount` still counts every line.
  *
  * Every rounding is `toCents`: half away from zero on the decimal value. The
  * subtotal is rounded on its own and the discount shown is what is left, so
@@ -102,6 +126,7 @@ export function calculateDocumentTotals(input: TotalsInput): DocumentTotals {
   let discountable = 0;
   let taxableDiscountable = 0;
   for (const line of input.lines) {
+    if (!countsTowardTotals(line)) continue;
     const amount = safe(line.quantity) * safe(line.priceClient);
     const isTaxable = line.taxable !== false;
     const isDiscountable = line.discountable !== false;

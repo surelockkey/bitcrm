@@ -25,6 +25,18 @@ export interface EstimateItem {
   costCompany: number;
   costForTech: number;
   taxable: boolean;
+  /** Workiz "Sold by": a user id. Copied to the job line on sync. */
+  soldBy?: string;
+  /** The line's custom field values, by field name (the item catalog's), as on a job line. */
+  customAttributes?: Record<string, string>;
+  /**
+   * Workiz "Optional Item": offered, not required — out of the estimate's
+   * Total until the client picks it (`optionalSelected`), and left behind by
+   * Sync to job until then.
+   */
+  optional?: boolean;
+  /** The client picked this optional line (Workiz `optional_selected`; the import carries it). */
+  optionalSelected?: boolean;
   createdAt: string;
   updatedAt: string;
 }

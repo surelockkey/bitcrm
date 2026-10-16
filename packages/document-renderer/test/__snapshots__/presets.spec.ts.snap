@@ -49,6 +49,7 @@ hr{border:0;margin:4px 0;height:0}
 .items td.empty{text-align:center;color:var(--muted);padding:16px}
 .item-name{font-weight:600}
 .item-desc{color:var(--muted);font-size:.9em;margin-top:2px;white-space:pre-line}
+.item-optional{color:#3c8ddc;font-size:.8em;letter-spacing:.02em;margin-top:2px;text-transform:uppercase}
 .tax-mark{color:var(--accent);font-weight:700}
 .totals{width:100%;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}
 .totals td{padding:4px 8px}
@@ -148,6 +149,7 @@ hr{border:0;margin:4px 0;height:0}
 .items td.empty{text-align:center;color:var(--muted);padding:16px}
 .item-name{font-weight:600}
 .item-desc{color:var(--muted);font-size:.9em;margin-top:2px;white-space:pre-line}
+.item-optional{color:#3c8ddc;font-size:.8em;letter-spacing:.02em;margin-top:2px;text-transform:uppercase}
 .tax-mark{color:var(--accent);font-weight:700}
 .totals{width:100%;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}
 .totals td{padding:4px 8px}
@@ -250,6 +252,7 @@ hr{border:0;margin:4px 0;height:0}
 .items td.empty{text-align:center;color:var(--muted);padding:16px}
 .item-name{font-weight:600}
 .item-desc{color:var(--muted);font-size:.9em;margin-top:2px;white-space:pre-line}
+.item-optional{color:#3c8ddc;font-size:.8em;letter-spacing:.02em;margin-top:2px;text-transform:uppercase}
 .tax-mark{color:var(--accent);font-weight:700}
 .totals{width:100%;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}
 .totals td{padding:4px 8px}
@@ -348,6 +351,7 @@ hr{border:0;margin:4px 0;height:0}
 .items td.empty{text-align:center;color:var(--muted);padding:16px}
 .item-name{font-weight:600}
 .item-desc{color:var(--muted);font-size:.9em;margin-top:2px;white-space:pre-line}
+.item-optional{color:#3c8ddc;font-size:.8em;letter-spacing:.02em;margin-top:2px;text-transform:uppercase}
 .tax-mark{color:var(--accent);font-weight:700}
 .totals{width:100%;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}
 .totals td{padding:4px 8px}
@@ -448,6 +452,7 @@ hr{border:0;margin:4px 0;height:0}
 .items td.empty{text-align:center;color:var(--muted);padding:16px}
 .item-name{font-weight:600}
 .item-desc{color:var(--muted);font-size:.9em;margin-top:2px;white-space:pre-line}
+.item-optional{color:#3c8ddc;font-size:.8em;letter-spacing:.02em;margin-top:2px;text-transform:uppercase}
 .tax-mark{color:var(--accent);font-weight:700}
 .totals{width:100%;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}
 .totals td{padding:4px 8px}
@@ -552,6 +557,7 @@ hr{border:0;margin:4px 0;height:0}
 .items td.empty{text-align:center;color:var(--muted);padding:16px}
 .item-name{font-weight:600}
 .item-desc{color:var(--muted);font-size:.9em;margin-top:2px;white-space:pre-line}
+.item-optional{color:#3c8ddc;font-size:.8em;letter-spacing:.02em;margin-top:2px;text-transform:uppercase}
 .tax-mark{color:var(--accent);font-weight:700}
 .totals{width:100%;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}
 .totals td{padding:4px 8px}
@@ -654,6 +660,7 @@ hr{border:0;margin:4px 0;height:0}
 .items td.empty{text-align:center;color:var(--muted);padding:16px}
 .item-name{font-weight:600}
 .item-desc{color:var(--muted);font-size:.9em;margin-top:2px;white-space:pre-line}
+.item-optional{color:#3c8ddc;font-size:.8em;letter-spacing:.02em;margin-top:2px;text-transform:uppercase}
 .tax-mark{color:var(--accent);font-weight:700}
 .totals{width:100%;border-collapse:collapse;break-inside:avoid;page-break-inside:avoid}
 .totals td{padding:4px 8px}

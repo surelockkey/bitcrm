@@ -119,7 +119,14 @@ function renderItemsTable(
 
   const items = Array.isArray(ctx.items) ? ctx.items : [];
   const currency = ctx.currency;
+  // Workiz prints "OPTIONAL" under an optional line's amount; under its name when no amount is shown.
+  const optionalUnder: ItemsTableColumn = columns.some((c) => c.key === 'amount') ? 'amount' : 'name';
+  const optionalMark = '<div class="item-optional">Optional</div>';
   const cell = (key: ItemsTableColumn, item: DocumentRenderContext['items'][number]): string => {
+    const content = baseCell(key, item);
+    return item.optional === true && key === optionalUnder ? `${content}${optionalMark}` : content;
+  };
+  const baseCell = (key: ItemsTableColumn, item: DocumentRenderContext['items'][number]): string => {
     switch (key) {
       case 'name': {
         const desc = showDescription && item.description ? `<div class="item-desc">${escapeHtml(item.description)}</div>` : '';

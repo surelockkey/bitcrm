@@ -475,8 +475,10 @@ export type {
 // Billing (taxes, invoices, estimates, document templates, client portal)
 export {
   calculateDocumentTotals,
+  countsTowardTotals,
   effectiveTaxRatePercent,
   lineAmount,
+  withOptionalSelected,
 } from './billing/totals';
 export type {
   DocumentDiscount,

@@ -342,6 +342,10 @@ export class DealBillingService {
             previous.orderedAt && { orderedAt: previous.orderedAt }),
           taxable: line.taxable ?? true,
           ...(line.description && { description: line.description }),
+          ...(line.soldBy && { soldBy: line.soldBy }),
+          ...(line.customAttributes && Object.keys(line.customAttributes).length > 0 && {
+            customAttributes: line.customAttributes,
+          }),
           addedBy: previous?.addedBy ?? actor.id,
           addedAt: previous?.addedAt ?? now,
           updatedBy: actor.id,

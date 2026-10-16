@@ -193,6 +193,8 @@ export class DocumentContextBuilder {
         unitPrice: l.priceClient,
         amount: l.amount,
         taxable: l.taxable !== false,
+        // Workiz prints "OPTIONAL" on an optional estimate line, picked or not.
+        ...('optional' in l && l.optional === true && { optional: true }),
       })),
       totals: {
         subtotal: totals.subtotal,

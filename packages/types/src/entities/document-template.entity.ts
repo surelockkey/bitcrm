@@ -287,6 +287,8 @@ export interface DocumentRenderContext {
     unitPrice: number;
     amount: number;
     taxable: boolean;
+    /** Workiz "Optional Item" (estimates): printed "OPTIONAL" under the amount, out of the totals until picked. */
+    optional?: boolean;
   }[];
   totals: {
     subtotal: number;
