@@ -140,10 +140,17 @@ export function sortItems<T extends Pick<EstimateItem, 'position' | 'createdAt'>
 
 export function estimateTotals(
   estimate: Pick<Estimate, 'taxRatePercent' | 'taxSource' | 'discount'>,
-  items: Pick<EstimateItem, 'quantity' | 'priceClient' | 'taxable'>[],
+  items: Pick<EstimateItem, 'quantity' | 'priceClient' | 'taxable' | 'optional' | 'optionalSelected'>[],
 ): DocumentTotals {
   return calculateDocumentTotals({
-    lines: items.map((i) => ({ quantity: i.quantity, priceClient: i.priceClient, taxable: i.taxable })),
+    // An optional line the client has not picked is out of the Total (Workiz).
+    lines: items.map((i) => ({
+      quantity: i.quantity,
+      priceClient: i.priceClient,
+      taxable: i.taxable,
+      optional: i.optional,
+      optionalSelected: i.optionalSelected,
+    })),
     taxRatePercent: estimate.taxSource === 'exempt' ? 0 : estimate.taxRatePercent ?? 0,
     discount: estimate.discount ?? undefined,
   });

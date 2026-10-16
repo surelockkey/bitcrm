@@ -266,6 +266,26 @@ describe('renderBlockHtml', () => {
       expect(html.match(/class="tax-mark"/g)).toHaveLength(1);
     });
 
+    it('labels an optional line OPTIONAL under its amount, as Workiz prints it', () => {
+      const withOptional = {
+        ...ctx,
+        items: [items[0], { ...items[1], optional: true }],
+      };
+      const html = renderBlockHtml(block(), withOptional, templateWith());
+      expect(html.match(/class="item-optional"/g)).toHaveLength(1);
+      // Under the amount, in the second line's row.
+      const rows = html.split('<tr>').slice(1);
+      expect(rows[1]).toMatch(/\$79\.00<div class="item-optional">Optional<\/div>/);
+      expect(rows[0]).not.toContain('item-optional');
+    });
+
+    it('labels an optional line under its name when the amount column is hidden', () => {
+      const t1 = templateWith();
+      t1.visibility = { ...t1.visibility, lineAmount: false };
+      const html = renderBlockHtml(block(), { ...ctx, items: [{ ...items[1], optional: true }] }, t1);
+      expect(html).toMatch(/<div class="item-name">Service call<\/div><div class="item-optional">Optional<\/div>/);
+    });
+
     it('shows an empty-state row in screen mode', () => {
       expect(renderBlockHtml(block(), { ...ctx, items: [] }, tpl, { mode: 'screen' })).toContain('No items');
       expect(renderBlockHtml(block(), { ...ctx, items: [] }, tpl, { mode: 'pdf' })).not.toContain('No items');

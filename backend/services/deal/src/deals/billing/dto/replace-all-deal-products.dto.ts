@@ -1,5 +1,5 @@
 import {
-  IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, Max, MaxLength, Min, ValidateNested,
+  IsArray, IsBoolean, IsIn, IsNumber, IsObject, IsOptional, IsString, Max, MaxLength, Min, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -50,6 +50,20 @@ export class ReplaceAllDealProductItemDto {
   @IsOptional()
   @IsBoolean()
   taxable?: boolean;
+
+  @ApiPropertyOptional({ example: 'user-uuid', description: 'Workiz "Sold by": a user id, as the estimate line has it.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  soldBy?: string;
+
+  @ApiPropertyOptional({
+    example: { 'In Store Location': 'B4' },
+    description: "The estimate line's custom field values, by field name.",
+  })
+  @IsOptional()
+  @IsObject()
+  customAttributes?: Record<string, string>;
 }
 
 export class ReplaceAllDealProductsDto {

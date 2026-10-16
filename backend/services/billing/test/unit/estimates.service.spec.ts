@@ -613,7 +613,14 @@ describe('EstimatesService', () => {
       deal.getBillingView.mockResolvedValueOnce(
         billingView({}, [
           dealProduct(),
-          dealProduct({ productId: 'svc-1', fulfillment: 'service', taxable: false, description: 'Labor' }),
+          dealProduct({
+            productId: 'svc-1',
+            fulfillment: 'service',
+            taxable: false,
+            description: 'Labor',
+            soldBy: 'u-3',
+            customAttributes: { LINK_PHOTOS: 'https://x' },
+          }),
         ]),
       );
       const copied = await service.create({ dealId: 'deal-1', copyJobItems: true }, caller());
@@ -625,6 +632,8 @@ describe('EstimatesService', () => {
         taxable: false,
         productType: 'service',
         description: 'Labor',
+        soldBy: 'u-3',
+        customAttributes: { LINK_PHOTOS: 'https://x' },
       });
       expect(copied.totals.subtotal).toBe(200);
     });
@@ -673,6 +682,53 @@ describe('EstimatesService', () => {
       expect(e.items[0].quantity).toBe(3);
       expect(e.totals.subtotal).toBe(600);
       await expect(service.updateItem(id, 'nope', itemDto(), caller())).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('keeps Sold by, the custom fields and Optional Item on a line (the Workiz item card)', async () => {
+      const e = await service.addItem(
+        id,
+        itemDto({ soldBy: 'u-7', customAttributes: { 'In Store Location': 'B4' }, optional: true }),
+        caller(),
+      );
+      expect(e.items[0]).toMatchObject({
+        soldBy: 'u-7',
+        customAttributes: { 'In Store Location': 'B4' },
+        optional: true,
+      });
+    });
+
+    it('a line saved without them keeps what it had: an older app never wipes Sold by, the fields or Optional', async () => {
+      const lineId = (
+        await service.addItem(
+          id,
+          itemDto({ soldBy: 'u-7', customAttributes: { SKU_CRM: 'X1' }, optional: true }),
+          caller(),
+        )
+      ).items[0].lineId;
+      const e = await service.updateItem(id, lineId, itemDto({ quantity: 4 }), caller());
+      expect(e.items[0]).toMatchObject({
+        quantity: 4,
+        soldBy: 'u-7',
+        customAttributes: { SKU_CRM: 'X1' },
+        optional: true,
+      });
+    });
+
+    it('an edit can clear Sold by ("") and make an optional line required again', async () => {
+      const lineId = (
+        await service.addItem(id, itemDto({ soldBy: 'u-7', optional: true, optionalSelected: true }), caller())
+      ).items[0].lineId;
+      const e = await service.updateItem(id, lineId, itemDto({ soldBy: '', optional: false }), caller());
+      expect(e.items[0].soldBy).toBeUndefined();
+      expect(e.items[0].optional).toBeUndefined();
+      expect(e.items[0].optionalSelected).toBeUndefined();
+    });
+
+    it('an optional line the client has not picked is out of the total (Workiz)', async () => {
+      await service.addItem(id, itemDto(), caller());
+      const e = await service.addItem(id, itemDto({ productId: 'p-10', priceClient: 100, optional: true }), caller());
+      expect(e.totals.subtotal).toBe(200);
+      expect(repo.estimates.get(id)!.totals.total).toBe(212.7);
     });
 
     it('toggles taxable', async () => {
@@ -839,6 +895,26 @@ describe('EstimatesService', () => {
         syncedBy: 'u-1',
       });
       expect(events.estimate).toHaveBeenCalledWith(BillingEventType.ESTIMATE_SYNCED, expect.anything());
+    });
+
+    it('carries Sold by and the custom fields to the job, and leaves out optional lines the client did not pick', async () => {
+      await service.addItem(id, itemDto({ soldBy: 'u-7', customAttributes: { SKU_UHS: 'U-1' } }), caller());
+      await service.addItem(id, itemDto({ productId: 'opt-1', optional: true }), caller());
+      await service.addItem(id, itemDto({ productId: 'opt-2', optional: true, optionalSelected: true }), caller());
+      deal.replaceAllProducts.mockResolvedValueOnce({ items: [], deal: {} as never });
+
+      await service.syncToJob(id, caller());
+
+      const body = deal.replaceAllProducts.mock.calls[0][1];
+      expect(body.items.map((i: { productId: string }) => i.productId)).toEqual(['p-9', 'opt-2']);
+      expect(body.items[0]).toMatchObject({ soldBy: 'u-7', customAttributes: { SKU_UHS: 'U-1' } });
+      expect(body.items[1]).not.toHaveProperty('optional');
+    });
+
+    it('an estimate of only unpicked optional lines has nothing to sync', async () => {
+      await service.addItem(id, itemDto({ optional: true }), caller());
+      await expect(service.syncToJob(id, caller())).rejects.toBeInstanceOf(UnprocessableEntityException);
+      expect(deal.replaceAllProducts).not.toHaveBeenCalled();
     });
 
     it('Add to existing job items: asks deal-service to append, without touching the job’s tax or discount', async () => {

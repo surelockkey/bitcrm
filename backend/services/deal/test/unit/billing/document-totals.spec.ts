@@ -2,6 +2,7 @@ import {
   calculateDocumentTotals,
   effectiveTaxRatePercent,
   lineAmount,
+  withOptionalSelected,
   type TaxRate,
 } from '@bitcrm/types';
 
@@ -285,6 +286,67 @@ describe('lineAmount', () => {
     // 10.075 is stored as 10.07499…; the line still shows 10.08.
     expect(lineAmount({ quantity: 1, priceClient: 10.075 })).toBe(10.08);
     expect(lineAmount({ quantity: 1.15, priceClient: 100.5 })).toBe(115.58);
+  });
+});
+
+describe('optional lines (Workiz "Optional Item" on an estimate)', () => {
+  // Workiz's estimate Total is the required lines alone until the client picks
+  // an optional one: 113 of the 124 dump estimates with optional lines agree,
+  // none agrees with them counted (e.g. 4439910: a 750.00 optional left out).
+  it('leaves an unselected optional line out of every figure', () => {
+    const t = calculateDocumentTotals({
+      lines: [
+        { quantity: 1, priceClient: 100 },
+        { quantity: 1, priceClient: 50, optional: true },
+      ],
+      taxRatePercent: 10,
+    });
+    expect(t.subtotal).toBe(100);
+    expect(t.taxableSubtotal).toBe(100);
+    expect(t.tax).toBe(10);
+    expect(t.total).toBe(110);
+  });
+
+  it('counts an optional line the client selected', () => {
+    const t = calculateDocumentTotals({
+      lines: [
+        { quantity: 1, priceClient: 100 },
+        { quantity: 2, priceClient: 25, optional: true, optionalSelected: true },
+      ],
+      taxRatePercent: 10,
+    });
+    expect(t.subtotal).toBe(150);
+    expect(t.total).toBe(165);
+  });
+
+  it('keeps an unselected optional line out of the amount a percent discount is taken of', () => {
+    const t = calculateDocumentTotals({
+      lines: [
+        { quantity: 1, priceClient: 200 },
+        { quantity: 1, priceClient: 800, optional: true },
+      ],
+      discount: { type: 'percent', value: 10 },
+    });
+    expect(t.discount).toBe(20);
+    expect(t.total).toBe(180);
+  });
+
+  it('still counts every line in lineCount', () => {
+    const t = calculateDocumentTotals({
+      lines: [{ quantity: 1, priceClient: 10 }, { quantity: 1, priceClient: 5, optional: true }],
+    });
+    expect(t.lineCount).toBe(2);
+  });
+
+  it('withOptionalSelected marks every optional line picked — Workiz "With optional"', () => {
+    const lines = [
+      { quantity: 1, priceClient: 100 },
+      { quantity: 1, priceClient: 50, optional: true },
+    ];
+    const t = calculateDocumentTotals({ lines: withOptionalSelected(lines), taxRatePercent: 10 });
+    expect(t.total).toBe(165);
+    // The lines given are not changed.
+    expect(lines[1]).toEqual({ quantity: 1, priceClient: 50, optional: true });
   });
 });
 

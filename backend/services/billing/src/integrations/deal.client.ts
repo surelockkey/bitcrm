@@ -37,6 +37,10 @@ export interface ReplaceAllItem {
   costCompany: number;
   costForTech: number;
   taxable: boolean;
+  /** Workiz "Sold by" (a user id), as the estimate line has it. */
+  soldBy?: string;
+  /** The line's custom field values, by field name. */
+  customAttributes?: Record<string, string>;
 }
 
 export interface ReplaceAllRequest {

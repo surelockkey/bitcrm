@@ -389,6 +389,23 @@ describe('DealBillingService', () => {
       expect(result.deal.id).toBe('deal-1');
     });
 
+    it('puts the estimate line’s Sold by and custom fields on the job line (Workiz carries both)', async () => {
+      current = createMockDeal({ assignedTechIds: [] });
+      products.findByDeal.mockResolvedValueOnce([]);
+
+      await service.replaceAllProducts('deal-1', dto({
+        items: [
+          line({ soldBy: 'u-7', customAttributes: { 'In Store Location': 'B4' } }),
+          line({ productId: 's1', productType: 'service', name: 'Labor' }),
+        ],
+      }) as any);
+
+      const written = products.addProduct.mock.calls.map((c) => c[1]);
+      expect(written[0]).toMatchObject({ soldBy: 'u-7', customAttributes: { 'In Store Location': 'B4' } });
+      expect(written[1]).not.toHaveProperty('soldBy');
+      expect(written[1]).not.toHaveProperty('customAttributes');
+    });
+
     // Workiz "This job already has items" → "Add to existing job items".
     it('append adds the estimate lines beside the job’s own: nothing restored or removed, job tax and discount kept', async () => {
       current = createMockDeal({ assignedTechIds: ['t1'], taxSource: 'default', taxRateId: 'd', discount: { type: 'amount', value: 1 } });

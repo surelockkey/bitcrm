@@ -223,6 +223,24 @@ describe('DocumentContextBuilder', () => {
     expect(ctx.totals).toMatchObject({ subtotal: 110, discount: 10, tax: 10, total: 110 });
   });
 
+  it('marks an optional estimate line and leaves it out of the totals until the client picks it (Workiz)', async () => {
+    const est = {
+      id: 'e1',
+      number: 'K4T9ZW-1',
+      status: 'pending',
+      estimateDate: '2026-09-15',
+      taxRatePercent: 10,
+      items: [
+        { lineId: 'l1', productId: 'p', name: 'Lock', sku: 'L', quantity: 1, priceClient: 100, taxable: true, position: 0 },
+        { lineId: 'l2', productId: 'q', name: 'Painting', sku: 'P', quantity: 1, priceClient: 750, taxable: true, position: 1, optional: true },
+      ],
+    } as unknown as EstimateWithItems;
+    const ctx = await builder.build('estimate', est, billingView({}, [dealProduct()]), template({ kind: 'estimate', body: [], footer: [] }));
+    expect(ctx.items.map((i) => i.optional)).toEqual([undefined, true]);
+    expect(ctx.items[1].amount).toBe(750);
+    expect(ctx.totals).toMatchObject({ subtotal: 100, tax: 10, total: 110 });
+  });
+
   it('builds a client estimate (no job) from the contact alone: billing address, no job section', async () => {
     crm.getContact.mockResolvedValueOnce({
       id: 'contact-1',

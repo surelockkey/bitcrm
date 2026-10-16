@@ -6,6 +6,7 @@ import {
   IsEnum,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -67,6 +68,31 @@ export class EstimateItemDto {
   @IsOptional()
   @IsBoolean()
   taxable?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'user-uuid',
+    description: 'Workiz "Sold by": a user id. Absent keeps the line\'s; "" clears it.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  soldBy?: string;
+
+  @ApiPropertyOptional({
+    example: { 'In Store Location': 'B4' },
+    description: "The line's custom field values by field name (the item catalog's). Absent keeps the line's.",
+  })
+  @IsOptional()
+  @IsObject()
+  customAttributes?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    description:
+      'Workiz "Optional Item": out of the Total and of Sync to job until the client picks it. Absent keeps the line\'s.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  optional?: boolean;
 }
 
 export class ItemTaxableDto {

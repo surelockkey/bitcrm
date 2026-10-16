@@ -15,6 +15,7 @@ import {
   ESTIMATE_STATUSES,
   ProductType,
   TimelineEventType,
+  countsTowardTotals,
   effectiveTaxRatePercent,
   type DealProduct,
   type DocumentDiscount,
@@ -99,6 +100,14 @@ export interface EstimateItemInput {
   costCompany: number;
   costForTech: number;
   taxable?: boolean;
+  /** Absent keeps the line's on an edit; "" clears it. */
+  soldBy?: string;
+  /** Absent keeps the line's on an edit. */
+  customAttributes?: Record<string, string>;
+  /** Absent keeps the line's on an edit; false makes it required again. */
+  optional?: boolean;
+  /** The client's pick of an optional line — written by the import, kept on an edit. */
+  optionalSelected?: boolean;
 }
 
 export type EstimateSummary = Record<EstimateStatus, { count: number; amount: number }> & {
@@ -345,7 +354,7 @@ export class EstimatesService {
     if (view.deal.contactId !== estimate.contactId) {
       throw new ConflictException("That job belongs to another client — pick one of this client's jobs");
     }
-    assertSyncable(estimate, items.length);
+    assertSyncable(estimate, items.filter(countsTowardTotals).length);
     const result = await this.deal.replaceAllProducts(dealId, this.replaceAllBody(estimate, items, caller));
 
     const now = new Date().toISOString();
@@ -397,7 +406,7 @@ export class EstimatesService {
     if (view.deal.contactId !== estimate.contactId) {
       throw new ConflictException("That job belongs to another client — pick one of this client's jobs");
     }
-    assertSyncable(estimate, items.length);
+    assertSyncable(estimate, items.filter(countsTowardTotals).length);
 
     const target = view.deal;
     const number = estimateNumber(target.dealNumber, await this.repo.nextSeq(target.id));
@@ -468,7 +477,8 @@ export class EstimatesService {
       actorId: caller.user.id,
       actorName: caller.user.email,
       estimateNumber: estimate.number,
-      items: items.map((i) => ({
+      // An optional line goes to the job only once the client has picked it (Workiz).
+      items: items.filter(countsTowardTotals).map((i) => ({
         productId: i.productId,
         ...(i.productType && { productType: i.productType }),
         name: i.name,
@@ -479,6 +489,8 @@ export class EstimatesService {
         costCompany: i.costCompany,
         costForTech: i.costForTech,
         taxable: i.taxable,
+        ...(i.soldBy && { soldBy: i.soldBy }),
+        ...(i.customAttributes && { customAttributes: i.customAttributes }),
       })),
       // An exempt estimate says nothing about the job's rate: leave the job's
       // own resolution (which is exempt for the same client) alone.
@@ -901,7 +913,22 @@ export class EstimatesService {
     const { estimate, items } = await this.load(id, caller);
     const current = items.find((i) => i.lineId === lineId);
     if (!current) throw new NotFoundException('Estimate line not found');
-    const next = this.toItem(id, lineId, current.position, input, current.createdAt, new Date().toISOString());
+    // What the body leaves out stays as the line has it: an app that does not
+    // know Sold by, the custom fields or Optional Item never wipes them.
+    const next = this.toItem(
+      id,
+      lineId,
+      current.position,
+      {
+        ...input,
+        soldBy: input.soldBy ?? current.soldBy,
+        customAttributes: input.customAttributes ?? current.customAttributes,
+        optional: input.optional ?? current.optional,
+        optionalSelected: input.optional === false ? false : (input.optionalSelected ?? current.optionalSelected),
+      },
+      current.createdAt,
+      new Date().toISOString(),
+    );
     if (input.taxable === undefined) next.taxable = current.taxable;
     await this.repo.putItem(next);
     return this.recompute(estimate);
@@ -952,7 +979,7 @@ export class EstimatesService {
         'This estimate belongs to the client and has no job to sync to — create a job for the client first',
       );
     }
-    assertSyncable(estimate, items.length);
+    assertSyncable(estimate, items.filter(countsTowardTotals).length);
 
     const body = this.replaceAllBody(estimate, items, caller);
     const result = await this.deal.replaceAllProducts(
@@ -1143,6 +1170,12 @@ export class EstimatesService {
       costCompany: input.costCompany,
       costForTech: input.costForTech,
       taxable: input.taxable !== false,
+      ...(input.soldBy?.trim() && { soldBy: input.soldBy.trim() }),
+      ...(input.customAttributes && Object.keys(input.customAttributes).length > 0 && {
+        customAttributes: input.customAttributes,
+      }),
+      ...(input.optional === true && { optional: true }),
+      ...(input.optional === true && input.optionalSelected === true && { optionalSelected: true }),
       createdAt,
       updatedAt,
     };
@@ -1163,6 +1196,8 @@ export class EstimatesService {
       costCompany: p.costCompany,
       costForTech: p.costForTech,
       taxable: p.taxable !== false,
+      ...(p.soldBy && { soldBy: p.soldBy }),
+      ...(p.customAttributes && Object.keys(p.customAttributes).length > 0 && { customAttributes: p.customAttributes }),
       createdAt: now,
       updatedAt: now,
     };
